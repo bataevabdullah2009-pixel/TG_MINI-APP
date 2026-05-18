@@ -1,0 +1,111 @@
+"use client";
+
+import React, { useState } from "react";
+import { User, ShieldCheck, ShieldAlert, Phone, Shield } from "lucide-react";
+import { PhoneVerificationScreen } from "./PhoneVerificationScreen";
+
+interface ClientProfileProps {
+  session: any;
+  onRefreshSession: () => void;
+}
+
+export function ClientProfile({ session, onRefreshSession }: ClientProfileProps) {
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
+
+  const customer = session?.customer || {};
+  const isVerified = customer.phoneVerified === true;
+
+  const handleVerified = (phone: string) => {
+    setShowVerifyModal(false);
+    onRefreshSession();
+  };
+
+  return (
+    <div className="px-4 py-5 text-slate-900 pb-24">
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-black tracking-tight">Профиль</h1>
+          <p className="text-xs font-semibold text-slate-400 mt-0.5">Ваш аккаунт в SmartBiz AI</p>
+        </div>
+      </div>
+
+      {/* Profile Card */}
+      <div className="rounded-3xl bg-slate-900 p-5 text-white shadow-xl shadow-slate-900/10 mb-5 relative overflow-hidden">
+        <div className="absolute right-[-20px] top-[-20px] text-white/5 font-black text-9xl select-none pointer-events-none">
+          TG
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="grid h-14 w-14 place-items-center rounded-2xl bg-white/10 text-white text-xl font-bold border border-white/10">
+            {customer.name ? customer.name[0] : "👤"}
+          </div>
+          <div>
+            <h3 className="text-base font-extrabold">{customer.name || "Покупатель"}</h3>
+            {customer.username && <p className="text-xs text-white/50">@{customer.username}</p>}
+            <p className="text-[10px] font-bold text-white/40 mt-1">ID: {session.telegramUserId}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Verification Status Widget */}
+      <div className="mb-5">
+        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">Верификация телефона</h4>
+
+        {isVerified ? (
+          <div className="flex items-center gap-3.5 rounded-3xl bg-emerald-50 p-4 ring-1 ring-emerald-200/50">
+            <span className="grid h-9 w-9 place-items-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/10">
+              <ShieldCheck size={18} />
+            </span>
+            <div className="flex-1 min-w-0">
+              <h5 className="text-xs font-black text-emerald-800">Статус: Подтвержден</h5>
+              <p className="text-[11px] font-semibold text-emerald-600 mt-0.5">
+                Номер {customer.phone} полностью верифицирован.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-3xl bg-amber-50 p-4 ring-1 ring-amber-200/50">
+            <div className="flex items-center gap-3.5">
+              <span className="grid h-9 w-9 place-items-center rounded-full bg-amber-500 text-white shadow-lg shadow-amber-500/10">
+                <ShieldAlert size={18} />
+              </span>
+              <div className="flex-1 min-w-0">
+                <h5 className="text-xs font-black text-amber-800">Статус: Не подтвержден</h5>
+                <p className="text-[11px] font-semibold text-amber-600 mt-0.5">
+                  Подтвердите телефон, чтобы делать покупки и записи.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowVerifyModal(true)}
+              className="mt-4 w-full flex items-center justify-center gap-2 rounded-2xl bg-amber-600 py-3 text-xs font-black text-white hover:bg-slate-900 transition active:scale-95 shadow-md shadow-amber-600/10"
+            >
+              <Phone size={14} fill="white" />
+              Подтвердить сейчас
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Safety info card */}
+      <div className="rounded-3xl bg-white p-4.5 ring-1 ring-slate-100/90 text-xs text-slate-500 space-y-3">
+        <div className="flex items-center gap-2 font-bold text-slate-700">
+          <Shield size={14} className="text-indigo-600" />
+          <span>Конфиденциальность и безопасность</span>
+        </div>
+        <p className="leading-relaxed font-medium">
+          Мы надежно храним данные о ваших заказах и бронированиях. Ваши контактные данные передаются исключительно заведениям, в которых вы оформляете заказы, для обратной связи и доставки.
+        </p>
+      </div>
+
+      {showVerifyModal && (
+        <PhoneVerificationScreen
+          businessId={customer.businessId || "global"}
+          telegramUserId={session.telegramUserId.toString()}
+          onVerified={handleVerified}
+          onClose={() => setShowVerifyModal(false)}
+        />
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,143 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { NotificationService } from "@/lib/notifications/notification-service";
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const businessId = searchParams.get("businessId");
+    const staffId = searchParams.get("staffId");
+    const status = searchParams.get("status");
+    const limit = parseInt(searchParams.get("limit") || "20");
+
+    const bookings = await prisma.booking.findMany({
+      where: {
+        ...(businessId ? { businessId } : {}),
+        ...(staffId ? { staffId } : {}),
+        ...(status ? { status: status as any } : {}),
+      },
+      include: {
+        service: { select: { id: true, name: true, price: true, durationMinutes: true } },
+        staff: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true, phone: true } },
+        business: { select: { name: true, slug: true } },
+      },
+      orderBy: { startTime: "asc" },
+      take: limit,
+    });
+
+    return NextResponse.json(bookings);
+  } catch (error) {
+    console.error("Error fetching bookings:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const {
+      businessId,
+      serviceId,
+      staffId,
+      customerName,
+      customerPhone,
+      startTime,
+      endTime,
+      comment,
+      telegramUserId,
+      username,
+    } = body;
+
+    if (!businessId || !customerName || !customerPhone || !startTime) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    const business = await prisma.business.findFirst({
+      where: { OR: [{ id: businessId }, { slug: businessId }] },
+    });
+    if (!business || !business.isActive) {
+      return NextResponse.json({ error: "Business not found or inactive" }, { status: 404 });
+    }
+
+    // Calculate endTime from service duration if not provided
+    let calculatedEndTime = endTime;
+    if (!calculatedEndTime && serviceId) {
+      const service = await prisma.item.findUnique({ where: { id: serviceId } });
+      if (service?.durationMinutes) {
+        const start = new Date(startTime);
+        calculatedEndTime = new Date(start.getTime() + service.durationMinutes * 60000).toISOString();
+      }
+    }
+
+    if (!calculatedEndTime) {
+      const start = new Date(startTime);
+      calculatedEndTime = new Date(start.getTime() + 60 * 60000).toISOString();
+    }
+
+    let customerId: string | undefined;
+    if (telegramUserId) {
+      const existingCustomer = await prisma.customer.findUnique({
+        where: {
+          businessId_telegramUserId: {
+            businessId: business.id,
+            telegramUserId: BigInt(telegramUserId),
+          },
+        },
+      });
+
+      const isDevBypass = process.env.ALLOW_UNVERIFIED_PHONE_IN_DEV === "true" || process.env.NODE_ENV !== "production";
+      if (existingCustomer && !existingCustomer.phoneVerified && !isDevBypass) {
+        return NextResponse.json({ error: "Телефону требуется подтверждение." }, { status: 403 });
+      }
+
+      const customer = await prisma.customer.upsert({
+        where: {
+          businessId_telegramUserId: {
+            businessId: business.id,
+            telegramUserId: BigInt(telegramUserId),
+          },
+        },
+        update: {
+          name: customerName,
+          phone: customerPhone,
+          username,
+        },
+        create: {
+          businessId: business.id,
+          telegramUserId: BigInt(telegramUserId),
+          name: customerName,
+          phone: customerPhone,
+          username,
+        },
+      });
+      customerId = customer.id;
+    }
+
+    const booking = await prisma.booking.create({
+      data: {
+        businessId: business.id,
+        customerId,
+        serviceId: serviceId || undefined,
+        staffId: staffId || undefined,
+        customerName,
+        customerPhone,
+        startTime: new Date(startTime),
+        endTime: new Date(calculatedEndTime),
+        status: "NEW",
+        comment,
+      },
+      include: {
+        service: { select: { name: true, price: true } },
+        staff: { select: { name: true } },
+      },
+    });
+
+    await NotificationService.notifyBusinessOwnerNewBooking(booking.id);
+
+    return NextResponse.json(booking, { status: 201 });
+  } catch (error) {
+    console.error("Error creating booking:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
