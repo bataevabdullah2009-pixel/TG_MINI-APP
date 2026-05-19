@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { BUSINESS_TEMPLATES, type TemplateKey } from "../src/lib/business-templates.ts";
+import { BUSINESS_TEMPLATES, type TemplateKey } from "../src/lib/business-templates";
 
 const prisma = new PrismaClient();
 

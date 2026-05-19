@@ -86,7 +86,7 @@ export async function getTelegramSessionUser(initData: string, businessId?: stri
   // Check if there is an Admin/Seller User (which is the same User object, check its role)
   const adminUser = await prisma.user.findUnique({
     where: { telegramId: telegramUserId },
-    include: { business: true },
+    include: { business: true, ownedBusinesses: true },
   });
 
   // 2. Fetch or create a Customer record for this Telegram user in the scope of the business (if businessId is provided and not "global")
@@ -104,10 +104,10 @@ export async function getTelegramSessionUser(initData: string, businessId?: stri
   // 3. Determine the effective role
   // Default is CUSTOMER. But if they match the SUPER_ADMIN list, or have a specific User role, we upgrade.
   let role: "CUSTOMER" | "BUSINESS_OWNER" | "MANAGER" | "SUPER_ADMIN" = "CUSTOMER";
-  let linkedBusinessId = adminUser?.businessId || null;
 
   const superAdminIds = (process.env.TELEGRAM_SUPER_ADMIN_IDS || "")
     .split(",")
+    .concat(process.env.TELEGRAM_ADMIN_CHAT_ID || "")
     .map((id) => id.trim())
     .filter(Boolean);
 
@@ -120,6 +120,20 @@ export async function getTelegramSessionUser(initData: string, businessId?: stri
       role = "BUSINESS_OWNER";
     } else if (adminUser.role === "MANAGER") {
       role = "MANAGER";
+    }
+  }
+
+  let linkedBusinessId = adminUser?.businessId || adminUser?.ownedBusinesses?.[0]?.id || null;
+
+  // Sync businessId back to user if it's null but they own a business
+  if (adminUser && !adminUser.businessId && linkedBusinessId) {
+    try {
+      await prisma.user.update({
+        where: { id: adminUser.id },
+        data: { businessId: linkedBusinessId }
+      });
+    } catch (e) {
+      console.error("[getTelegramSessionUser] Error syncing businessId to user:", e);
     }
   }
 

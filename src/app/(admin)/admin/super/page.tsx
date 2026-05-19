@@ -224,8 +224,8 @@ export default function SuperAdminDashboard() {
           <p>
             ℹ️ <b>Подсказка разработчика:</b> Вы находитесь в корне управления платформы. Все создаваемые в мастере бизнесы сразу получают доступ ко всем ИИ-генераторам.
           </p>
-          <Link href="/admin" className="px-3.5 py-1.5 bg-indigo-500 text-white rounded-lg font-bold hover:bg-indigo-600 transition text-[11px]">
-            Перейти в панель продавца →
+          <Link href="/admin/super/businesses" className="px-3.5 py-1.5 bg-indigo-500 text-white rounded-lg font-bold hover:bg-indigo-600 transition text-[11px]">
+            Выбрать бизнес → Управлять как продавец
           </Link>
         </div>
 

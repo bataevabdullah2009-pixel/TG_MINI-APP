@@ -30,6 +30,44 @@ function tokenUserId(request: NextRequest) {
 }
 
 export async function getAdminSession(request: NextRequest): Promise<AdminSession | null> {
+  // 1. Try authorizing via Telegram WebApp initData header or query parameter
+  let tgInitData = request.headers.get("x-telegram-init-data") || "";
+  if (!tgInitData) {
+    try {
+      const url = new URL(request.url);
+      tgInitData = url.searchParams.get("initData") || "";
+    } catch {}
+  }
+
+  if (tgInitData) {
+    try {
+      const { getTelegramSessionUser } = await import("@/lib/auth-telegram");
+      const tgSession = await getTelegramSessionUser(tgInitData);
+      
+      if (tgSession && (tgSession.role === "SUPER_ADMIN" || tgSession.role === "BUSINESS_OWNER" || tgSession.role === "MANAGER")) {
+        const adminUser = tgSession.adminUser;
+        const bizId = tgSession.businessId || adminUser?.businessId || null;
+        
+        let businessSlug = adminUser?.business?.slug || null;
+        if (!businessSlug && bizId) {
+          const biz = await prisma.business.findUnique({ where: { id: bizId }, select: { slug: true } });
+          businessSlug = biz?.slug || null;
+        }
+
+        return {
+          id: adminUser?.id || `tg-${tgSession.telegramUserId}`,
+          email: adminUser?.email || null,
+          role: tgSession.role,
+          businessId: bizId,
+          businessSlug,
+        };
+      }
+    } catch (err) {
+      console.error("[getAdminSession] Failed to verify telegram session:", err);
+    }
+  }
+
+  // 2. Fallback to standard cookie session
   const cookieUser = safeJson(request.cookies.get("adminUser")?.value);
   if (cookieUser?.id && cookieUser?.role) {
     return {
@@ -41,6 +79,7 @@ export async function getAdminSession(request: NextRequest): Promise<AdminSessio
     };
   }
 
+  // 3. Fallback to token header
   const id = tokenUserId(request);
   if (!id) return null;
 
@@ -76,4 +115,16 @@ export function businessScope(session: AdminSession, requestedBusinessId?: strin
 
 export function canUseBusiness(session: AdminSession, businessId: string) {
   return session.role === "SUPER_ADMIN" || session.businessId === businessId;
+}
+
+export function requireRole(session: AdminSession, allowedRoles: ("SUPER_ADMIN" | "BUSINESS_OWNER" | "MANAGER" | "CUSTOMER")[]) {
+  return allowedRoles.includes(session.role);
+}
+
+export async function getCurrentBusinessForSeller(session: AdminSession) {
+  if (session.role === "SUPER_ADMIN") {
+    const firstActive = await prisma.business.findFirst({ where: { isActive: true }, select: { id: true } });
+    return session.businessId || firstActive?.id || null;
+  }
+  return session.businessId;
 }

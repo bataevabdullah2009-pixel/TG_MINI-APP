@@ -23,3 +23,29 @@ export async function GET(request: NextRequest) {
     webhookInfo,
   });
 }
+
+export async function POST(request: NextRequest) {
+  try {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) {
+      return NextResponse.json({ ok: false, error: "TELEGRAM_BOT_TOKEN is missing in .env" }, { status: 400 });
+    }
+
+    const origin = request.nextUrl.origin;
+    const webhookUrl = `${origin}/api/telegram/webhook`;
+
+    console.log(`Setting platform Telegram webhook to: ${webhookUrl}`);
+
+    const response = await fetch(`https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}`);
+    const result = await response.json();
+
+    return NextResponse.json({
+      ok: result.ok,
+      webhookUrl,
+      telegramResponse: result,
+    });
+  } catch (error: any) {
+    console.error("setWebhook debug route failed:", error);
+    return NextResponse.json({ ok: false, error: error.message || "Failed to set webhook" }, { status: 500 });
+  }
+}

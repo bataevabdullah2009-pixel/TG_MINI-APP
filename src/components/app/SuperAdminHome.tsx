@@ -1,20 +1,51 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { ShieldCheck, Plus, Store, ClipboardList, Settings, Sparkles, AlertCircle, CheckCircle } from "lucide-react";
+import { 
+  ShieldCheck, 
+  Plus, 
+  Store, 
+  ClipboardList, 
+  Settings, 
+  Sparkles, 
+  AlertCircle, 
+  CheckCircle,
+  TrendingUp,
+  BookOpen,
+  Sliders,
+  DollarSign,
+  User,
+  Calendar,
+  Layers,
+  ArrowRight,
+  Database
+} from "lucide-react";
 
 interface SuperAdminHomeProps {
   session: any;
+  onManageBusiness?: (businessId: string) => void;
 }
 
-export function SuperAdminHome({ session }: SuperAdminHomeProps) {
+export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProps) {
+  const [activeTab, setActiveTab] = useState<"OVERVIEW" | "BUSINESSES" | "CREATE_BUSINESS" | "ORDERS" | "BOOKINGS" | "AI_COSTS" | "SETTINGS">("OVERVIEW");
   const [loading, setLoading] = useState(true);
+  
+  // Platform metrics
   const [stats, setStats] = useState({
     totalBusinesses: 0,
-    totalOrders: 0,
-    totalBookings: 0,
-    businesses: [] as any[],
+    activeBusinesses: 0,
+    totalOrdersToday: 0,
+    aiQueriesToday: 0,
+    totalCustomers: 0,
+    totalRevenue: 0,
+    planStats: [] as any[],
   });
+
+  const [businesses, setBusinesses] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [bookings, setBookings] = useState<any[]>([]);
+  const [aiUsageLogs, setAiUsageLogs] = useState<any[]>([]);
+  const [aiRequestLogs, setAiRequestLogs] = useState<any[]>([]);
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -28,42 +59,68 @@ export function SuperAdminHome({ session }: SuperAdminHomeProps) {
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [createdLinkCode, setCreatedLinkCode] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchSaaSStats();
-  }, []);
+  // Platform White-Label Customization
+  const [platformTitle, setPlatformTitle] = useState("SmartBiz AI");
+  const [defaultAiProvider, setDefaultAiProvider] = useState("mock");
+  const [defaultAiLimit, setDefaultAiLimit] = useState(15);
+  const [allowedModules, setAllowedModules] = useState("catalog,cart,profile,booking,staff,calendar,delivery,pickup");
 
-  const fetchSaaSStats = async () => {
+  useEffect(() => {
+    fetchSaaSData();
+  }, [activeTab]);
+
+  const fetchSaaSData = async () => {
     setLoading(true);
     try {
+      // 1. Fetch metrics
       const statsRes = await fetch("/api/admin/super/stats");
-      const bizRes = await fetch("/api/admin/super/templates"); // or businesses api
-      
-      let totalBiz = 0;
-      let totalOrds = 0;
-      let totalBks = 0;
-      let bizList = [] as any[];
-
       if (statsRes.ok) {
         const sData = await statsRes.json();
-        totalBiz = sData.totalBusinesses || 0;
-        totalOrds = sData.totalOrders || 0;
-        totalBks = sData.totalBookings || 0;
+        if (sData.success) {
+          setStats(sData.stats);
+        }
       }
 
-      const allBizRes = await fetch("/api/admin/businesses");
-      if (allBizRes.ok) {
-        bizList = await allBizRes.json();
+      // 2. Fetch businesses list
+      const bizRes = await fetch("/api/admin/businesses");
+      if (bizRes.ok) {
+        const bData = await bizRes.json();
+        setBusinesses(bData.data || []);
       }
 
-      setStats({
-        totalBusinesses: totalBiz || bizList.length,
-        totalOrders: totalOrds,
-        totalBookings: totalBks,
-        businesses: bizList,
-      });
+      // 3. Fetch orders (global)
+      if (activeTab === "ORDERS" || activeTab === "OVERVIEW") {
+        const ordRes = await fetch("/api/orders?limit=50");
+        if (ordRes.ok) {
+          const oData = await ordRes.json();
+          setOrders(oData || []);
+        }
+      }
+
+      // 4. Fetch bookings (global)
+      if (activeTab === "BOOKINGS" || activeTab === "OVERVIEW") {
+        const bookRes = await fetch("/api/bookings?limit=50");
+        if (bookRes.ok) {
+          const bkData = await bookRes.json();
+          setBookings(bkData || []);
+        }
+      }
+
+      // 5. Fetch AI expenses logs
+      if (activeTab === "AI_COSTS") {
+        const aiLogsRes = await fetch("/api/admin/super/ai-logs?limit=50");
+        if (aiLogsRes.ok) {
+          const aiData = await aiLogsRes.json();
+          if (aiData.success) {
+            setAiUsageLogs(aiData.usageLogs || []);
+            setAiRequestLogs(aiData.requestLogs || []);
+          }
+        }
+      }
 
     } catch (e) {
       console.error(e);
+      showError("Ошибка загрузки данных платформы");
     } finally {
       setLoading(false);
     }
@@ -80,6 +137,17 @@ export function SuperAdminHome({ session }: SuperAdminHomeProps) {
     setCreatedLinkCode(null);
     setError(null);
 
+    // Resolve templates key based on BusinessType selection
+    let templateKey = "custom";
+    const typeUpper = bizType.toUpperCase();
+    if (typeUpper === "CAFE") templateKey = "cafe";
+    else if (typeUpper === "BARBERSHOP") templateKey = "barbershop";
+    else if (typeUpper === "SHOP") templateKey = "shop";
+    else if (typeUpper === "GROCERY") templateKey = "grocery";
+    else if (typeUpper === "HARDWARE_STORE") templateKey = "hardware_store";
+    else if (typeUpper === "CARWASH") templateKey = "carwash";
+    else if (typeUpper === "COURSES") templateKey = "courses";
+
     try {
       const res = await fetch("/api/admin/super/onboard", {
         method: "POST",
@@ -88,8 +156,11 @@ export function SuperAdminHome({ session }: SuperAdminHomeProps) {
           name: bizName,
           slug: bizSlug.toLowerCase().trim().replace(/[^a-z0-9-_]/g, ""),
           type: bizType,
+          templateKey,
           ownerEmail,
           ownerPassword,
+          aiEnabled: true,
+          aiDailyLimit: defaultAiLimit.toString(),
         }),
       });
 
@@ -105,7 +176,7 @@ export function SuperAdminHome({ session }: SuperAdminHomeProps) {
           setCreatedLinkCode(data.owner.telegramLinkCode);
         }
         
-        fetchSaaSStats();
+        setActiveTab("OVERVIEW");
       } else {
         showError(data.error || "Ошибка создания бизнеса");
       }
@@ -114,6 +185,10 @@ export function SuperAdminHome({ session }: SuperAdminHomeProps) {
     } finally {
       setFormSubmitting(false);
     }
+  };
+
+  const savePlatformSettings = () => {
+    showSuccess("Настройки платформы сохранены локально!");
   };
 
   const showError = (msg: string) => {
@@ -126,178 +201,503 @@ export function SuperAdminHome({ session }: SuperAdminHomeProps) {
     setTimeout(() => setSuccess(null), 3000);
   };
 
+  const getTemplateIcon = (key: string) => {
+    switch (key) {
+      case "cafe": return "🍔";
+      case "barbershop": return "💈";
+      case "shop": return "🛒";
+      case "grocery": return "🍎";
+      case "hardware_store": return "🔧";
+      case "carwash": return "🚗";
+      case "courses": return "📚";
+      default: return "⚙️";
+    }
+  };
+
   return (
     <div className="pb-24 text-slate-900 min-h-screen bg-slate-50">
       
       {/* SaaS Dashboard Title block */}
-      <section className="bg-slate-950 text-white px-5 pb-6 pt-5">
-        <div className="flex justify-between items-center">
+      <section className="bg-slate-950 text-white px-5 pb-5 pt-5 border-b border-slate-800">
+        <div className="flex justify-between items-center mb-4">
           <div>
             <p className="text-[10px] font-black uppercase tracking-wider text-indigo-400">Панель Управления Super Admin</p>
-            <h1 className="text-xl font-black">SmartBiz SaaS Platform</h1>
+            <h1 className="text-xl font-black">{platformTitle} SaaS</h1>
           </div>
-          <span className="grid h-8 w-8 place-items-center rounded-full bg-indigo-500/20 text-indigo-400">
-            <ShieldCheck size={16} />
+          <span className="grid h-9 w-9 place-items-center rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+            <ShieldCheck size={18} />
           </span>
+        </div>
+
+        {/* Unified sub-navigation for Super Admin */}
+        <div className="flex gap-1 overflow-x-auto no-scrollbar pt-1">
+          {[
+            { id: "OVERVIEW", label: "Обзор SaaS", icon: <TrendingUp size={11} /> },
+            { id: "BUSINESSES", label: "Бизнесы", icon: <Store size={11} /> },
+            { id: "CREATE_BUSINESS", label: "Создать бизнес", icon: <Plus size={11} /> },
+            { id: "ORDERS", label: "Заказы", icon: <ClipboardList size={11} /> },
+            { id: "BOOKINGS", label: "Записи", icon: <Calendar size={11} /> },
+            { id: "AI_COSTS", label: "ИИ-расходы", icon: <Sparkles size={11} /> },
+            { id: "SETTINGS", label: "Настройки платформы", icon: <Settings size={11} /> },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black transition-all ${
+                activeTab === tab.id 
+                  ? "bg-white text-slate-950 shadow-md" 
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
         </div>
       </section>
 
-      {/* Notifications */}
+      {/* Floating Alerts */}
       {error && (
-        <div className="fixed top-4 inset-x-4 z-50 flex items-center gap-2 rounded-xl bg-rose-600 p-3 text-xs font-bold text-white shadow-xl">
-          <AlertCircle size={15} />
+        <div className="fixed top-4 inset-x-4 z-50 flex items-center gap-2.5 rounded-2xl bg-rose-600 p-3.5 text-xs font-black text-white shadow-xl">
+          <AlertCircle size={16} className="shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
       {success && (
-        <div className="fixed top-4 inset-x-4 z-50 flex items-center gap-2 rounded-xl bg-emerald-600 p-3 text-xs font-bold text-white shadow-xl">
-          <CheckCircle size={15} />
+        <div className="fixed top-4 inset-x-4 z-50 flex items-center gap-2.5 rounded-2xl bg-emerald-600 p-3.5 text-xs font-black text-white shadow-xl">
+          <CheckCircle size={16} className="shrink-0" />
           <span>{success}</span>
         </div>
       )}
 
-      {/* Metrics Grid */}
-      <div className="p-4 max-w-md mx-auto space-y-4">
-        
-        <div className="grid grid-cols-3 gap-2.5">
-          <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-slate-100 text-center">
-            <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">БИЗНЕСЫ</span>
-            <strong className="text-base font-black text-slate-900 mt-1 block">{stats.totalBusinesses}</strong>
-          </div>
-          <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-slate-100 text-center">
-            <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">ЗАКАЗЫ</span>
-            <strong className="text-base font-black text-slate-900 mt-1 block">{stats.totalOrders || 12}</strong>
-          </div>
-          <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-slate-100 text-center">
-            <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">ЗАПИСИ</span>
-            <strong className="text-base font-black text-slate-900 mt-1 block">{stats.totalBookings || 8}</strong>
-          </div>
+      {loading && (
+        <div className="p-12 text-center text-xs text-slate-400 font-bold flex flex-col justify-center items-center">
+          <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-slate-950 mb-3" />
+          Загрузка данных...
         </div>
+      )}
 
-        {/* Link codes if newly generated */}
-        {createdLinkCode && (
-          <div className="rounded-3xl bg-amber-50 p-4 ring-1 ring-amber-300 text-center space-y-2">
-            <h4 className="text-xs font-black text-amber-800 uppercase tracking-wider">КОД ДЛЯ СВЯЗИ ПРОДАВЦА</h4>
-            <div className="rounded-xl bg-white border border-amber-200 py-3 text-lg font-black text-slate-900 tracking-widest select-all">
-              {createdLinkCode}
-            </div>
-            <p className="text-[10px] font-semibold text-amber-700 leading-normal">
-              Передайте этот код продавцу. Он должен написать боту: <code className="bg-amber-100 px-1 py-0.5 rounded">/link {createdLinkCode}</code>, чтобы получить доступ.
-            </p>
-          </div>
-        )}
-
-        {/* Create new Business Form */}
-        <form onSubmit={handleCreateBusiness} className="bg-white rounded-3xl p-4 shadow-sm ring-1 ring-slate-100 space-y-3">
-          <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">Быстрый запуск нового бизнеса</h3>
+      {/* Content Panels */}
+      {!loading && (
+        <div className="p-4 max-w-md mx-auto space-y-4">
           
-          <div className="space-y-2.5 text-xs font-bold">
-            <div>
-              <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Название предприятия</label>
-              <input
-                value={bizName}
-                onChange={(e) => setBizName(e.target.value)}
-                placeholder="например: Вкусный Кофе"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Slug (для URL ссылки)</label>
-              <input
-                value={bizSlug}
-                onChange={(e) => setBizSlug(e.target.value)}
-                placeholder="например: cool-cafe"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Тип шаблона бизнеса</label>
-              <select
-                value={bizType}
-                onChange={(e) => setBizType(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none cursor-pointer"
-              >
-                <option value="CAFE">🍔 Кафе / Ресторан</option>
-                <option value="BARBERSHOP">💈 Салон красоты / Барбершоп</option>
-                <option value="SHOP">🛒 Розничный Магазин</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Email владельца (логин)</label>
-              <input
-                type="email"
-                value={ownerEmail}
-                onChange={(e) => setOwnerEmail(e.target.value)}
-                placeholder="owner@example.com"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Пароль владельца</label>
-              <input
-                type="password"
-                value={ownerPassword}
-                onChange={(e) => setOwnerPassword(e.target.value)}
-                placeholder="Минимум 6 символов"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none"
-                required
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={formSubmitting}
-              className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-950 py-3 text-xs font-black text-white hover:bg-indigo-600 transition disabled:opacity-50 mt-1"
-            >
-              <Plus size={13} />
-              {formSubmitting ? "⏳ Запускаем..." : "Создать и Сгенерировать код"}
-            </button>
-          </div>
-        </form>
-
-        {/* Existing Businesses in platform */}
-        <div className="bg-white rounded-3xl p-4 shadow-sm ring-1 ring-slate-100">
-          <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3">Подключенные магазины ({stats.businesses.length})</h3>
-          <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-            {stats.businesses.map((biz) => (
-              <div key={biz.id} className="flex justify-between items-center p-2 border-b border-slate-50">
-                <div>
-                  <strong className="text-xs font-extrabold text-slate-900 block">{biz.name}</strong>
-                  <span className="text-[9px] font-semibold text-slate-400">Ссылка: /app/{biz.slug}</span>
+          {/* TAB 1: OVERVIEW */}
+          {activeTab === "OVERVIEW" && (
+            <div className="space-y-4">
+              
+              {/* Metrics cards grid */}
+              <div className="grid grid-cols-2 gap-2.5 text-slate-900">
+                <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-slate-100">
+                  <span className="text-[8px] font-black text-slate-400 uppercase block tracking-wider">Всего бизнесов</span>
+                  <strong className="text-lg font-black text-slate-950 mt-1 block">{stats.totalBusinesses}</strong>
+                  <span className="text-[8px] text-slate-400 font-semibold mt-0.5 block">Активных: {stats.activeBusinesses}</span>
                 </div>
-                <span className="text-[9px] font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full">
-                  {biz.type}
-                </span>
+                <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-slate-100">
+                  <span className="text-[8px] font-black text-slate-400 uppercase block tracking-wider">Выручка (заказы)</span>
+                  <strong className="text-lg font-black text-slate-950 mt-1 block">{stats.totalRevenue.toLocaleString()} ₽</strong>
+                  <span className="text-[8px] text-slate-400 font-semibold mt-0.5 block">Без учета отмененных</span>
+                </div>
+                <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-slate-100">
+                  <span className="text-[8px] font-black text-slate-400 uppercase block tracking-wider">Заказы сегодня</span>
+                  <strong className="text-lg font-black text-slate-950 mt-1 block">{stats.totalOrdersToday} шт</strong>
+                  <span className="text-[8px] text-indigo-500 font-semibold mt-0.5 block">В реальном времени</span>
+                </div>
+                <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-slate-100">
+                  <span className="text-[8px] font-black text-slate-400 uppercase block tracking-wider">Запросы ИИ сегодня</span>
+                  <strong className="text-lg font-black text-slate-950 mt-1 block">{stats.aiQueriesToday} шт</strong>
+                  <span className="text-[8px] text-emerald-500 font-semibold mt-0.5 block">Контроль квот</span>
+                </div>
               </div>
-            ))}
-          </div>
-        </div>
 
-        {/* Link to desktop version */}
-        <div className="rounded-3xl bg-slate-100 p-4 text-center ring-1 ring-slate-200/50">
-          <h4 className="text-xs font-extrabold text-slate-800">Полнофункциональная панель</h4>
-          <p className="text-[10px] font-semibold text-slate-500 mt-1 leading-normal">
-            Для расширенных настроек и аналитики используйте десктопную версию.
-          </p>
-          <a
-            href="/admin/super"
-            target="_blank"
-            rel="noreferrer"
-            className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-white ring-1 ring-slate-200 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-950 hover:text-white transition active:scale-95 shadow-sm"
-          >
-            <Settings size={12} />
-            Открыть десктоп
-          </a>
+              {/* Link Code Notification Banner */}
+              {createdLinkCode && (
+                <div className="rounded-3xl bg-amber-50 p-4 ring-1 ring-amber-200 text-center space-y-2">
+                  <h4 className="text-xs font-black text-amber-800 uppercase tracking-wider">КОД ПОДТВЕРЖДЕНИЯ ПРОДАВЦА</h4>
+                  <div className="rounded-xl bg-white border border-amber-300 py-3 text-lg font-black text-slate-950 tracking-widest select-all shadow-sm">
+                    {createdLinkCode}
+                  </div>
+                  <p className="text-[10px] font-bold text-amber-700 leading-relaxed">
+                    Передайте этот код владельцу бизнеса. Он должен отправить его боту в Telegram: <code className="bg-amber-100 px-1.5 py-0.5 rounded font-black text-[11px]">/link {createdLinkCode}</code> для завершения привязки и входа.
+                  </p>
+                </div>
+              )}
+
+              {/* Short Recent Businesses Table */}
+              <div className="bg-white rounded-3xl p-4 shadow-sm ring-1 ring-slate-100 space-y-3">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">Последние подключенные ({businesses.length})</h3>
+                  <button onClick={() => setActiveTab("BUSINESSES")} className="text-[10px] font-black text-indigo-600">Все →</button>
+                </div>
+                <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                  {businesses.slice(0, 5).map((biz) => (
+                    <div key={biz.id} className="flex justify-between items-center p-2 rounded-xl bg-slate-50 border border-slate-100">
+                      <div>
+                        <strong className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
+                          <span>{getTemplateIcon(biz.templateKey)}</span>
+                          {biz.name}
+                        </strong>
+                        <span className="text-[9px] font-bold text-slate-400 block mt-0.5">Ссылка: /app/{biz.slug}</span>
+                      </div>
+                      <button
+                        onClick={() => onManageBusiness?.(biz.id)}
+                        className="text-[9px] font-black bg-indigo-50 text-indigo-700 px-2.5 py-1.5 rounded-lg active:scale-95 transition"
+                      >
+                        Управлять →
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: BUSINESSES */}
+          {activeTab === "BUSINESSES" && (
+            <div className="space-y-3">
+              <div className="mb-1">
+                <h3 className="text-sm font-black text-slate-900">Каталог бизнесов на платформе</h3>
+                <p className="text-[10px] font-semibold text-slate-400 mt-0.5">Полный список белых клиентов в системе ({businesses.length})</p>
+              </div>
+
+              {businesses.length === 0 ? (
+                <div className="p-8 text-center bg-white rounded-3xl border border-slate-100">
+                  <span className="text-4xl">🏢</span>
+                  <h4 className="text-xs font-black text-slate-800 mt-3">Нет созданных бизнесов</h4>
+                  <button 
+                    onClick={() => setActiveTab("CREATE_BUSINESS")}
+                    className="mt-3 rounded-xl bg-indigo-600 text-white px-4 py-2 text-[10px] font-black"
+                  >
+                    Создать первый бизнес
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {businesses.map((biz) => (
+                    <div 
+                      key={biz.id} 
+                      className="bg-white rounded-3xl p-4 ring-1 ring-slate-100 shadow-sm space-y-3"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <strong className="text-sm font-black text-slate-950 flex items-center gap-1.5">
+                            <span className="text-lg">{getTemplateIcon(biz.templateKey)}</span>
+                            {biz.name}
+                          </strong>
+                          <p className="text-[10px] font-semibold text-slate-400 mt-0.5">
+                            Slug: <span className="text-slate-800 font-bold select-all">/app/{biz.slug}</span> | Тип: {biz.type}
+                          </p>
+                        </div>
+                        <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+                          {biz.subscriptionPlan?.name || "PRO PLAN"}
+                        </span>
+                      </div>
+
+                      {/* Counters */}
+                      <div className="grid grid-cols-4 gap-2 bg-slate-50 rounded-2xl p-2.5 text-center text-slate-600 text-[9px] font-bold">
+                        <div>
+                          <span className="block text-slate-400 uppercase tracking-widest text-[7px] mb-0.5">Товары</span>
+                          <strong>{biz._count?.items || 0}</strong>
+                        </div>
+                        <div>
+                          <span className="block text-slate-400 uppercase tracking-widest text-[7px] mb-0.5">Клиенты</span>
+                          <strong>{biz._count?.customers || 0}</strong>
+                        </div>
+                        <div>
+                          <span className="block text-slate-400 uppercase tracking-widest text-[7px] mb-0.5">Заказы</span>
+                          <strong>{biz._count?.orders || 0}</strong>
+                        </div>
+                        <div>
+                          <span className="block text-slate-400 uppercase tracking-widest text-[7px] mb-0.5">Записи</span>
+                          <strong>{biz._count?.bookings || 0}</strong>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => onManageBusiness?.(biz.id)}
+                          className="flex-1 rounded-xl bg-slate-900 text-white font-black text-xs py-2.5 hover:bg-indigo-600 transition flex items-center justify-center gap-1.5"
+                        >
+                          <Store size={12} />
+                          Управлять как продавец
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 3: CREATE BUSINESS */}
+          {activeTab === "CREATE_BUSINESS" && (
+            <form onSubmit={handleCreateBusiness} className="bg-white rounded-3xl p-4 shadow-sm ring-1 ring-slate-100 space-y-3">
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-2">Быстрый запуск предприятия</h3>
+              
+              <div className="space-y-3.5 text-xs font-bold">
+                <div>
+                  <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Название предприятия</label>
+                  <input
+                    value={bizName}
+                    onChange={(e) => setBizName(e.target.value)}
+                    placeholder="например: Вкусный Кофе"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Slug (для URL ссылки)</label>
+                  <input
+                    value={bizSlug}
+                    onChange={(e) => setBizSlug(e.target.value)}
+                    placeholder="например: cool-cafe"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Тип шаблона бизнеса</label>
+                  <select
+                    value={bizType}
+                    onChange={(e) => setBizType(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none cursor-pointer"
+                  >
+                    <option value="CAFE">🍔 Кафе / Ресторан</option>
+                    <option value="BARBERSHOP">💈 Барбершоп / Салон красоты</option>
+                    <option value="SHOP">🛒 Розничный Магазин</option>
+                    <option value="GROCERY">🍎 Продукты питания</option>
+                    <option value="HARDWARE_STORE">🔧 Хозмаг / Стройматериалы</option>
+                    <option value="CARWASH">🚗 Автомойка / Автосервис</option>
+                    <option value="COURSES">📚 Курсы / Обучение</option>
+                    <option value="CUSTOM">⚙️ Кастомный бизнес (Универсальный)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Email владельца (логин)</label>
+                  <input
+                    type="email"
+                    value={ownerEmail}
+                    onChange={(e) => setOwnerEmail(e.target.value)}
+                    placeholder="owner@example.com"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Пароль владельца</label>
+                  <input
+                    type="password"
+                    value={ownerPassword}
+                    onChange={(e) => setOwnerPassword(e.target.value)}
+                    placeholder="Минимум 6 символов"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none"
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={formSubmitting}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-950 py-3 text-xs font-black text-white hover:bg-indigo-600 transition disabled:opacity-50 mt-1"
+                >
+                  <Plus size={13} />
+                  {formSubmitting ? "⏳ Запускаем..." : "Создать и Сгенерировать код"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* TAB 4: ORDERS */}
+          {activeTab === "ORDERS" && (
+            <div className="bg-white rounded-3xl p-4 shadow-sm ring-1 ring-slate-100 space-y-3">
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">Все заказы на платформе ({orders.length})</h3>
+              {orders.length === 0 ? (
+                <p className="text-center py-6 text-xs text-slate-400 font-bold">Заказы отсутствуют</p>
+              ) : (
+                <div className="space-y-2 max-h-[450px] overflow-y-auto pr-1">
+                  {orders.map((o) => (
+                    <div key={o.id} className="p-3 border-b border-slate-100 space-y-1.5 text-xs">
+                      <div className="flex justify-between items-center">
+                        <strong className="text-slate-800">Заказ #{o.id.slice(-5).toUpperCase()}</strong>
+                        <span className="text-[10px] font-black bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-md">
+                          {o.totalPrice} ₽
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-semibold">
+                        Бизнес: {o.business?.name || "Нейтральный"} · {new Date(o.createdAt).toLocaleString("ru-RU")}
+                      </p>
+                      <p className="text-[10px] text-slate-600 font-medium">
+                        Клиент: {o.customerName} ({o.customerPhone})
+                      </p>
+                      <div className="flex justify-between items-center pt-1">
+                        <span className="text-[9px] text-slate-400 font-black">Статус: {o.status}</span>
+                        <span className="text-[9px] text-slate-400 font-bold">Доставка: {o.deliveryType}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 5: BOOKINGS */}
+          {activeTab === "BOOKINGS" && (
+            <div className="bg-white rounded-3xl p-4 shadow-sm ring-1 ring-slate-100 space-y-3">
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">Все записи на платформе ({bookings.length})</h3>
+              {bookings.length === 0 ? (
+                <p className="text-center py-6 text-xs text-slate-400 font-bold">Записи отсутствуют</p>
+              ) : (
+                <div className="space-y-2 max-h-[450px] overflow-y-auto pr-1">
+                  {bookings.map((b) => (
+                    <div key={b.id} className="p-3 border-b border-slate-100 space-y-1.5 text-xs">
+                      <div className="flex justify-between items-center">
+                        <strong className="text-slate-800">{b.customerName}</strong>
+                        <span className="text-[9px] font-black bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">
+                          {b.status}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-semibold">
+                        Бизнес: {b.business?.name || "Нейтральный"} · {new Date(b.startTime).toLocaleString("ru-RU")}
+                      </p>
+                      <p className="text-[10px] text-slate-600 font-medium">
+                        Услуга: {b.service?.name || "Консультация"} ({b.service?.price || 0} ₽)
+                      </p>
+                      <p className="text-[9px] text-slate-400 font-bold">
+                        Специалист: {b.staff?.name || "Любой свободный"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 6: AI COSTS */}
+          {activeTab === "AI_COSTS" && (
+            <div className="space-y-4">
+              
+              {/* Request log breakdown */}
+              <div className="bg-white rounded-3xl p-4 shadow-sm ring-1 ring-slate-100 space-y-3">
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <Database size={13} className="text-indigo-500" />
+                  Логи генерации ИИ ({aiRequestLogs.length})
+                </h3>
+                {aiRequestLogs.length === 0 ? (
+                  <p className="text-center py-6 text-xs text-slate-400 font-bold">Логи генерации отсутствуют</p>
+                ) : (
+                  <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1 text-slate-800 text-[10px] font-bold">
+                    {aiRequestLogs.map((log) => (
+                      <div key={log.id} className="p-2 border-b border-slate-100 space-y-1">
+                        <div className="flex justify-between">
+                          <span className="text-slate-900 font-black truncate max-w-[120px]">{log.businessName}</span>
+                          <span className="text-indigo-600 uppercase tracking-widest text-[8px]">{log.type}</span>
+                        </div>
+                        <p className="text-[9px] text-slate-400 font-semibold">Провайдер: {log.provider} ({log.model})</p>
+                        <p className="text-slate-500 font-medium italic mt-0.5 truncate">Запрос: "{log.prompt}"</p>
+                        <div className="flex justify-between pt-0.5 text-[8px] text-slate-400 font-black">
+                          <span>Статус: {log.status}</span>
+                          <span>{new Date(log.createdAt).toLocaleTimeString("ru-RU")}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Usage & pricing control logs */}
+              <div className="bg-white rounded-3xl p-4 shadow-sm ring-1 ring-slate-100 space-y-3">
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <Sparkles size={13} className="text-amber-500" />
+                  Учет расходов и квот ИИ ({aiUsageLogs.length})
+                </h3>
+                {aiUsageLogs.length === 0 ? (
+                  <p className="text-center py-6 text-xs text-slate-400 font-bold">Записи о расходах ИИ пусты</p>
+                ) : (
+                  <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1 text-slate-800 text-[10px] font-bold">
+                    {aiUsageLogs.map((log) => (
+                      <div key={log.id} className="p-2 border-b border-slate-100 flex justify-between items-center">
+                        <div>
+                          <strong className="text-slate-900 block font-black">{log.businessName}</strong>
+                          <span className="text-[9px] text-slate-400 font-semibold uppercase">{log.feature} · {log.provider}</span>
+                        </div>
+                        <div className="text-right">
+                          <strong className="text-slate-900 block font-black">{log.cost.toFixed(4)} $</strong>
+                          <span className="text-[8px] text-slate-400 font-bold block">{log.chars} симв.</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 7: PLATFORM SETTINGS */}
+          {activeTab === "SETTINGS" && (
+            <div className="bg-white rounded-3xl p-4 shadow-sm ring-1 ring-slate-100 space-y-3 text-slate-900">
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-2">Настройки SaaS Платформы</h3>
+              
+              <div className="space-y-3 text-xs font-bold">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Название платформы (White-Label)</label>
+                  <input
+                    value={platformTitle}
+                    onChange={(e) => setPlatformTitle(e.target.value)}
+                    className="w-full text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Дефолтный ИИ-провайдер</label>
+                  <select
+                    value={defaultAiProvider}
+                    onChange={(e) => setDefaultAiProvider(e.target.value)}
+                    className="w-full text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none cursor-pointer"
+                  >
+                    <option value="mock">🤖 Локальный Заглушка (Mock-AI)</option>
+                    <option value="openai">🌌 OpenAI (ChatGPT-4o)</option>
+                    <option value="openrouter">📡 OpenRouter Service</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Дневной лимит ИИ на один бизнес</label>
+                  <input
+                    type="number"
+                    value={defaultAiLimit}
+                    onChange={(e) => setDefaultAiLimit(parseInt(e.target.value) || 0)}
+                    className="w-full text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Включенные модули по умолчанию</label>
+                  <textarea
+                    value={allowedModules}
+                    onChange={(e) => setAllowedModules(e.target.value)}
+                    rows={3}
+                    className="w-full text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none resize-none leading-relaxed"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={savePlatformSettings}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 text-xs font-black text-white hover:bg-indigo-600 transition mt-2"
+                >
+                  <Settings size={13} />
+                  Сохранить настройки
+                </button>
+              </div>
+            </div>
+          )}
+
         </div>
-      </div>
+      )}
     </div>
   );
 }

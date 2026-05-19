@@ -10,6 +10,19 @@ export interface EnsureCustomerForTelegramUserInput {
   businessId?: string | null;
 }
 
+export function normalizePhone(phone: string | null | undefined): string | null {
+  if (!phone) return null;
+  let cleaned = phone.replace(/[^\d+]/g, "");
+  if (cleaned.startsWith("8") && cleaned.length === 11) {
+    cleaned = "+7" + cleaned.slice(1);
+  } else if (cleaned.startsWith("7") && cleaned.length === 11) {
+    cleaned = "+" + cleaned;
+  } else if (cleaned.length > 0 && !cleaned.startsWith("+")) {
+    cleaned = "+" + cleaned;
+  }
+  return cleaned || null;
+}
+
 export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTelegramUserInput) {
   const telegramUserId = BigInt(input.telegramId);
 
@@ -21,7 +34,29 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
     lastName: input.lastName,
   });
 
-  const businessId = (input.businessId && input.businessId !== "global") ? input.businessId : null;
+  // Normalize phone number
+  const normalizedPhone = normalizePhone(input.phone);
+
+  // Validate businessId to prevent foreign key constraint violations
+  let businessId = (input.businessId && input.businessId !== "global") ? input.businessId : null;
+
+  if (businessId) {
+    // Check if business exists by ID
+    let business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true }
+    });
+
+    // Check if business exists by Slug
+    if (!business) {
+      business = await prisma.business.findUnique({
+        where: { slug: businessId },
+        select: { id: true }
+      });
+    }
+
+    businessId = business ? business.id : null;
+  }
 
   if (businessId) {
     // Find customer by unique businessId and telegramUserId index
@@ -39,7 +74,7 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
         where: { id: existing.id },
         data: {
           userId: user.id,
-          phone: input.phone ?? existing.phone,
+          phone: normalizedPhone ?? existing.phone,
           username: input.username || existing.username,
           name: [input.firstName, input.lastName].filter(Boolean).join(" ") || existing.name,
         },
@@ -53,7 +88,7 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
         telegramUserId,
         name: [input.firstName, input.lastName].filter(Boolean).join(" ") || input.username || `Customer_${input.telegramId}`,
         username: input.username || null,
-        phone: input.phone || null,
+        phone: normalizedPhone || null,
         phoneVerified: false,
         verificationMethod: "none",
       },
@@ -72,7 +107,7 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
         where: { id: existing.id },
         data: {
           userId: user.id,
-          phone: input.phone ?? existing.phone,
+          phone: normalizedPhone ?? existing.phone,
           username: input.username || existing.username,
           name: [input.firstName, input.lastName].filter(Boolean).join(" ") || existing.name,
         },
@@ -86,7 +121,7 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
         telegramUserId,
         name: [input.firstName, input.lastName].filter(Boolean).join(" ") || input.username || `Customer_${input.telegramId}`,
         username: input.username || null,
-        phone: input.phone || null,
+        phone: normalizedPhone || null,
         phoneVerified: false,
         verificationMethod: "none",
       },

@@ -49,6 +49,44 @@ export default function MarketplacePage() {
   const [selectedAdminBusinessId, setSelectedAdminBusinessId] = useState<string | null>(null);
 
   useEffect(() => {
+    // Global fetch interceptor for Telegram Mini App
+    if (typeof window !== "undefined" && !(window as any).__fetchIntercepted) {
+      (window as any).__fetchIntercepted = true;
+      const originalFetch = window.fetch;
+      window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const tg = (window as any).Telegram?.WebApp;
+        const tgInitData = tg?.initData || sessionStorage.getItem("tgInitData") || "";
+        
+        let url = "";
+        if (typeof input === "string") {
+          url = input;
+        } else if (input instanceof URL) {
+          url = input.toString();
+        } else {
+          url = input.url;
+        }
+
+        if (tgInitData && (url.startsWith("/") || url.includes(window.location.host))) {
+          const headers = new Headers(init?.headers);
+          if (!headers.has("x-telegram-init-data")) {
+            headers.set("x-telegram-init-data", tgInitData);
+          }
+          const token = localStorage.getItem("accessToken");
+          if (token && !headers.has("Authorization")) {
+            headers.set("Authorization", `Bearer ${token}`);
+          }
+          
+          if (input instanceof Request) {
+            const newRequest = new Request(input, { ...init, headers });
+            return originalFetch(newRequest);
+          }
+          
+          return originalFetch(input, { ...init, headers });
+        }
+        return originalFetch(input, init);
+      };
+    }
+
     const tg = (window as any).Telegram?.WebApp;
     tg?.ready?.();
     tg?.expand?.();
@@ -84,6 +122,7 @@ export default function MarketplacePage() {
     setLoading(true);
     setError(null);
     try {
+      sessionStorage.setItem("tgInitData", initData); // Save to sessionStorage
       const res = await fetch("/api/auth/telegram-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -249,8 +288,8 @@ export default function MarketplacePage() {
   return (
     <main className="w-full max-w-[480px] mx-auto min-h-[100dvh] bg-slate-50 text-slate-900 flex flex-col justify-between relative pb-24 overflow-x-hidden shadow-sm">
       
-      {/* 1. UPPER ROLE SWITCHER (For Seller / Super Admin roles to switch back to Marketplace client catalog) */}
-      {(session?.role === "BUSINESS_OWNER" || session?.role === "SUPER_ADMIN") && (
+      {/* 1. UPPER ROLE SWITCHER (For Seller / Super Admin / Manager roles to switch back to Marketplace client catalog) */}
+      {(session?.role === "BUSINESS_OWNER" || session?.role === "SUPER_ADMIN" || session?.role === "MANAGER") && (
         <div className="sticky top-0 z-40 bg-slate-900 text-white px-4 py-2 border-b border-slate-800 flex items-center justify-between shadow-md">
           <span className="text-[10px] font-black text-slate-400 tracking-wider">РОЛЬ: {session.role}</span>
           <div className="flex gap-1.5 text-[10px] font-black">
@@ -278,6 +317,24 @@ export default function MarketplacePage() {
                 }`}
               >
                 Мой бизнес
+              </button>
+            )}
+
+            {session.role === "MANAGER" && (
+              <button
+                onClick={() => {
+                  if (!session.businessId) {
+                    setError("Вы пока не привязаны к бизнесу.");
+                    setTimeout(() => setError(null), 4000);
+                  } else {
+                    setActiveWorkspaceMode("MANAGER");
+                  }
+                }}
+                className={`rounded-lg px-2.5 py-1 transition ${
+                  activeWorkspaceMode === "MANAGER" ? "bg-indigo-600 text-white" : "bg-white/10 text-slate-300"
+                }`}
+              >
+                Моя работа
               </button>
             )}
 
@@ -476,7 +533,13 @@ export default function MarketplacePage() {
 
         {/* Case D: SaaS Super Admin Dashboard */}
         {activeWorkspaceMode === "SUPER_ADMIN" && (
-          <SuperAdminHome session={session} />
+          <SuperAdminHome 
+            session={session} 
+            onManageBusiness={(businessId) => {
+              setSelectedAdminBusinessId(businessId);
+              setActiveWorkspaceMode("SELLER");
+            }}
+          />
         )}
       </div>
 
