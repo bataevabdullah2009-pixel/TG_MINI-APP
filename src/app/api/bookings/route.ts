@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { NotificationService } from "@/lib/notifications/notification-service";
+import { ensureTelegramUser } from "@/lib/auth/telegram-user-service";
 
 export async function GET(request: NextRequest) {
   try {
@@ -91,6 +92,12 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Телефону требуется подтверждение." }, { status: 403 });
       }
 
+      const user = await ensureTelegramUser({
+        telegramId: BigInt(telegramUserId),
+        username: username || null,
+        firstName: customerName || null,
+      });
+
       const customer = await prisma.customer.upsert({
         where: {
           businessId_telegramUserId: {
@@ -99,12 +106,14 @@ export async function POST(request: NextRequest) {
           },
         },
         update: {
+          userId: user.id,
           name: customerName,
           phone: customerPhone,
           username,
         },
         create: {
           businessId: business.id,
+          userId: user.id,
           telegramUserId: BigInt(telegramUserId),
           name: customerName,
           phone: customerPhone,

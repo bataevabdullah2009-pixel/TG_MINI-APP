@@ -156,7 +156,24 @@ export default function BookingPage() {
     );
   }
 
-  if (!business) return null;
+  if (!business) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-50 p-4">
+        <div className="text-center bg-white p-8 rounded-3xl shadow-sm ring-1 ring-slate-100 max-w-sm w-full">
+          <div className="text-5xl mb-4">🔍</div>
+          <h2 className="text-lg font-black mb-1 text-slate-900">Бизнес не найден</h2>
+          <p className="text-xs text-slate-400 mb-6 leading-relaxed">
+            Указанный бизнес не зарегистрирован на платформе SmartBiz AI. Проверьте правильность адреса.
+          </p>
+          <Link href="/app">
+            <Button className="w-full font-black py-4 rounded-xl text-white bg-indigo-600 hover:bg-indigo-700 transition">
+              В каталог SmartBiz AI
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   if (services.length === 0) {
     return (

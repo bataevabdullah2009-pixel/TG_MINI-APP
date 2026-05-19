@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { BUSINESS_TEMPLATES, templateKeyFromBusinessType } from "@/lib/business-templates";
+import { getAdminSession, jsonError, requireRole } from "@/lib/admin-auth";
 
 const PLAN_IDS: Record<string, string> = {
   START: "plan-start",
@@ -11,6 +12,11 @@ const PLAN_IDS: Record<string, string> = {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getAdminSession(request);
+    if (!session || !requireRole(session, ["SUPER_ADMIN"])) {
+      return jsonError("Недостаточно прав", 403);
+    }
+
     const body = await request.json();
     const {
       name,

@@ -50,10 +50,13 @@ export async function POST(request: NextRequest) {
       return jsonError("Укажите название и цену.", 400);
     }
 
+    const rawCategoryId = body.categoryId;
+    const categoryId = (rawCategoryId === "" || rawCategoryId === "none" || rawCategoryId === "null" || !rawCategoryId) ? null : rawCategoryId;
+
     const item = await prisma.item.create({
       data: {
         businessId: resolved.business.id,
-        categoryId: body.categoryId || undefined,
+        categoryId: categoryId,
         type: body.type === "SERVICE" ? "SERVICE" : "PRODUCT",
         name: String(body.name).trim(),
         description: body.description ? String(body.description).trim() : "",

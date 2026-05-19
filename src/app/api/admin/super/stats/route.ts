@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getAdminSession, jsonError, requireRole } from "@/lib/admin-auth";
 
 export async function GET(request: NextRequest) {
   try {
+    const session = await getAdminSession(request);
+    if (!session || !requireRole(session, ["SUPER_ADMIN"])) {
+      return jsonError("Недостаточно прав", 403);
+    }
+
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 

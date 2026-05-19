@@ -40,19 +40,19 @@ export default function ItemDetailPage() {
         setError(null);
 
         // Получить информацию о бизнесе
-        const businessRes = await apiClient.get<ApiResponse<Business>>(
-          `/api/businesses/${slug}`
+        const businessRes = await apiClient.get<Business>(
+          `/businesses/${slug}`
         );
-        if (!businessRes.data.data) throw new Error("Business not found");
-        setBusiness(businessRes.data.data);
+        if (!businessRes.data) throw new Error("Business not found");
+        setBusiness(businessRes.data);
 
         // Получить товар - ищем по ID в списке товаров
-        const itemsRes = await apiClient.get<ApiResponse<Item[]>>(
-          `/api/items/${slug}`
+        const itemsRes = await apiClient.get<Item[]>(
+          `/items/${slug}`
         );
-        if (!itemsRes.data.data) throw new Error("Items not found");
+        if (!itemsRes.data) throw new Error("Items not found");
 
-        const foundItem = itemsRes.data.data.find((i) => i.id === itemId);
+        const foundItem = itemsRes.data.find((i) => i.id === itemId);
         if (!foundItem) throw new Error("Item not found");
 
         setItem(foundItem);

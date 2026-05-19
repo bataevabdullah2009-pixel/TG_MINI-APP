@@ -12,7 +12,7 @@ export class PhoneVerificationService {
   ): Promise<{ success: boolean; verificationId?: string; error?: string }> {
     try {
       // 1. Generate code (4 digits, e.g. "1111" or random in production)
-      const isDevOrMock = process.env.NODE_ENV !== "production" || process.env.SMS_PROVIDER === "mock" || !process.env.SMS_PROVIDER;
+      const isDevOrMock = process.env.NODE_ENV !== "production" && (process.env.SMS_PROVIDER === "mock" || !process.env.SMS_PROVIDER);
       const code = isDevOrMock ? "1111" : Math.floor(1000 + Math.random() * 9000).toString();
 
       const codeHash = crypto.createHash("sha256").update(code).digest("hex");
@@ -49,7 +49,7 @@ export class PhoneVerificationService {
   ): Promise<{ success: boolean; error?: string }> {
     try {
       const codeHash = crypto.createHash("sha256").update(code).digest("hex");
-      const isDevOrMock = process.env.NODE_ENV !== "production" || process.env.SMS_PROVIDER === "mock" || !process.env.SMS_PROVIDER;
+      const isDevOrMock = process.env.NODE_ENV !== "production" && (process.env.SMS_PROVIDER === "mock" || !process.env.SMS_PROVIDER);
 
       // Find pending verification
       const verification = await prisma.phoneVerification.findFirst({

@@ -336,4 +336,4 @@ export function PhoneVerificationScreen({
   );
 }
 
-const ALLOW_DEV_BYPASS = true; // Auto enabled for manual ease
+const ALLOW_DEV_BYPASS = process.env.NODE_ENV !== "production";

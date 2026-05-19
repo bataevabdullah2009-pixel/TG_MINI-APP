@@ -3,9 +3,13 @@ import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 class ApiClient {
   private client: AxiosInstance;
 
-  constructor(baseURL: string = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000") {
+  constructor(baseURL?: string) {
+    let resolvedBaseURL = baseURL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    if (typeof window !== "undefined") {
+      resolvedBaseURL = window.location.origin;
+    }
     this.client = axios.create({
-      baseURL: `${baseURL}/api`,
+      baseURL: `${resolvedBaseURL}/api`,
       timeout: 10000,
       headers: {
         "Content-Type": "application/json",

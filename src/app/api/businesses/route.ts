@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getAdminSession, requireRole, canUseBusiness, jsonError } from "@/lib/admin-auth";
 
 export async function GET(request: NextRequest) {
   try {
@@ -39,6 +40,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getAdminSession(request);
+    if (!session || !requireRole(session, ["SUPER_ADMIN"])) {
+      return jsonError("Недостаточно прав", 403);
+    }
+
     const body = await request.json();
     const { slug, name, type, description, primaryColor, accentColor } = body;
 
@@ -70,10 +76,19 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    const session = await getAdminSession(request);
+    if (!session) {
+      return jsonError("Нужен вход в админку.", 401);
+    }
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) {
-      return NextResponse.json({ error: "Missing business ID" }, { status: 400 });
+      return jsonError("Не передан ID бизнеса.", 400);
+    }
+
+    if (!canUseBusiness(session, id)) {
+      return jsonError("Нет доступа к этому бизнесу.", 403);
     }
 
     const body = await request.json();

@@ -18,6 +18,12 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     if ("error" in loaded) return loaded.error;
 
     const body = await request.json();
+    let categoryId = undefined;
+    if (body.categoryId !== undefined) {
+      const rawCategoryId = body.categoryId;
+      categoryId = (rawCategoryId === "" || rawCategoryId === "none" || rawCategoryId === "null" || !rawCategoryId) ? null : rawCategoryId;
+    }
+
     const item = await prisma.item.update({
       where: { id },
       data: {
@@ -25,7 +31,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         ...(body.name !== undefined ? { name: String(body.name).trim() } : {}),
         ...(body.description !== undefined ? { description: body.description || "" } : {}),
         ...(body.price !== undefined ? { price: Number(body.price || 0) } : {}),
-        ...(body.categoryId !== undefined ? { categoryId: body.categoryId || null } : {}),
+        ...(categoryId !== undefined ? { categoryId } : {}),
         ...(body.imageUrl !== undefined ? { imageUrl: body.imageUrl || null } : {}),
         ...(body.durationMinutes !== undefined ? { durationMinutes: body.durationMinutes ? Number(body.durationMinutes) : null } : {}),
         ...(body.stock !== undefined ? { stock: body.stock !== "" && body.stock !== null ? Number(body.stock) : null } : {}),
