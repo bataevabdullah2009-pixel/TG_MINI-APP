@@ -59,13 +59,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: "Not authorized" }, { status: 401 });
     }
 
+    const isNewPhone = phone && phone !== session.customer.phone;
+
     const updatedCustomer = await prisma.customer.update({
       where: { id: session.customer.id },
       data: {
         phone: phone || session.customer.phone,
         name: name || session.customer.name,
-        phoneVerified: true,
-        verificationMethod: "manual",
+        ...(isNewPhone ? { phoneVerified: false, verificationMethod: null } : {}),
       },
     });
 

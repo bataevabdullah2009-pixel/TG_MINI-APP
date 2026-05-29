@@ -3,20 +3,45 @@ import { prisma } from "@/lib/prisma";
 import { NotificationService } from "@/lib/notifications/notification-service";
 import { ensureTelegramUser } from "@/lib/auth/telegram-user-service";
 
+import { getAdminSession } from "@/lib/admin-auth";
+
 export async function GET(request: NextRequest) {
   try {
+    const session = await getAdminSession(request);
+    if (!session) {
+      return NextResponse.json({ error: "Нужна авторизация." }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get("businessId");
+    const requestedBusinessId = searchParams.get("businessId");
     const staffId = searchParams.get("staffId");
     const status = searchParams.get("status");
     const limit = parseInt(searchParams.get("limit") || "20");
 
+    const where: any = {};
+
+    if (session.role === "SUPER_ADMIN") {
+      if (requestedBusinessId) {
+        where.businessId = requestedBusinessId;
+      }
+    } else {
+      // Regular seller / manager is isolated strictly to their own business
+      if (!session.businessId) {
+        return NextResponse.json({ error: "У вас нет привязанного бизнеса." }, { status: 403 });
+      }
+      where.businessId = session.businessId;
+    }
+
+    if (staffId) {
+      where.staffId = staffId;
+    }
+
+    if (status) {
+      where.status = status as any;
+    }
+
     const bookings = await prisma.booking.findMany({
-      where: {
-        ...(businessId ? { businessId } : {}),
-        ...(staffId ? { staffId } : {}),
-        ...(status ? { status: status as any } : {}),
-      },
+      where,
       include: {
         service: { select: { id: true, name: true, price: true, durationMinutes: true } },
         staff: { select: { id: true, name: true } },

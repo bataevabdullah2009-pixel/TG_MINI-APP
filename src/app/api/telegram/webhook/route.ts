@@ -158,6 +158,14 @@ export async function POST(request: NextRequest) {
       // Upsert Customer to ensure they exist in relation to this business
       if (business && from) {
         try {
+          // Sync User state first to prevent relational mismatch
+          const syncedUser = await ensureTelegramUser({
+            telegramId: String(from.id),
+            username: from.username,
+            firstName: from.first_name,
+            lastName: from.last_name,
+          });
+
           await prisma.customer.upsert({
             where: {
               businessId_telegramUserId: {
@@ -168,12 +176,14 @@ export async function POST(request: NextRequest) {
             update: {
               name: [from.first_name, from.last_name].filter(Boolean).join(" "),
               username: from.username,
+              userId: syncedUser.id,
             },
             create: {
               businessId: business.id,
               telegramUserId: BigInt(from.id),
               name: [from.first_name, from.last_name].filter(Boolean).join(" "),
               username: from.username,
+              userId: syncedUser.id,
             },
           });
         } catch (err) {

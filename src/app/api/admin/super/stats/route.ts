@@ -60,8 +60,8 @@ export async function GET(request: NextRequest) {
     const totalRevenue = revenueResult._sum.totalPrice || 0;
 
     return NextResponse.json({
-      success: true,
-      stats: {
+      ok: true,
+      data: {
         totalBusinesses,
         activeBusinesses,
         totalOrdersToday,
@@ -74,8 +74,8 @@ export async function GET(request: NextRequest) {
         })),
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Super Admin stats API error:", error);
-    return NextResponse.json({ error: "Ошибка сбора статистики" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: error.message || "Ошибка сбора статистики" }, { status: 500 });
   }
 }

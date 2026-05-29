@@ -200,7 +200,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newItemName || !newItemPrice || !newItemCategory) {
+    if (!newItemName || !newItemPrice) {
       showError("Заполните обязательные поля!");
       return;
     }

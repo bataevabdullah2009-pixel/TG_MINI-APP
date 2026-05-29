@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const schemaPath = path.join('c:\\ТГ МИНИ АПП', 'prisma', 'schema.prisma');
+const schemaPath = path.join(__dirname, 'prisma', 'schema.prisma');
 let schema = fs.readFileSync(schemaPath, 'utf8');
 
 // Change provider to sqlite

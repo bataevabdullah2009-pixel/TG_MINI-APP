@@ -73,48 +73,83 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
     setLoading(true);
     try {
       // 1. Fetch metrics
-      const statsRes = await fetch("/api/admin/super/stats");
-      if (statsRes.ok) {
-        const sData = await statsRes.json();
-        if (sData.success) {
-          setStats(sData.stats);
+      try {
+        const statsRes = await fetch("/api/admin/super/stats");
+        if (statsRes.ok) {
+          const sData = await statsRes.json();
+          if (sData.ok && sData.data) {
+            setStats(sData.data);
+          } else if (sData.success) {
+            setStats(sData.stats);
+          }
+        } else {
+          console.warn("Failed to fetch stats, status:", statsRes.status);
         }
+      } catch (err) {
+        console.error("Error loading platform stats:", err);
       }
 
       // 2. Fetch businesses list
-      const bizRes = await fetch("/api/admin/businesses");
-      if (bizRes.ok) {
-        const bData = await bizRes.json();
-        setBusinesses(bData.data || []);
+      try {
+        const bizRes = await fetch("/api/admin/businesses");
+        if (bizRes.ok) {
+          const bData = await bizRes.json();
+          setBusinesses(bData.data || []);
+        } else {
+          console.warn("Failed to fetch businesses list, status:", bizRes.status);
+        }
+      } catch (err) {
+        console.error("Error loading businesses list:", err);
       }
 
       // 3. Fetch orders (global)
       if (activeTab === "ORDERS" || activeTab === "OVERVIEW") {
-        const ordRes = await fetch("/api/orders?limit=50");
-        if (ordRes.ok) {
-          const oData = await ordRes.json();
-          setOrders(oData || []);
+        try {
+          const ordRes = await fetch("/api/orders?limit=50");
+          if (ordRes.ok) {
+            const oData = await ordRes.json();
+            setOrders(oData || []);
+          } else {
+            console.warn("Failed to fetch orders, status:", ordRes.status);
+          }
+        } catch (err) {
+          console.error("Error loading orders list:", err);
         }
       }
 
       // 4. Fetch bookings (global)
       if (activeTab === "BOOKINGS" || activeTab === "OVERVIEW") {
-        const bookRes = await fetch("/api/bookings?limit=50");
-        if (bookRes.ok) {
-          const bkData = await bookRes.json();
-          setBookings(bkData || []);
+        try {
+          const bookRes = await fetch("/api/bookings?limit=50");
+          if (bookRes.ok) {
+            const bkData = await bookRes.json();
+            setBookings(bkData || []);
+          } else {
+            console.warn("Failed to fetch bookings, status:", bookRes.status);
+          }
+        } catch (err) {
+          console.error("Error loading bookings list:", err);
         }
       }
 
       // 5. Fetch AI expenses logs
       if (activeTab === "AI_COSTS") {
-        const aiLogsRes = await fetch("/api/admin/super/ai-logs?limit=50");
-        if (aiLogsRes.ok) {
-          const aiData = await aiLogsRes.json();
-          if (aiData.success) {
-            setAiUsageLogs(aiData.usageLogs || []);
-            setAiRequestLogs(aiData.requestLogs || []);
+        try {
+          const aiLogsRes = await fetch("/api/admin/super/ai-logs?limit=50");
+          if (aiLogsRes.ok) {
+            const aiData = await aiLogsRes.json();
+            if (aiData.ok && aiData.data) {
+              setAiUsageLogs(aiData.data.usageLogs || []);
+              setAiRequestLogs(aiData.data.requestLogs || []);
+            } else if (aiData.success) {
+              setAiUsageLogs(aiData.usageLogs || []);
+              setAiRequestLogs(aiData.requestLogs || []);
+            }
+          } else {
+            console.warn("Failed to fetch AI logs, status:", aiLogsRes.status);
           }
+        } catch (err) {
+          console.error("Error loading AI logs:", err);
         }
       }
 

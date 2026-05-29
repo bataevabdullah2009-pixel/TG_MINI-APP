@@ -291,7 +291,9 @@ export default function MarketplacePage() {
       {/* 1. UPPER ROLE SWITCHER (For Seller / Super Admin / Manager roles to switch back to Marketplace client catalog) */}
       {(session?.role === "BUSINESS_OWNER" || session?.role === "SUPER_ADMIN" || session?.role === "MANAGER") && (
         <div className="sticky top-0 z-40 bg-slate-900 text-white px-4 py-2 border-b border-slate-800 flex items-center justify-between shadow-md">
-          <span className="text-[10px] font-black text-slate-400 tracking-wider">РОЛЬ: {session.role}</span>
+          <span className="text-[10px] font-black text-slate-400 tracking-wider">
+            {session.role === "SUPER_ADMIN" ? "Администратор" : session.role === "BUSINESS_OWNER" ? "Владелец бизнеса" : "Управляющий"}
+          </span>
           <div className="flex gap-1.5 text-[10px] font-black">
             <button
               onClick={() => setActiveWorkspaceMode("CUSTOMER")}
@@ -471,7 +473,7 @@ export default function MarketplacePage() {
                       <div className="flex-1 min-w-0">
                         <h5 className="text-sm font-extrabold text-slate-900 truncate">{biz.name}</h5>
                         <p className="text-[11px] font-semibold text-slate-400 mt-0.5 truncate">
-                          Slug: {biz.slug} | Тип: {biz.type}
+                          Адрес: /{biz.slug}
                         </p>
                       </div>
                       <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg">

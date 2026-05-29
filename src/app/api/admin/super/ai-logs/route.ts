@@ -56,12 +56,14 @@ export async function GET(request: NextRequest) {
     }));
 
     return NextResponse.json({
-      success: true,
-      usageLogs,
-      requestLogs,
+      ok: true,
+      data: {
+        usageLogs,
+        requestLogs,
+      },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("GET /api/admin/super/ai-logs failed:", error);
-    return jsonError("Не удалось загрузить логи ИИ.", 500);
+    return NextResponse.json({ ok: false, error: error.message || "Не удалось загрузить логи ИИ." }, { status: 500 });
   }
 }

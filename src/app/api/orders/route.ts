@@ -137,17 +137,32 @@ export async function POST(request: NextRequest) {
   }
 }
 
+import { getAdminSession } from "@/lib/admin-auth";
+
 export async function GET(request: NextRequest) {
   try {
+    const session = await getAdminSession(request);
+    if (!session) {
+      return NextResponse.json({ error: "Нужна авторизация." }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get("businessId");
+    const requestedBusinessId = searchParams.get("businessId");
     const customerId = searchParams.get("customerId");
     const limit = parseInt(searchParams.get("limit") || "20");
 
     const where: any = {};
 
-    if (businessId) {
-      where.businessId = businessId;
+    if (session.role === "SUPER_ADMIN") {
+      if (requestedBusinessId) {
+        where.businessId = requestedBusinessId;
+      }
+    } else {
+      // Regular seller / manager is isolated strictly to their own business
+      if (!session.businessId) {
+        return NextResponse.json({ error: "У вас нет привязанного бизнеса." }, { status: 403 });
+      }
+      where.businessId = session.businessId;
     }
 
     if (customerId) {

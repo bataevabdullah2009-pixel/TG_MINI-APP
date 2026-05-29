@@ -41,6 +41,7 @@ type FormState = {
   isPopular: boolean;
   isAvailable: boolean;
   imageUrl: string;
+  categoryId: string;
 };
 
 const initialForm: FormState = {
@@ -53,6 +54,7 @@ const initialForm: FormState = {
   isPopular: false,
   isAvailable: true,
   imageUrl: "",
+  categoryId: "",
 };
 
 function apiError(error: any) {
@@ -62,9 +64,11 @@ function apiError(error: any) {
 export default function AdminItemsPage() {
   const router = useRouter();
   const [isManager, setIsManager] = useState(false);
+  const [userRole, setUserRole] = useState<string>("");
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [business, setBusiness] = useState<Business | null>(null);
   const [items, setItems] = useState<Item[]>([]);
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -81,6 +85,7 @@ export default function AdminItemsPage() {
       return;
     }
     const u = JSON.parse(userJson);
+    setUserRole(u.role || "");
     if (u.role === "MANAGER") {
       setIsManager(true);
       setLoading(false);
@@ -98,11 +103,23 @@ export default function AdminItemsPage() {
       setBusinesses(list);
       const first = list[0] || null;
       setBusiness(first);
-      if (first) await loadItems(first.id);
+      if (first) {
+        await Promise.all([loadItems(first.id), loadCategories(first.id)]);
+      }
     } catch (err) {
       setError(apiError(err));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadCategories(businessId = business?.id) {
+    if (!businessId) return;
+    try {
+      const res = await apiClient.get(`/businesses/${businessId}/catalog`);
+      setCategories(res.data?.categories || []);
+    } catch (err) {
+      console.error("Failed to load business categories:", err);
     }
   }
 
@@ -120,7 +137,7 @@ export default function AdminItemsPage() {
   async function selectBusiness(next: Business) {
     setBusiness(next);
     setLoading(true);
-    await loadItems(next.id);
+    await Promise.all([loadItems(next.id), loadCategories(next.id)]);
     setLoading(false);
   }
 
@@ -225,21 +242,23 @@ export default function AdminItemsPage() {
 
         {toast && <div className="fixed right-5 top-20 z-30 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white shadow-lg">{toast}</div>}
 
-        <div className="mb-5 grid gap-3 rounded-2xl border bg-white p-4 md:grid-cols-[1fr_auto]">
-          <div>
-            <label className="mb-2 block text-xs font-bold uppercase text-slate-400">Бизнес</label>
-            <div className="flex flex-wrap gap-2">
-              {businesses.map((entry) => (
-                <button
-                  key={entry.id}
-                  onClick={() => selectBusiness(entry)}
-                  className={`rounded-xl px-3 py-2 text-sm font-bold ${business?.id === entry.id ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700"}`}
-                >
-                  {entry.name}
-                </button>
-              ))}
+        <div className={`mb-5 grid gap-3 rounded-2xl border bg-white p-4 ${userRole === "SUPER_ADMIN" && businesses.length > 1 ? "md:grid-cols-[1fr_auto]" : "grid-cols-1"}`}>
+          {userRole === "SUPER_ADMIN" && businesses.length > 1 && (
+            <div>
+              <label className="mb-2 block text-xs font-bold uppercase text-slate-400">Бизнес</label>
+              <div className="flex flex-wrap gap-2">
+                {businesses.map((entry) => (
+                  <button
+                    key={entry.id}
+                    onClick={() => selectBusiness(entry)}
+                    className={`rounded-xl px-3 py-2 text-sm font-bold ${business?.id === entry.id ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700"}`}
+                  >
+                    {entry.name}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
           <div className="grid grid-cols-3 gap-2 text-center">
             <Stat label="Всего" value={items.length} />
             <Stat label="Товары" value={items.filter((item) => item.type === "PRODUCT").length} />
@@ -322,7 +341,18 @@ export default function AdminItemsPage() {
               <Field label="Название"><input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="field" /></Field>
               <Field label="Цена, ₽"><input required type="number" min="0" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="field" /></Field>
               <Field label={form.type === "SERVICE" ? "Длительность, минут" : "Остаток"}><input type="number" min="0" value={form.type === "SERVICE" ? form.durationMinutes : form.stock} onChange={(e) => setForm({ ...form, [form.type === "SERVICE" ? "durationMinutes" : "stock"]: e.target.value })} className="field" /></Field>
-              <Field label="Категория"><input placeholder="Можно оставить пустым" className="field" /></Field>
+              <Field label="Категория">
+                <select
+                  value={form.categoryId}
+                  onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
+                  className="field cursor-pointer"
+                >
+                  <option value="">Без категории</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </Field>
               <Field label="Описание"><textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="field min-h-28 md:col-span-2" /></Field>
             </div>
 
