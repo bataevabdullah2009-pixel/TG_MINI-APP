@@ -88,9 +88,11 @@ export default function CheckoutPage() {
               setValue("customerName", profileData.telegramName);
             }
             
-            if (cust.phone && cust.phoneVerified) {
-              setPhoneVerified(true);
+            if (cust.phone) {
               setValue("customerPhone", cust.phone);
+              if (cust.phoneVerified) {
+                setPhoneVerified(true);
+              }
             }
           }
         }
@@ -113,6 +115,8 @@ export default function CheckoutPage() {
       if (name) setValue("customerName", name);
     }
   }, [user, setValue, customerName]);
+
+
 
   const total = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
@@ -194,6 +198,37 @@ export default function CheckoutPage() {
       setSubmitting(false);
     }
   };
+
+  // Manage Telegram native MainButton for smooth mobile keyboard interactions
+  useEffect(() => {
+    if (!tg) {
+      return () => {};
+    }
+
+    const handleMainButtonClick = () => {
+      if (!phoneVerified) {
+        setShowVerifyModal(true);
+      } else {
+        handleSubmit(onSubmit)();
+      }
+    };
+
+    tg.MainButton.setText(phoneVerified ? "✅ Подтвердить и заказать" : "🔗 Подтвердить номер для заказа");
+    tg.MainButton.setParams({
+      color: business?.primaryColor || "#4F46E5",
+      text_color: "#FFFFFF",
+      is_active: !submitting,
+      is_visible: true,
+    });
+
+    tg.MainButton.onClick(handleMainButtonClick);
+    tg.MainButton.show();
+
+    return () => {
+      tg.MainButton.offClick(handleMainButtonClick);
+      tg.MainButton.hide();
+    };
+  }, [tg, phoneVerified, submitting, business, handleSubmit, onSubmit]);
 
   if (loading) {
     return (
@@ -435,35 +470,37 @@ export default function CheckoutPage() {
       </form>
 
       {/* Fixed bottom checkout button */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 p-4 max-w-md mx-auto z-40 shadow-lg">
-        <div className="flex justify-between items-center mb-3">
-          <span className="text-[11px] font-black text-slate-400 uppercase tracking-tight">
-            {cartItems.length} поз. · {deliveryType === "DELIVERY" ? "Доставка" : "Самовывоз"}
-          </span>
-          <span className="font-black text-lg" style={{ color: business.primaryColor }}>
-            {formatPrice(total)}
-          </span>
+      {!tg && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 p-4 max-w-md mx-auto z-40 shadow-lg">
+          <div className="flex justify-between items-center mb-3">
+            <span className="text-[11px] font-black text-slate-400 uppercase tracking-tight">
+              {cartItems.length} поз. · {deliveryType === "DELIVERY" ? "Доставка" : "Самовывоз"}
+            </span>
+            <span className="font-black text-lg" style={{ color: business.primaryColor }}>
+              {formatPrice(total)}
+            </span>
+          </div>
+          
+          {phoneVerified ? (
+            <Button
+              onClick={handleSubmit(onSubmit)}
+              disabled={submitting}
+              className="w-full py-6 text-sm font-black rounded-2xl text-white shadow-xl hover:brightness-110 transition active:scale-[0.97] disabled:opacity-50"
+              style={{ backgroundColor: business.primaryColor }}
+            >
+              {submitting ? "⏳ Оформляем ваш заказ..." : "✅ Подтвердить и заказать"}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              onClick={() => setShowVerifyModal(true)}
+              className="w-full py-6 text-sm font-black rounded-2xl bg-indigo-600 text-white shadow-xl hover:bg-indigo-700 transition active:scale-[0.97]"
+            >
+              🔗 Подтвердить номер для заказа
+            </Button>
+          )}
         </div>
-        
-        {phoneVerified ? (
-          <Button
-            onClick={handleSubmit(onSubmit)}
-            disabled={submitting}
-            className="w-full py-6 text-sm font-black rounded-2xl text-white shadow-xl hover:brightness-110 transition active:scale-95 disabled:opacity-50"
-            style={{ backgroundColor: business.primaryColor }}
-          >
-            {submitting ? "⏳ Оформляем ваш заказ..." : "✅ Подтвердить и заказать"}
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            onClick={() => setShowVerifyModal(true)}
-            className="w-full py-6 text-sm font-black rounded-2xl bg-indigo-600 text-white shadow-xl hover:bg-indigo-700 transition active:scale-95"
-          >
-            🔗 Подтвердить номер для заказа
-          </Button>
-        )}
-      </div>
+      )}
 
       {/* Phone verification Modal overlay */}
       {showVerifyModal && (

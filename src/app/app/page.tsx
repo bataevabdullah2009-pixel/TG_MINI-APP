@@ -290,14 +290,14 @@ export default function MarketplacePage() {
       
       {/* 1. UPPER ROLE SWITCHER (For Seller / Super Admin / Manager roles to switch back to Marketplace client catalog) */}
       {(session?.role === "BUSINESS_OWNER" || session?.role === "SUPER_ADMIN" || session?.role === "MANAGER") && (
-        <div className="sticky top-0 z-40 bg-slate-900 text-white px-4 py-2 border-b border-slate-800 flex items-center justify-between shadow-md">
-          <span className="text-[10px] font-black text-slate-400 tracking-wider">
+        <div className="sticky top-0 z-40 bg-slate-900 text-white px-3 py-2 border-b border-slate-800 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between shadow-md">
+          <span className="text-[10px] font-black text-indigo-400 tracking-wider uppercase">
             {session.role === "SUPER_ADMIN" ? "Администратор" : session.role === "BUSINESS_OWNER" ? "Владелец бизнеса" : "Управляющий"}
           </span>
-          <div className="flex gap-1.5 text-[10px] font-black">
+          <div className="flex gap-1 overflow-x-auto no-scrollbar justify-end w-full sm:w-auto text-[10px] font-black">
             <button
               onClick={() => setActiveWorkspaceMode("CUSTOMER")}
-              className={`rounded-lg px-2.5 py-1 transition ${
+              className={`rounded-lg px-2.5 py-1.5 transition shrink-0 ${
                 activeWorkspaceMode === "CUSTOMER" ? "bg-indigo-600 text-white" : "bg-white/10 text-slate-300"
               }`}
             >
@@ -314,7 +314,7 @@ export default function MarketplacePage() {
                     setActiveWorkspaceMode("SELLER");
                   }
                 }}
-                className={`rounded-lg px-2.5 py-1 transition ${
+                className={`rounded-lg px-2.5 py-1.5 transition shrink-0 ${
                   activeWorkspaceMode === "SELLER" ? "bg-indigo-600 text-white" : "bg-white/10 text-slate-300"
                 }`}
               >
@@ -332,7 +332,7 @@ export default function MarketplacePage() {
                     setActiveWorkspaceMode("MANAGER");
                   }
                 }}
-                className={`rounded-lg px-2.5 py-1 transition ${
+                className={`rounded-lg px-2.5 py-1.5 transition shrink-0 ${
                   activeWorkspaceMode === "MANAGER" ? "bg-indigo-600 text-white" : "bg-white/10 text-slate-300"
                 }`}
               >
@@ -344,7 +344,7 @@ export default function MarketplacePage() {
               <>
                 <button
                   onClick={() => setActiveWorkspaceMode("SELLER")}
-                  className={`rounded-lg px-2.5 py-1 transition ${
+                  className={`rounded-lg px-2.5 py-1.5 transition shrink-0 ${
                     activeWorkspaceMode === "SELLER" ? "bg-indigo-600 text-white" : "bg-white/10 text-slate-300"
                   }`}
                 >
@@ -352,7 +352,7 @@ export default function MarketplacePage() {
                 </button>
                 <button
                   onClick={() => setActiveWorkspaceMode("SUPER_ADMIN")}
-                  className={`rounded-lg px-2.5 py-1 transition ${
+                  className={`rounded-lg px-2.5 py-1.5 transition shrink-0 ${
                     activeWorkspaceMode === "SUPER_ADMIN" ? "bg-indigo-600 text-white" : "bg-white/10 text-slate-300"
                   }`}
                 >
