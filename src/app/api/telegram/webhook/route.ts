@@ -6,14 +6,12 @@ import { ensureTelegramUser } from "@/lib/auth/telegram-user-service";
 import { ensureCustomerForTelegramUser } from "@/lib/customer/customer-service";
 
 export async function POST(request: NextRequest) {
-  console.log("webhook received");
   try {
     const { searchParams } = new URL(request.url);
     const queryBusinessId = searchParams.get("businessId");
 
     const body = await request.json();
-    console.log("Webhook Body:", JSON.stringify(body));
-
+    
     if (!body.message || (!body.message.text && !body.message.contact)) {
       console.log("No message text or contact in webhook body");
       return NextResponse.json({ ok: true });
@@ -22,6 +20,15 @@ export async function POST(request: NextRequest) {
     const chatId = body.message.chat.id;
     const text = body.message.text || "";
     const from = body.message.from;
+
+    // Add dynamic and safe logging for debugging in Vercel Logs
+    console.log("====== [TELEGRAM WEBHOOK ENTRY] ======");
+    console.log(`Update ID: ${body.update_id || "N/A"}`);
+    console.log(`From User: ${from ? `@${from.username} (${from.id})` : "N/A"}`);
+    console.log(`Chat ID: ${chatId || "N/A"}`);
+    console.log(`Text content: "${text}"`);
+    console.log(`Query Business ID: ${queryBusinessId || "None"}`);
+    console.log("======================================");
 
     // Handle shared contact (Task 3)
     if (body.message.contact) {
@@ -86,10 +93,13 @@ export async function POST(request: NextRequest) {
 
     if (command === "/start") {
       const payload = text.split(" ")[1]?.trim();
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_WEBAPP_URL || "http://localhost:3000";
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://tg-mini-app-two-ruby.vercel.app";
+      const webappBaseUrl = process.env.NEXT_PUBLIC_WEBAPP_URL 
+        ? process.env.NEXT_PUBLIC_WEBAPP_URL.replace(/\/$/, "")
+        : `${appUrl.replace(/\/$/, "")}/app`;
       
       // Determine target URL for the Mini App
-      let targetUrl = `${appUrl}/app`;
+      let targetUrl = webappBaseUrl;
       let buttonText = "Открыть SmartBiz";
       let message = "Добро пожаловать в SmartBiz AI! 🚀\n\nНажмите на кнопку ниже, чтобы открыть наш Mini App...";
 
@@ -99,15 +109,15 @@ export async function POST(request: NextRequest) {
         .filter(Boolean);
 
       if (payload === "seller") {
-        targetUrl = `${appUrl}/app?mode=seller`;
+        targetUrl = `${webappBaseUrl}?mode=seller`;
         buttonText = "Панель продавца";
         message = "Добро пожаловать в Панель управления продавца! 💼\n\nНажмите на кнопку ниже, чтобы открыть ваш кабинет...";
       } else if (payload === "admin" && superAdminIds.includes(from.id.toString())) {
-        targetUrl = `${appUrl}/app?mode=super`;
+        targetUrl = `${webappBaseUrl}?mode=super`;
         buttonText = "SaaS Панель";
         message = "Добро пожаловать в SaaS Панель управления! 👑\n\nНажмите на кнопку ниже, чтобы открыть кабинет...";
       } else if (payload === "demo-cafe" || payload === "cafe") {
-        targetUrl = `${appUrl}/app/demo-cafe`;
+        targetUrl = `${webappBaseUrl}/demo-cafe`;
         buttonText = "Открыть Demo Cafe";
         message = "Добро пожаловать в <b>Demo Cafe</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.";
       } else if (payload) {
@@ -130,7 +140,7 @@ export async function POST(request: NextRequest) {
                 telegramLinkExpiresAt: null,
               },
             });
-            targetUrl = `${appUrl}/app?mode=seller`;
+            targetUrl = `${webappBaseUrl}?mode=seller`;
             buttonText = "💼 Панель продавца";
             message = `✅ <b>Успешно привязано!</b>\n\nВы привязали аккаунт продавца <b>${ownerUser.email}</b>.\nТеперь вы можете управлять вашим бизнесом прямо внутри Telegram Mini App!`;
           }
@@ -140,17 +150,17 @@ export async function POST(request: NextRequest) {
           });
           if (targetBusiness) {
             business = targetBusiness;
-            targetUrl = `${appUrl}/app/${targetBusiness.slug}`;
+            targetUrl = `${webappBaseUrl}/${targetBusiness.slug}`;
             buttonText = `Открыть ${targetBusiness.name}`;
             message = `Добро пожаловать в <b>${targetBusiness.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
           } else {
-            targetUrl = `${appUrl}/app/${payload}`;
+            targetUrl = `${webappBaseUrl}/${payload}`;
             buttonText = "Открыть Mini App";
             message = "Добро пожаловать! Откройте заведение в Mini App.";
           }
         }
       } else if (business) {
-        targetUrl = `${appUrl}/app/${business.slug}`;
+        targetUrl = `${webappBaseUrl}/${business.slug}`;
         buttonText = `Открыть ${business.name}`;
         message = `Добро пожаловать в <b>${business.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
       }
@@ -239,7 +249,10 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_WEBAPP_URL || "http://localhost:3000";
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://tg-mini-app-two-ruby.vercel.app";
+      const webappBaseUrl = process.env.NEXT_PUBLIC_WEBAPP_URL 
+        ? process.env.NEXT_PUBLIC_WEBAPP_URL.replace(/\/$/, "")
+        : `${appUrl.replace(/\/$/, "")}/app`;
 
       await telegramBot.sendNotification(
         chatId,
@@ -247,7 +260,7 @@ export async function POST(request: NextRequest) {
         {
           parse_mode: "HTML",
           reply_markup: {
-            inline_keyboard: [[{ text: "💼 Панель продавца", web_app: { url: `${appUrl}/app?mode=seller` } }]],
+            inline_keyboard: [[{ text: "💼 Панель продавца", web_app: { url: `${webappBaseUrl}?mode=seller` } }]],
           },
         }
       );

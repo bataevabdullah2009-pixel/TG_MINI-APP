@@ -2,15 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const webhookUrl = process.env.TELEGRAM_WEBHOOK_URL;
 
   if (!token) {
-    return NextResponse.json({ ok: false, error: "TELEGRAM_BOT_TOKEN is not configured in .env" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "TELEGRAM_BOT_TOKEN is not configured in environment variables" }, { status: 400 });
   }
 
-  if (!webhookUrl) {
-    return NextResponse.json({ ok: false, error: "TELEGRAM_WEBHOOK_URL is not configured in .env" }, { status: 400 });
-  }
+  // Determine webhook URL: prefer env variable, fallback to request origin
+  const origin = request.nextUrl.origin;
+  const webhookUrl = process.env.TELEGRAM_WEBHOOK_URL || `${origin}/api/telegram/webhook`;
 
   try {
     console.log(`Setting Telegram webhook to: ${webhookUrl}`);
@@ -19,7 +18,11 @@ export async function GET(request: NextRequest) {
     );
     const result = await response.json();
     console.log("setWebhook Response:", result);
-    return NextResponse.json(result);
+    return NextResponse.json({
+      ok: result.ok,
+      webhookUrl,
+      telegramResponse: result
+    });
   } catch (err: any) {
     console.error("setWebhook Error:", err);
     return NextResponse.json({ ok: false, error: err.message || err }, { status: 500 });

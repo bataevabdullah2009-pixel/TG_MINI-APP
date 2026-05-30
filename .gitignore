@@ -30,10 +30,9 @@ yarn-error.log*
 # Local env files
 .env
 .env.local
-.env.*.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.production
+.env.development
+.env*.local
 
 # IDE
 .vscode
@@ -47,3 +46,7 @@ prisma/*.db-journal
 
 # OS
 Thumbs.db
+
+# Agent Skills
+.agents/
+skills-lock.json

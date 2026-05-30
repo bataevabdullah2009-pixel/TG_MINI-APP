@@ -8,26 +8,17 @@ import { prisma } from "@/lib/prisma";
 
 export function getAIProviderConfig(providerName?: string, modelName?: string): AIProvider {
   const provider = providerName || process.env.AI_PROVIDER || "mock";
-  const isProd = process.env.NODE_ENV === "production";
 
   if (provider === "openrouter") {
     const key = process.env.OPENROUTER_API_KEY;
     if (key) return new OpenRouterProvider(key, modelName);
-    if (isProd) {
-      throw new Error("Данный ИИ-функционал недоступен: не настроен ключ API для OpenRouter в панели управления.");
-    }
+    console.warn("⚠️ [AI Service] 'openrouter' was selected but OPENROUTER_API_KEY is not defined. Falling back to 'mock' provider.");
   }
 
   if (provider === "polza") {
     const key = process.env.POLZA_AI_API_KEY;
     if (key) return new PolzaAIProvider(key, modelName);
-    if (isProd) {
-      throw new Error("Данный ИИ-функционал недоступен: не настроен ключ API для Polza AI в панели управления.");
-    }
-  }
-
-  if (isProd) {
-    throw new Error("Данный ИИ-функционал недоступен: использование демонстрационного ИИ (mock) запрещено в рабочей среде. Настройте OpenRouter или Polza AI.");
+    console.warn("⚠️ [AI Service] 'polza' was selected but POLZA_AI_API_KEY is not defined. Falling back to 'mock' provider.");
   }
 
   // Fallback to mock if keys are missing or provider is mock
