@@ -21,6 +21,8 @@ export default function SuperAdminDashboard() {
   const [stats, setStats] = useState<SuperStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [seeding, setSeeding] = useState(false);
+  const [seedMessage, setSeedMessage] = useState("");
 
   useEffect(() => {
     // 1. Verify Super Admin authorization
@@ -76,6 +78,40 @@ export default function SuperAdminDashboard() {
     document.cookie = "adminUser=; path=/; max-age=0";
     document.cookie = "accessToken=; path=/; max-age=0";
     router.push("/admin/login");
+  };
+
+  const handleSeedDatabase = async () => {
+    if (!confirm("Вы уверены, что хотите заполнить базу данных Supabase демо-данными? Все существующие заказы и записи демо-бизнесов будут очищены для предотвращения дублирования.")) {
+      return;
+    }
+
+    try {
+      setSeeding(true);
+      setSeedMessage("");
+      const token = localStorage.getItem("accessToken");
+      
+      const res = await fetch("/api/admin/super/seed", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert("🎉 База данных успешно заполнена демо-данными!");
+        setSeedMessage("База успешно заполнена!");
+        fetchSuperStats(); // Refresh stats
+      } else {
+        throw new Error(data.error || "Ошибка заполнения базы данных");
+      }
+    } catch (err: any) {
+      alert(`❌ Ошибка: ${err.message}`);
+      setSeedMessage(`Ошибка: ${err.message}`);
+    } finally {
+      setSeeding(false);
+    }
   };
 
   if (loading) {
@@ -138,7 +174,23 @@ export default function SuperAdminDashboard() {
             <p className="text-slate-400 text-xs sm:text-sm mt-1">Централизованная статистика точек продаж и ИИ-запросов</p>
           </div>
           
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            {seedMessage && (
+              <span className="text-[10px] text-indigo-400 font-bold bg-indigo-950/30 px-2.5 py-1.5 rounded-lg border border-indigo-900/30">
+                {seedMessage}
+              </span>
+            )}
+            <button
+              onClick={handleSeedDatabase}
+              disabled={seeding}
+              className={`px-4 py-2.5 rounded-xl text-xs font-black transition ${
+                seeding
+                  ? "bg-slate-850 text-slate-500 cursor-not-allowed border border-slate-800"
+                  : "bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white border border-emerald-500/30"
+              }`}
+            >
+              {seeding ? "⏳ Заполнение..." : "🌱 Заполнить демо-данными (Seed)"}
+            </button>
             <Link href="/admin/super/businesses/new" className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 hover:brightness-110 text-white text-xs font-black shadow-lg shadow-indigo-500/10 transition">
               ➕ Создать клиента (Mini App)
             </Link>
