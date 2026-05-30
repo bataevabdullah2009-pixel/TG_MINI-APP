@@ -113,9 +113,17 @@ export default function MarketplacePage() {
     fetch(`/api/marketplace/businesses`)
       .then((res) => res.json())
       .then((data) => {
+        if (data.error) {
+          setError(data.error);
+        } else if (data.isDbEmpty) {
+          setError("База подключена, но демо-данные не загружены. Пожалуйста, посетите страницу /api/admin/super/seed в браузере для моментальной инициализации базы!");
+        }
         setBusinesses(data.businesses || []);
       })
-      .catch((err) => console.error("Error loading businesses:", err));
+      .catch((err) => {
+        console.error("Error loading businesses:", err);
+        setError("Не удалось подключиться к базе данных. Проверьте правильность DATABASE_URL и DIRECT_URL в панели Vercel.");
+      });
   }, []);
 
   const resolveUserSession = async (initData: string, modeOverride?: string) => {

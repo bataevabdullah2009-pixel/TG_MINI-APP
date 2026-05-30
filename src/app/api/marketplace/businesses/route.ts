@@ -20,34 +20,47 @@ function isSuperAdmin(telegramUserId: string | null) {
 }
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const telegramUserId = searchParams.get("telegramUserId");
+  try {
+    const { searchParams } = new URL(request.url);
+    const telegramUserId = searchParams.get("telegramUserId");
 
-  const businesses = await prisma.business.findMany({
-    where: { isActive: true },
-    select: {
-      id: true,
-      slug: true,
-      name: true,
-      type: true,
-      templateKey: true,
-      description: true,
-      logoUrl: true,
-      address: true,
-      primaryColor: true,
-      accentColor: true,
-      _count: { select: { orders: true, bookings: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+    const businesses = await prisma.business.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        type: true,
+        templateKey: true,
+        description: true,
+        logoUrl: true,
+        address: true,
+        primaryColor: true,
+        accentColor: true,
+        _count: { select: { orders: true, bookings: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
 
-  return NextResponse.json({
-    isSuperAdmin: isSuperAdmin(telegramUserId),
-    businesses: businesses.map((business) => ({
-      ...business,
-      typeLabel: typeLabels[business.type] || "Бизнес",
-      rating: 4.8,
-      isOpen: true,
-    })),
-  });
+    const isDbEmpty = businesses.length === 0;
+
+    return NextResponse.json({
+      isSuperAdmin: isSuperAdmin(telegramUserId),
+      isDbEmpty,
+      businesses: businesses.map((business) => ({
+        ...business,
+        typeLabel: typeLabels[business.type] || "Бизнес",
+        rating: 4.8,
+        isOpen: true,
+      })),
+      message: isDbEmpty ? "База подключена, но демо-данные не загружены" : undefined
+    });
+  } catch (error: any) {
+    console.error("❌ Database Connection Error in Marketplace:", error);
+    return NextResponse.json({
+      error: "Не удалось подключиться к базе данных. Пожалуйста, проверьте настройки подключения в панели Vercel.",
+      businesses: [],
+      isDbEmpty: true
+    }, { status: 500 });
+  }
 }
