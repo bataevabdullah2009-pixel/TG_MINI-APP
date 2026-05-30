@@ -42,7 +42,7 @@ export function ItemCard({
     <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-xs hover:shadow-sm transition duration-200 flex flex-col justify-between h-full">
       <div>
         {/* Image / Placeholder */}
-        <div className="relative w-full h-28 bg-gradient-to-tr from-slate-50 to-slate-100 border-b border-slate-100 flex items-center justify-center overflow-hidden">
+        <div className={`relative w-full ${item.imageUrl ? "h-28" : "h-16"} bg-gradient-to-tr from-slate-50 to-slate-100 border-b border-slate-100 flex items-center justify-center overflow-hidden transition-all duration-200`}>
           {item.imageUrl ? (
             <img
               src={item.imageUrl}

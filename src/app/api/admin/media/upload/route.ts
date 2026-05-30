@@ -41,16 +41,42 @@ export async function POST(request: NextRequest) {
     if (!canUseBusiness(session, business.id)) return jsonError("Нет доступа к этому бизнесу.", 403);
 
     const filename = cleanName(file.name);
-    const relativeDir = `/uploads/${business.slug}`;
-    const uploadDir = path.join(process.cwd(), "public", "uploads", business.slug);
-    await mkdir(uploadDir, { recursive: true });
-    await writeFile(path.join(uploadDir, filename), Buffer.from(await file.arrayBuffer()));
+    let fileUrl = "";
+    const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+
+    if (blobToken) {
+      // Vercel Blob cloud upload via native REST (zero packages required)
+      const blobResponse = await fetch(`https://blob.vercel-storage.com/${filename}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${blobToken}`,
+          "x-api-version": "6",
+        },
+        body: Buffer.from(await file.arrayBuffer()),
+      });
+
+      if (!blobResponse.ok) {
+        const errorText = await blobResponse.text();
+        console.error("Vercel Blob upload REST API failed:", errorText);
+        return jsonError("Не удалось загрузить файл в облако Vercel Blob.", 500);
+      }
+
+      const blobData = await blobResponse.json();
+      fileUrl = blobData.url;
+    } else {
+      // Fallback: local public/uploads for local development environments
+      const relativeDir = `/uploads/${business.slug}`;
+      const uploadDir = path.join(process.cwd(), "public", "uploads", business.slug);
+      await mkdir(uploadDir, { recursive: true });
+      await writeFile(path.join(uploadDir, filename), Buffer.from(await file.arrayBuffer()));
+      fileUrl = `${relativeDir}/${filename}`;
+    }
 
     const asset = await prisma.mediaAsset.create({
       data: {
         businessId: business.id,
         type,
-        url: `${relativeDir}/${filename}`,
+        url: fileUrl,
         filename,
         mimeType: file.type,
         size: file.size,

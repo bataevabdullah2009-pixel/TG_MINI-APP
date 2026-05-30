@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { MediaUpload } from "./MediaUpload";
 import { AiCenter } from "./AiCenter";
+import { miniAppFetch } from "@/lib/miniAppFetch";
 
 interface SellerHomeProps {
   session: any;
@@ -65,6 +66,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   // Category management inside catalog
   const [newCatName, setNewCatName] = useState("");
   const [showCatForm, setShowCatForm] = useState(false);
+  const [showCategoryBottomSheet, setShowCategoryBottomSheet] = useState(false);
 
   // Settings State
   const [bizName, setBizName] = useState("");
@@ -89,11 +91,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const fetchSellerData = async () => {
     setLoading(true);
     try {
-      const initData = typeof window !== "undefined" ? (window as any).Telegram?.WebApp?.initData : "";
-      const authHeaders = initData ? { "x-telegram-init-data": initData } : {};
-
       // 1. Fetch Business Profile
-      const bizRes = await fetch(`/api/businesses/${businessId}`, { headers: authHeaders });
+      const bizRes = await miniAppFetch(`/api/businesses/${businessId}`);
       if (bizRes.ok) {
         const bData = await bizRes.json();
         setBusinessData(bData);
@@ -110,7 +109,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       let fetchedItemsCount = 0;
 
       // 2. Fetch Catalog (Items & Categories)
-      const catRes = await fetch(`/api/businesses/${businessId}/catalog`, { headers: authHeaders });
+      const catRes = await miniAppFetch(`/api/businesses/${businessId}/catalog`);
       if (catRes.ok) {
         const cData = await catRes.json();
         setItems(cData.items || []);
@@ -122,15 +121,15 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       }
 
       // 3. Fetch CRM Customers
-      const custRes = await fetch(`/api/admin/customers?businessId=${businessId}`, { headers: authHeaders });
+      const custRes = await miniAppFetch(`/api/admin/customers?businessId=${businessId}`);
       if (custRes.ok) {
         const custData = await custRes.json();
         setCustomers(custData.data || []);
       }
 
       // 4. Fetch Orders and Bookings
-      const ordRes = await fetch(`/api/orders?businessId=${businessId}`, { headers: authHeaders });
-      const bookRes = await fetch(`/api/bookings?businessId=${businessId}`, { headers: authHeaders });
+      const ordRes = await miniAppFetch(`/api/orders?businessId=${businessId}`);
+      const bookRes = await miniAppFetch(`/api/bookings?businessId=${businessId}`);
       
       let ords = [] as any[];
       let bks = [] as any[];
@@ -144,10 +143,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
       const todayOrders = ords.filter((o: any) => new Date(o.createdAt) >= startOfDay);
       const revenue = todayOrders
-        .filter((o: any) => o.status === "COMPLETED" || o.status === "READY" || o.status === "CONFIRMED")
+        .filter((o: any) => o.status === "COMPLETED" || o.status === "READY" || o.status === "ACCEPTED" || o.status === "PREPARING" || o.status === "DELIVERING")
         .reduce((sum: number, o: any) => sum + (o.totalPrice || 0), 0);
 
-      const activeOrds = ords.filter((o: any) => o.status === "NEW" || o.status === "PROCESSING").length;
+      const activeOrds = ords.filter((o: any) => o.status === "NEW" || o.status === "ACCEPTED" || o.status === "PREPARING" || o.status === "DELIVERING").length;
       const activeBks = bks.filter((b: any) => b.status === "NEW" || b.status === "CONFIRMED").length;
 
       setStats({
@@ -171,13 +170,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     if (!newCatName) return;
 
     try {
-      const initData = typeof window !== "undefined" ? (window as any).Telegram?.WebApp?.initData : "";
-      const res = await fetch(`/api/businesses/${businessId}/categories`, {
+      const res = await miniAppFetch(`/api/businesses/${businessId}/categories`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(initData ? { "x-telegram-init-data": initData } : {}),
-        },
         body: JSON.stringify({
           name: newCatName,
           isActive: true,
@@ -206,16 +200,11 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     }
 
     try {
-      const initData = typeof window !== "undefined" ? (window as any).Telegram?.WebApp?.initData : "";
-      const res = await fetch("/api/admin/items", {
+      const res = await miniAppFetch("/api/admin/items", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          ...(initData ? { "x-telegram-init-data": initData } : {})
-        },
         body: JSON.stringify({
           businessId,
-          categoryId: newItemCategory,
+          categoryId: newItemCategory || undefined,
           name: newItemName,
           price: parseFloat(newItemPrice),
           description: newItemDesc,
@@ -245,12 +234,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     if (!confirm("Вы действительно хотите удалить эту позицию?")) return;
 
     try {
-      const initData = typeof window !== "undefined" ? (window as any).Telegram?.WebApp?.initData : "";
-      const res = await fetch(`/api/admin/items/${itemId}`, {
-        method: "DELETE",
-        headers: {
-          ...(initData ? { "x-telegram-init-data": initData } : {})
-        }
+      const res = await miniAppFetch(`/api/admin/items/${itemId}`, {
+        method: "DELETE"
       });
 
       if (res.ok) {
@@ -265,18 +250,22 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   };
 
   const handleUpdateOrderStatus = async (orderId: string, newStatus: string) => {
+    let finalStatus = newStatus;
+    if (newStatus === "PROCESSING") {
+      finalStatus = "ACCEPTED";
+    }
     try {
-      const res = await fetch(`/api/orders/${orderId}`, {
+      const res = await miniAppFetch(`/api/admin/orders/${orderId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({ status: finalStatus }),
       });
 
-      if (res.ok) {
+      const d = await res.json();
+      if (res.ok && d.ok) {
         showSuccess("Статус заказа обновлен!");
         fetchSellerData();
       } else {
-        showError("Не удалось обновить статус заказа");
+        showError(d.error || "Не удалось обновить статус заказа");
       }
     } catch (err) {
       showError("Ошибка сети");
@@ -285,9 +274,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
   const handleUpdateBookingStatus = async (bookingId: string, newStatus: string) => {
     try {
-      const res = await fetch(`/api/bookings/${bookingId}`, {
+      const res = await miniAppFetch(`/api/bookings/${bookingId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
 
@@ -305,15 +293,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const handleUpdateSettings = async () => {
     setError(null);
     try {
-      const initData = typeof window !== "undefined" ? (window as any).Telegram?.WebApp?.initData : "";
-      const res = await fetch(`/api/admin/current-business`, {
-        method: "PUT",
-        headers: { 
-          "Content-Type": "application/json",
-          ...(initData ? { "x-telegram-init-data": initData } : {}),
-          "x-business-id": businessId 
-        },
+      const res = await miniAppFetch(`/api/admin/current-business`, {
+        method: "PATCH",
         body: JSON.stringify({
+          businessId,
           name: bizName,
           description: bizDesc,
           address: bizAddress,
@@ -326,7 +309,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         showSuccess("Настройки сохранены!");
         fetchSellerData();
       } else {
-        showError("Не удалось обновить настройки");
+        const d = await res.json();
+        showError(d.error || "Не удалось обновить настройки");
       }
     } catch (e) {
       showError("Ошибка сохранения");
@@ -336,15 +320,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const handleUpdateMedia = async () => {
     setError(null);
     try {
-      const initData = typeof window !== "undefined" ? (window as any).Telegram?.WebApp?.initData : "";
-      const res = await fetch(`/api/admin/current-business`, {
-        method: "PUT",
-        headers: { 
-          "Content-Type": "application/json",
-          ...(initData ? { "x-telegram-init-data": initData } : {}),
-          "x-business-id": businessId 
-        },
+      const res = await miniAppFetch(`/api/admin/current-business`, {
+        method: "PATCH",
         body: JSON.stringify({
+          businessId,
           logoUrl: bizLogoUrl,
           coverImageUrl: bizCoverUrl,
           primaryColor: bizColor,
@@ -355,7 +334,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         showSuccess("Оформление обновлено!");
         fetchSellerData();
       } else {
-        showError("Не удалось сохранить оформление");
+        const d = await res.json();
+        showError(d.error || "Не удалось сохранить оформление");
       }
     } catch (e) {
       showError("Ошибка сохранения");
@@ -531,7 +511,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                         <span className="text-[9px] block text-slate-400 font-semibold">{o.customerName} · {o.customerPhone}</span>
                       </div>
                       <button 
-                        onClick={() => handleUpdateOrderStatus(o.id, "PROCESSING")}
+                        onClick={() => handleUpdateOrderStatus(o.id, "ACCEPTED")}
                         className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[10px] px-3 py-1 rounded-lg"
                       >
                         Принять
@@ -584,7 +564,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
               
               {/* Filter statuses */}
               <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-3">
-                {["ALL", "NEW", "PROCESSING", "READY", "COMPLETED", "CANCELLED"].map((status) => (
+                {["ALL", "NEW", "ACCEPTED", "PREPARING", "READY", "DELIVERING", "COMPLETED", "CANCELLED"].map((status) => (
                   <button
                     key={status}
                     onClick={() => setOrderFilter(status)}
@@ -617,8 +597,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                         </div>
                         <span className={`text-[9px] font-black rounded-full px-2 py-0.5 ${
                           order.status === "NEW" ? "bg-amber-100 text-amber-700" :
-                          order.status === "PROCESSING" ? "bg-indigo-100 text-indigo-700" :
+                          order.status === "ACCEPTED" ? "bg-indigo-100 text-indigo-700" :
+                          order.status === "PREPARING" ? "bg-purple-100 text-purple-700" :
                           order.status === "READY" ? "bg-cyan-100 text-cyan-700" :
+                          order.status === "DELIVERING" ? "bg-blue-100 text-blue-700" :
                           order.status === "COMPLETED" ? "bg-emerald-100 text-emerald-700" :
                           "bg-slate-200 text-slate-500"
                         }`}>
@@ -670,7 +652,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                         {order.status === "NEW" && (
                           <>
                             <button
-                              onClick={() => handleUpdateOrderStatus(order.id, "PROCESSING")}
+                              onClick={() => handleUpdateOrderStatus(order.id, "ACCEPTED")}
                               className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs py-2 rounded-xl transition"
                             >
                               Принять
@@ -683,8 +665,14 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                             </button>
                           </>
                         )}
-                        {order.status === "PROCESSING" && (
+                        {order.status === "ACCEPTED" && (
                           <>
+                            <button
+                              onClick={() => handleUpdateOrderStatus(order.id, "PREPARING")}
+                              className="flex-1 bg-purple-600 hover:bg-purple-750 text-white font-black text-xs py-2 rounded-xl transition"
+                            >
+                              Начать готовку
+                            </button>
                             <button
                               onClick={() => handleUpdateOrderStatus(order.id, "READY")}
                               className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white font-black text-xs py-2 rounded-xl transition"
@@ -693,18 +681,56 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                             </button>
                             <button
                               onClick={() => handleUpdateOrderStatus(order.id, "CANCELLED")}
-                              className="bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs px-3 py-2 rounded-xl transition"
+                              className="bg-slate-105 hover:bg-slate-200 text-slate-600 text-xs px-3 py-2 rounded-xl transition"
+                            >
+                              Отменить
+                            </button>
+                          </>
+                        )}
+                        {order.status === "PREPARING" && (
+                          <>
+                            <button
+                              onClick={() => handleUpdateOrderStatus(order.id, "READY")}
+                              className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white font-black text-xs py-2 rounded-xl transition"
+                            >
+                              Готов к выдаче
+                            </button>
+                            <button
+                              onClick={() => handleUpdateOrderStatus(order.id, "DELIVERING")}
+                              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs py-2 rounded-xl transition"
+                            >
+                              В доставку
+                            </button>
+                            <button
+                              onClick={() => handleUpdateOrderStatus(order.id, "CANCELLED")}
+                              className="bg-slate-105 hover:bg-slate-200 text-slate-600 text-xs px-3 py-2 rounded-xl transition"
                             >
                               Отменить
                             </button>
                           </>
                         )}
                         {order.status === "READY" && (
+                          <>
+                            <button
+                              onClick={() => handleUpdateOrderStatus(order.id, "COMPLETED")}
+                              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm"
+                            >
+                              <CheckCircle size={14} /> Выдан клиенту
+                            </button>
+                            <button
+                              onClick={() => handleUpdateOrderStatus(order.id, "DELIVERING")}
+                              className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs px-4 py-2.5 rounded-xl transition"
+                            >
+                              В доставку
+                            </button>
+                          </>
+                        )}
+                        {order.status === "DELIVERING" && (
                           <button
                             onClick={() => handleUpdateOrderStatus(order.id, "COMPLETED")}
-                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-2.5 rounded-xl transition flex items-center justify-center gap-1.5"
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm"
                           >
-                            <CheckCircle size={14} /> Выдан клиенту
+                            <CheckCircle size={14} /> Доставлен и завершен
                           </button>
                         )}
                       </div>
@@ -885,16 +911,16 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                     required
                   />
 
-                  <select
-                    value={newItemCategory}
-                    onChange={(e) => setNewItemCategory(e.target.value)}
-                    className="w-full text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none cursor-pointer"
+                  <button
+                    type="button"
+                    onClick={() => setShowCategoryBottomSheet(true)}
+                    className="w-full text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none text-left flex justify-between items-center cursor-pointer"
                   >
-                    <option value="">Выберите категорию</option>
-                    {categories.map((c: any) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
+                    <span className="truncate">
+                      {categories.find((c: any) => c.id === newItemCategory)?.name || "Выбрать категорию"}
+                    </span>
+                    <span className="text-slate-400 text-[10px]">▼</span>
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 bg-slate-100/50 p-1.5 rounded-xl">
@@ -1153,6 +1179,69 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         )}
 
       </div>
+
+      {/* Premium Category Picker Bottom Sheet */}
+      {showCategoryBottomSheet && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-300">
+          <div className="absolute inset-0" onClick={() => setShowCategoryBottomSheet(false)} />
+          <div className="relative w-full max-w-[480px] bg-white rounded-t-[32px] p-6 space-y-4 animate-slide-up shadow-2xl pb-10">
+            <div className="flex justify-between items-center pb-2 border-b">
+              <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Выберите категорию</h4>
+              <button
+                onClick={() => setShowCategoryBottomSheet(false)}
+                className="text-[10px] font-black text-slate-400 hover:text-slate-800"
+              >
+                Закрыть
+              </button>
+            </div>
+            
+            <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1 no-scrollbar">
+              {categories.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewItemCategory("");
+                    setShowCategoryBottomSheet(false);
+                  }}
+                  className="w-full text-left p-3.5 rounded-2xl bg-indigo-50 border border-indigo-200 text-xs font-bold text-indigo-700"
+                >
+                  • Основное (будет создано автоматически)
+                </button>
+              ) : (
+                categories.map((c: any) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => {
+                      setNewItemCategory(c.id);
+                      setShowCategoryBottomSheet(false);
+                    }}
+                    className={`w-full text-left p-3.5 rounded-2xl text-xs font-bold transition flex justify-between items-center ${
+                      newItemCategory === c.id
+                        ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10"
+                        : "bg-slate-50 hover:bg-slate-100 text-slate-805 border border-slate-100"
+                    }`}
+                  >
+                    <span>{c.name}</span>
+                    {newItemCategory === c.id && <span>✓</span>}
+                  </button>
+                ))
+              )}
+            </div>
+            
+            <button
+              type="button"
+              onClick={() => {
+                setShowCategoryBottomSheet(false);
+                setShowCatForm(true);
+              }}
+              className="w-full py-3 bg-slate-100 hover:bg-slate-200 rounded-2xl text-[10px] font-black text-slate-700 transition"
+            >
+              + Создать новую категорию
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

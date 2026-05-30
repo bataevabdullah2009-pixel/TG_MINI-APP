@@ -51,7 +51,27 @@ export async function POST(request: NextRequest) {
     }
 
     const rawCategoryId = body.categoryId;
-    const categoryId = (rawCategoryId === "" || rawCategoryId === "none" || rawCategoryId === "null" || !rawCategoryId) ? null : rawCategoryId;
+    let categoryId = (rawCategoryId === "" || rawCategoryId === "none" || rawCategoryId === "null" || !rawCategoryId) ? null : rawCategoryId;
+
+    if (!categoryId) {
+      // Look up first active category
+      let firstCategory = await prisma.category.findFirst({
+        where: { businessId: resolved.business.id, isActive: true },
+        orderBy: { sortOrder: "asc" }
+      });
+      // Create a default category if none exist
+      if (!firstCategory) {
+        firstCategory = await prisma.category.create({
+          data: {
+            businessId: resolved.business.id,
+            name: "Основное",
+            isActive: true,
+            sortOrder: 0
+          }
+        });
+      }
+      categoryId = firstCategory.id;
+    }
 
     const item = await prisma.item.create({
       data: {

@@ -51,6 +51,25 @@ export async function POST(request: NextRequest) {
     const feature = String(body.feature || "post");
     const prompt = String(body.prompt || "").slice(0, 4000);
     const knownItems = business.items.map((item) => `${item.name}${item.price ? ` (${item.price} ₽)` : ""}`).join(", ") || "позиции пока не добавлены";
+    
+    let goal = [
+      typeContext[business.type] || "Учитывай реальный тип бизнеса.",
+      `Доступные товары и услуги: ${knownItems}.`,
+      "Не выдумывай товары и цены. Не обещай лишнего. Пиши по-русски.",
+      `Ограничение: до ${routing.maxTokens} токенов.`,
+    ].join(" ");
+
+    if (feature === "product_description" || feature === "product_card") {
+      goal += ` ВНИМАНИЕ: Верни строго валидный JSON без какого-либо дополнительного текста, markdown разметки или бэкквотов (без \`\`\`json). JSON должен строго соответствовать следующей схеме:
+      {
+        "name": "Название товара",
+        "description": "Продающее описание товара",
+        "categorySuggestion": "Рекомендация категории",
+        "marketingText": "Текст для рекламы/поста в Telegram",
+        "tags": ["тег1", "тег2", "тег3"]
+      }`;
+    }
+
     const input = {
       businessName: business.name,
       businessType: business.type,
@@ -59,17 +78,32 @@ export async function POST(request: NextRequest) {
       contentType: featureLabels[feature] || feature,
       productOrService: prompt || business.description || business.name,
       tone: body.tone || "дружелюбный",
-      goal: [
-        typeContext[business.type] || "Учитывай реальный тип бизнеса.",
-        `Доступные товары и услуги: ${knownItems}.`,
-        "Не выдумывай товары и цены. Не обещай лишнего. Пиши по-русски.",
-        `Ограничение: до ${routing.maxTokens} токенов.`,
-      ].join(" "),
+      goal: goal,
     };
 
     const hash = crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex");
     const cached = await prisma.aICache.findUnique({ where: { businessId_feature_promptHash: { businessId: business.id, feature, promptHash: hash } } });
-    if (cached) return NextResponse.json({ ok: true, content: cached.response, provider: cached.provider, model: cached.model, cached: true });
+    
+    if (cached) {
+      const responseText = cached.response;
+      if (feature === "product_description" || feature === "product_card") {
+        try {
+          const parsed = JSON.parse(responseText.trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim());
+          return NextResponse.json({ ok: true, ...parsed, provider: cached.provider, model: cached.model, cached: true });
+        } catch (e) {
+          // Cached item was not JSON, fallback gracefully
+          const fallbackJson = {
+            name: prompt.replace("Создай карточку товара. Название: ", "").split(",")[0].trim() || "Товар",
+            description: responseText,
+            categorySuggestion: "Основное",
+            marketingText: `✨ **Новинка!**\n\n${responseText}\n\nЗаказывайте прямо сейчас! 🚀`,
+            tags: ["новинка", "ии_генерация"]
+          };
+          return NextResponse.json({ ok: true, ...fallbackJson, provider: cached.provider, model: cached.model, cached: true });
+        }
+      }
+      return NextResponse.json({ ok: true, content: cached.response, provider: cached.provider, model: cached.model, cached: true });
+    }
 
     const provider = getAIProviderConfig(routing.provider, routing.model);
     let content = "";
@@ -91,6 +125,40 @@ export async function POST(request: NextRequest) {
       update: { response: content, provider: usedProvider, model: routing.model, createdAt: new Date() },
       create: { businessId: business.id, feature, promptHash: hash, provider: usedProvider, model: routing.model, response: content },
     });
+
+    if (feature === "product_description" || feature === "product_card") {
+      try {
+        const parsed = JSON.parse(content.trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim());
+        parsed.name = parsed.name || prompt.replace("Создай карточку товара. Название: ", "").split(",")[0].trim() || "Товар";
+        parsed.description = parsed.description || content;
+        parsed.categorySuggestion = parsed.categorySuggestion || "Основное";
+        parsed.marketingText = parsed.marketingText || parsed.description;
+        parsed.tags = Array.isArray(parsed.tags) ? parsed.tags : ["новинка"];
+        
+        return NextResponse.json({
+          ok: true,
+          ...parsed,
+          provider: usedProvider,
+          model: routing.model,
+          estimatedCost
+        });
+      } catch (e) {
+        const fallbackJson = {
+          name: prompt.replace("Создай карточку товара. Название: ", "").split(",")[0].trim() || "Товар",
+          description: content,
+          categorySuggestion: "Основное",
+          marketingText: `✨ **Новинка!**\n\n${content}\n\nЗаказывайте прямо сейчас! 🚀`,
+          tags: ["новинка", "ии_генерация"]
+        };
+        return NextResponse.json({
+          ok: true,
+          ...fallbackJson,
+          provider: usedProvider,
+          model: routing.model,
+          estimatedCost
+        });
+      }
+    }
 
     return NextResponse.json({ ok: true, content, provider: usedProvider, model: routing.model, estimatedCost });
   } catch (error: any) {

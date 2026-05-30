@@ -20,6 +20,7 @@ import {
   ArrowRight,
   Database
 } from "lucide-react";
+import { miniAppFetch } from "@/lib/miniAppFetch";
 
 interface SuperAdminHomeProps {
   session: any;
@@ -74,7 +75,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
     try {
       // 1. Fetch metrics
       try {
-        const statsRes = await fetch("/api/admin/super/stats");
+        const statsRes = await miniAppFetch("/api/admin/super/stats");
         if (statsRes.ok) {
           const sData = await statsRes.json();
           if (sData.ok && sData.data) {
@@ -91,7 +92,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
 
       // 2. Fetch businesses list
       try {
-        const bizRes = await fetch("/api/admin/businesses");
+        const bizRes = await miniAppFetch("/api/admin/businesses");
         if (bizRes.ok) {
           const bData = await bizRes.json();
           setBusinesses(bData.data || []);
@@ -105,7 +106,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
       // 3. Fetch orders (global)
       if (activeTab === "ORDERS" || activeTab === "OVERVIEW") {
         try {
-          const ordRes = await fetch("/api/orders?limit=50");
+          const ordRes = await miniAppFetch("/api/orders?limit=50");
           if (ordRes.ok) {
             const oData = await ordRes.json();
             setOrders(oData || []);
@@ -120,7 +121,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
       // 4. Fetch bookings (global)
       if (activeTab === "BOOKINGS" || activeTab === "OVERVIEW") {
         try {
-          const bookRes = await fetch("/api/bookings?limit=50");
+          const bookRes = await miniAppFetch("/api/bookings?limit=50");
           if (bookRes.ok) {
             const bkData = await bookRes.json();
             setBookings(bkData || []);
@@ -135,7 +136,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
       // 5. Fetch AI expenses logs
       if (activeTab === "AI_COSTS") {
         try {
-          const aiLogsRes = await fetch("/api/admin/super/ai-logs?limit=50");
+          const aiLogsRes = await miniAppFetch("/api/admin/super/ai-logs?limit=50");
           if (aiLogsRes.ok) {
             const aiData = await aiLogsRes.json();
             if (aiData.ok && aiData.data) {
@@ -184,9 +185,8 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
     else if (typeUpper === "COURSES") templateKey = "courses";
 
     try {
-      const res = await fetch("/api/admin/super/onboard", {
+      const res = await miniAppFetch("/api/admin/super/onboard", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: bizName,
           slug: bizSlug.toLowerCase().trim().replace(/[^a-z0-9-_]/g, ""),

@@ -9,8 +9,9 @@ export async function GET(
   const { searchParams } = new URL(request.url);
   const search = searchParams.get("search")?.trim();
 
-  const business = await prisma.business.findUnique({
-    where: { slug },
+  // Find business by id or slug
+  let business = await prisma.business.findFirst({
+    where: { OR: [{ id: slug }, { slug: slug }] },
     include: {
       categories: {
         where: { isActive: true },
@@ -39,6 +40,20 @@ export async function GET(
 
   if (!business || !business.isActive) {
     return NextResponse.json({ error: "Бизнес не найден" }, { status: 404 });
+  }
+
+  // Auto-create "Основное" category if no active categories exist
+  if (business.categories.length === 0) {
+    const defaultCategory = await prisma.category.create({
+      data: {
+        businessId: business.id,
+        name: "Основное",
+        isActive: true,
+        sortOrder: 0,
+      },
+    });
+    // Assign created category back to the business categories list
+    (business as any).categories = [{ ...defaultCategory, items: [] }];
   }
 
   return NextResponse.json({

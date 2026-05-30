@@ -7,9 +7,10 @@ import { PhoneVerificationScreen } from "./PhoneVerificationScreen";
 interface ClientProfileProps {
   session: any;
   onRefreshSession: () => void;
+  onSwitchMode?: (mode: "CUSTOMER" | "SELLER" | "MANAGER" | "SUPER_ADMIN") => void;
 }
 
-export function ClientProfile({ session, onRefreshSession }: ClientProfileProps) {
+export function ClientProfile({ session, onRefreshSession, onSwitchMode }: ClientProfileProps) {
   const [showVerifyModal, setShowVerifyModal] = useState(false);
 
   const customer = session?.customer || {};
@@ -86,6 +87,56 @@ export function ClientProfile({ session, onRefreshSession }: ClientProfileProps)
           </div>
         )}
       </div>
+
+      {/* Admin Panel Access for Privileged Roles */}
+      {onSwitchMode && (session?.role === "BUSINESS_OWNER" || session?.role === "SUPER_ADMIN" || session?.role === "MANAGER") && (
+        <div className="mb-5 rounded-3xl bg-slate-900 p-5 text-white shadow-xl shadow-slate-950/20 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🛡️</span>
+            <div>
+              <h4 className="text-xs font-black uppercase tracking-wider text-indigo-400">Панель управления</h4>
+              <p className="text-[10px] text-slate-400 font-semibold mt-0.5">Вам доступны инструменты управления заведениями</p>
+            </div>
+          </div>
+          
+          <div className="grid gap-2 text-xs font-bold text-slate-900 pt-1">
+            {session.role === "BUSINESS_OWNER" && (
+              <button
+                onClick={() => onSwitchMode("SELLER")}
+                className="w-full rounded-2xl bg-white hover:bg-slate-100 py-3 text-center transition active:scale-95 shadow-sm"
+              >
+                💼 Управление бизнесом (Продавец)
+              </button>
+            )}
+
+            {session.role === "MANAGER" && (
+              <button
+                onClick={() => onSwitchMode("MANAGER")}
+                className="w-full rounded-2xl bg-white hover:bg-slate-100 py-3 text-center transition active:scale-95 shadow-sm"
+              >
+                📋 Рабочая панель менеджера
+              </button>
+            )}
+
+            {session.role === "SUPER_ADMIN" && (
+              <>
+                <button
+                  onClick={() => onSwitchMode("SELLER")}
+                  className="w-full rounded-2xl bg-white hover:bg-slate-100 py-3 text-center transition active:scale-95 shadow-sm"
+                >
+                  💼 Управление бизнесом (как Admin)
+                </button>
+                <button
+                  onClick={() => onSwitchMode("SUPER_ADMIN")}
+                  className="w-full rounded-2xl bg-amber-400 hover:bg-amber-300 py-3 text-center transition active:scale-95 shadow-sm"
+                >
+                  👑 SaaS Панель Администратора
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Safety info card */}
       <div className="rounded-3xl bg-white p-4.5 ring-1 ring-slate-100/90 text-xs text-slate-500 space-y-3">

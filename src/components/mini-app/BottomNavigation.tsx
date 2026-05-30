@@ -34,7 +34,7 @@ export function BottomNavigation({
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-border max-w-md mx-auto shadow-lg">
+    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-border max-w-md mx-auto shadow-lg pb-safe">
       <div className="flex justify-around">
         {links.map((link) => {
           const isActive =
@@ -47,7 +47,7 @@ export function BottomNavigation({
               key={link.href}
               href={link.href}
               className={cn(
-                "flex-1 flex flex-col items-center justify-center gap-0.5 py-2 px-1 text-xs font-medium transition-colors relative",
+                "flex-1 flex flex-col items-center justify-center gap-0.5 py-2.5 px-1 text-xs font-medium transition-colors relative",
                 isActive ? "text-white" : "text-muted-foreground hover:text-foreground"
               )}
               style={{

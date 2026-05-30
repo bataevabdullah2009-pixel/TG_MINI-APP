@@ -37,6 +37,7 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
   const [pcPrice, setPcPrice] = useState("");
   const [pcCategory, setPcCategory] = useState(categories[0]?.id || "");
   const [pcImage, setPcImage] = useState("");
+  const [showAiCategoryBottomSheet, setShowAiCategoryBottomSheet] = useState(false);
 
   useEffect(() => {
     if (categories.length > 0 && !pcCategory) {
@@ -70,6 +71,8 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
       ? `Создай карточку товара. Название: ${pcName}, Описание: ${pcDesc}, Цена: ${pcPrice} ₽. Категория: ${pcCategory}.`
       : prompt;
 
+    const targetFeature = activeSubTab === "product_card" ? "product_description" : activeSubTab;
+
     try {
       const initData = typeof window !== "undefined" ? (window as any).Telegram?.WebApp?.initData : "";
       const res = await fetch("/api/admin/ai/generate", {
@@ -81,10 +84,15 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
         body: JSON.stringify({
           businessId,
           prompt: targetPrompt,
-          feature: activeSubTab,
+          feature: targetFeature,
           tone,
         }),
       });
+
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("text/html")) {
+        throw new Error("API route не найден или вернул HTML");
+      }
 
       const data = await res.json();
       if (!res.ok) {
@@ -92,20 +100,14 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
       }
 
       if (activeSubTab === "product_card") {
-        // Parse simulated product card response or build parsed structure
-        // If content is just plain text, format it beautifully
-        const contentStr = data.content || "";
-        
-        // Simulating parsing of ИИ-карточка
-        const lines = contentStr.split("\n");
         const parsed = {
-          name: pcName,
+          name: data.name || pcName,
           price: parseFloat(pcPrice),
           category: pcCategory,
-          description: contentStr,
-          telegramPost: `✨ **${pcName}**\n\n${pcDesc || "Новинка в нашем ассортименте!"}\n\n💳 Цена: ${pcPrice} ₽\n\nЗаказывайте прямо в нашем боте! 🚀`,
-          shortCopy: `Закажите ${pcName} всего за ${pcPrice} ₽! Свежий и вкусный выбор на сегодня.`,
-          tags: ["новинка", businessType.toLowerCase(), pcName.toLowerCase().replace(/[^a-zа-яё0-9]/gi, "")],
+          description: data.description || data.content || "",
+          telegramPost: data.marketingText || `✨ **${data.name || pcName}**\n\n${data.description || "Новинка!"}\n\n💳 Цена: ${pcPrice} ₽\n\nЗаказывайте прямо в нашем боте! 🚀`,
+          shortCopy: data.marketingText ? data.marketingText.slice(0, 80) : `Закажите ${data.name || pcName} всего за ${pcPrice} ₽!`,
+          tags: data.tags || ["новинка", businessType.toLowerCase()],
           hallucinationAlert: pcPrice ? null : "ИИ не нашел точную цену товара, будьте аккуратны!",
         };
         setGeneratedResult(parsed);
@@ -194,7 +196,8 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
   };
 
   return (
-    <div className="space-y-4">
+    <>
+      <div className="space-y-4">
       {/* Alert Notifications */}
       {error && (
         <div className="flex items-start gap-2.5 rounded-2xl bg-rose-50 p-3.5 text-xs font-semibold text-rose-700 ring-1 ring-rose-200/60">
@@ -289,15 +292,16 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
                   Категория *
                 </label>
-                <select
-                  value={pcCategory}
-                  onChange={(e) => setPcCategory(e.target.value)}
-                  className="w-full text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none cursor-pointer"
+                <button
+                  type="button"
+                  onClick={() => setShowAiCategoryBottomSheet(true)}
+                  className="w-full text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none text-left flex justify-between items-center cursor-pointer"
                 >
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                  <span className="truncate">
+                    {categories.find((c: any) => c.id === pcCategory)?.name || "Выбрать категорию"}
+                  </span>
+                  <span className="text-slate-400 text-[10px]">▼</span>
+                </button>
               </div>
             </div>
 
@@ -472,5 +476,58 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
         </div>
       )}
     </div>
+
+    {/* Custom Premium Category Picker Bottom Sheet */}
+    {showAiCategoryBottomSheet && (
+      <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-300">
+        <div className="absolute inset-0" onClick={() => setShowAiCategoryBottomSheet(false)} />
+        <div className="relative w-full max-w-[480px] bg-white rounded-t-[32px] p-6 space-y-4 shadow-2xl pb-10">
+          <div className="flex justify-between items-center pb-2 border-b">
+            <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Выберите категорию</h4>
+            <button
+              onClick={() => setShowAiCategoryBottomSheet(false)}
+              className="text-[10px] font-black text-slate-400 hover:text-slate-800"
+            >
+              Закрыть
+            </button>
+          </div>
+          
+          <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1 no-scrollbar">
+            {categories.length === 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setPcCategory("");
+                  setShowAiCategoryBottomSheet(false);
+                }}
+                className="w-full text-left p-3.5 rounded-2xl bg-indigo-50 border border-indigo-200 text-xs font-bold text-indigo-700"
+              >
+                • Основное (будет создано автоматически)
+              </button>
+            ) : (
+              categories.map((c: any) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => {
+                    setPcCategory(c.id);
+                    setShowAiCategoryBottomSheet(false);
+                  }}
+                  className={`w-full text-left p-3.5 rounded-2xl text-xs font-bold transition flex justify-between items-center ${
+                    pcCategory === c.id
+                      ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10"
+                      : "bg-slate-50 hover:bg-slate-100 text-slate-805 border border-slate-100"
+                  }`}
+                >
+                  <span>{c.name}</span>
+                  {pcCategory === c.id && <span>✓</span>}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

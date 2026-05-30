@@ -289,7 +289,7 @@ export default function MarketplacePage() {
     <main className="w-full max-w-[480px] mx-auto min-h-[100dvh] bg-slate-50 text-slate-900 flex flex-col justify-between relative pb-24 overflow-x-hidden shadow-sm">
       
       {/* 1. UPPER ROLE SWITCHER (For Seller / Super Admin / Manager roles to switch back to Marketplace client catalog) */}
-      {(session?.role === "BUSINESS_OWNER" || session?.role === "SUPER_ADMIN" || session?.role === "MANAGER") && (
+      {(session?.role === "BUSINESS_OWNER" || session?.role === "SUPER_ADMIN" || session?.role === "MANAGER") && activeWorkspaceMode !== "CUSTOMER" && (
         <div className="sticky top-0 z-40 bg-slate-900 text-white px-3 py-2 border-b border-slate-800 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between shadow-md">
           <span className="text-[10px] font-black text-indigo-400 tracking-wider uppercase">
             {session.role === "SUPER_ADMIN" ? "Администратор" : session.role === "BUSINESS_OWNER" ? "Владелец бизнеса" : "Управляющий"}
@@ -298,7 +298,7 @@ export default function MarketplacePage() {
             <button
               onClick={() => setActiveWorkspaceMode("CUSTOMER")}
               className={`rounded-lg px-2.5 py-1.5 transition shrink-0 ${
-                activeWorkspaceMode === "CUSTOMER" ? "bg-indigo-600 text-white" : "bg-white/10 text-slate-300"
+                (activeWorkspaceMode as string) === "CUSTOMER" ? "bg-indigo-600 text-white" : "bg-white/10 text-slate-300"
               }`}
             >
               Каталог
@@ -403,6 +403,7 @@ export default function MarketplacePage() {
               <ClientProfile
                 session={session}
                 onRefreshSession={() => resolveUserSession(mockInitData || (window as any).Telegram?.WebApp?.initData || "")}
+                onSwitchMode={setActiveWorkspaceMode}
               />
             )}
           </>
@@ -547,7 +548,7 @@ export default function MarketplacePage() {
 
       {/* 3. LOWER NAVIGATION TAB BAR (Only renders in customer/client view mode) */}
       {activeWorkspaceMode === "CUSTOMER" && (
-        <nav className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-3xl border-t border-slate-200 bg-white/95 px-4 py-2 backdrop-blur shadow-lg">
+        <nav className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-3xl border-t border-slate-200 bg-white/95 px-4 pt-2 pb-3 pb-safe backdrop-blur shadow-lg">
           <div className="grid grid-cols-4 text-center text-[10px] font-black text-slate-400">
             <button
               onClick={() => setActiveClientTab("HOME")}
