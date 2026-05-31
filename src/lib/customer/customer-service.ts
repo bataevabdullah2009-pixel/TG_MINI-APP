@@ -32,6 +32,7 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
     username: input.username,
     firstName: input.firstName,
     lastName: input.lastName,
+    phone: input.phone,
   });
 
   // Normalize phone number

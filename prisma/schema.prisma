@@ -99,6 +99,7 @@ model User {
   email             String?    @unique
   password          String?
   name              String?
+  phone             String?
   telegramId        BigInt?    @unique
   username          String?
   telegramLinkCode  String?    @unique
@@ -179,6 +180,7 @@ model Business {
   aiMonthlyLimit    Int?          @default(300)
   
   isActive          Boolean       @default(true)
+  isDemo            Boolean       @default(false)
   
   // Relations
   owner             User?      @relation("BusinessOwner", fields: [ownerId], references: [id])
@@ -208,6 +210,7 @@ model Business {
   @@index([slug])
   @@index([templateKey])
   @@index([subscriptionStatus])
+  @@index([isDemo])
 }
 
 model BusinessTemplate {

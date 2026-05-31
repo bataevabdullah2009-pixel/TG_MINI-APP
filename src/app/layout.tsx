@@ -4,6 +4,10 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "TelebiznezHub - Telegram Mini App Platform",
   description: "White-label Telegram Mini App platform for local businesses",
+  icons: {
+    icon: "/logo.svg",
+    apple: "/icon-192.png",
+  },
 };
 
 export default function RootLayout({

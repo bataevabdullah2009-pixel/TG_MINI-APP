@@ -5,6 +5,7 @@ export interface EnsureTelegramUserInput {
   username?: string | null;
   firstName?: string | null;
   lastName?: string | null;
+  phone?: string | null;
 }
 
 export async function ensureTelegramUser(input: EnsureTelegramUserInput) {
@@ -23,6 +24,7 @@ export async function ensureTelegramUser(input: EnsureTelegramUserInput) {
       data: {
         username: input.username || existing.username,
         name: name || existing.name,
+        phone: input.phone || existing.phone,
       },
     });
   }
@@ -33,6 +35,7 @@ export async function ensureTelegramUser(input: EnsureTelegramUserInput) {
       telegramId: telegramIdBigInt,
       username: input.username || null,
       name: name || null,
+      phone: input.phone || null,
       role: "CUSTOMER",
     },
   });

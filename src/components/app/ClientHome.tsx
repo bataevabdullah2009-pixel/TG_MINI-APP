@@ -69,9 +69,12 @@ export function ClientHome({
       {/* Top Banner */}
       <section className="rounded-b-[32px] bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 px-5 pb-8 pt-6 text-white shadow-xl shadow-slate-950/20">
         <div className="mx-auto max-w-3xl">
-          <div className="mb-4">
+          <div className="mb-4 flex items-center gap-3">
+            <img src="/logo.svg" alt="" className="h-12 w-12 rounded-2xl shadow-lg shadow-indigo-950/20" />
+            <div>
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">Платформа Mini App</p>
             <h1 className="text-3xl font-black tracking-tight mt-0.5">SmartBiz AI</h1>
+            </div>
           </div>
 
           <label className="flex items-center gap-3 rounded-2xl bg-white/10 px-4 py-3.5 ring-1 ring-white/15 backdrop-blur-md focus-within:ring-white/30 transition">

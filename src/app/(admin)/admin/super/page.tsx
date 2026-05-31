@@ -137,9 +137,7 @@ export default function SuperAdminDashboard() {
       {/* Top Navigation */}
       <header className="relative z-10 max-w-7xl mx-auto px-6 py-5 flex items-center justify-between border-b border-slate-900/60">
         <div className="flex items-center gap-3">
-          <span className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-cyan-400 p-0.5 shadow-md shadow-indigo-500/20 flex items-center justify-center text-xl font-bold">
-            👑
-          </span>
+          <img src="/logo.svg" alt="" className="w-10 h-10 rounded-xl shadow-md shadow-indigo-500/20" />
           <div>
             <span className="text-base font-black tracking-tight block">
               SmartBiz SaaS

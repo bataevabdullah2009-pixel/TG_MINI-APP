@@ -50,6 +50,7 @@ export async function POST(request: NextRequest) {
         username: from.username,
         firstName: from.first_name,
         lastName: from.last_name,
+        phone,
       });
 
       // 2. Ensure Customer exists
@@ -71,6 +72,10 @@ export async function POST(request: NextRequest) {
           phoneVerified: true,
           verificationMethod: "telegram_contact",
         },
+      });
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { phone },
       });
 
       await telegramBot.sendNotification(chatId, "✅ Номер подтверждён. Теперь можно оформлять заказы и записи.");

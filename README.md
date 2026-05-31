@@ -30,6 +30,21 @@ Direct Bot API check:
 https://api.telegram.org/bot<TOKEN>/getWebhookInfo
 ```
 
+## MVP Stabilization Notes
+
+- Production media uploads use Supabase Storage instead of local `public/uploads` writes.
+- Required buckets: `business-media`, `product-images`, `business-covers`.
+- New seller onboarding flow: create business in Super Admin, set Telegram ID or share `/link CODE`, then seller opens the Mini App seller panel.
+- Phone verification now refreshes profile status automatically after Telegram contact sharing and keeps a manual status check button.
+- Demo businesses are marked with `isDemo=true` and can be hidden from regular production catalog views.
+
+Required Supabase env:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL="https://your-project.supabase.co"
+NEXT_PUBLIC_SUPABASE_ANON_KEY="your_supabase_anon_key"
+SUPABASE_SERVICE_ROLE_KEY="your_supabase_service_role_key"
+```
 White-label SaaS платформа для создания Telegram Mini App бизнесом. Один код - много бизнесов.
 
 ## 🚀 Возможности

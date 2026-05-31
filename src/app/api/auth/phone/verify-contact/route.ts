@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getTelegramSessionUser } from "@/lib/auth-telegram";
 import { PhoneVerificationService } from "@/lib/phone/phone-verification-service";
+import { prisma } from "@/lib/prisma";
 
 export async function POST(req: Request) {
   try {
@@ -23,7 +24,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: res.error || "Не удалось сохранить телефон." }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true });
+    if (session.adminUser?.id) {
+      await prisma.user.update({
+        where: { id: session.adminUser.id },
+        data: { phone },
+      });
+    }
+
+    return NextResponse.json({ ok: true, phone });
   } catch (e: any) {
     console.error("[verify-contact api error]", e);
     return NextResponse.json({ ok: false, error: e.message }, { status: 500 });

@@ -23,9 +23,11 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const telegramUserId = searchParams.get("telegramUserId");
+    const superAdmin = isSuperAdmin(telegramUserId);
+    const hideDemo = process.env.NODE_ENV === "production" && !superAdmin;
 
     const businesses = await prisma.business.findMany({
-      where: { isActive: true },
+      where: { isActive: true, ...(hideDemo ? { isDemo: false } : {}) },
       select: {
         id: true,
         slug: true,
@@ -37,6 +39,7 @@ export async function GET(request: NextRequest) {
         address: true,
         primaryColor: true,
         accentColor: true,
+        isDemo: true,
         _count: { select: { orders: true, bookings: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -45,7 +48,7 @@ export async function GET(request: NextRequest) {
     const isDbEmpty = businesses.length === 0;
 
     return NextResponse.json({
-      isSuperAdmin: isSuperAdmin(telegramUserId),
+      isSuperAdmin: superAdmin,
       isDbEmpty,
       businesses: businesses.map((business) => ({
         ...business,
@@ -53,14 +56,17 @@ export async function GET(request: NextRequest) {
         rating: 4.8,
         isOpen: true,
       })),
-      message: isDbEmpty ? "База подключена, но демо-данные не загружены" : undefined
+      message: isDbEmpty ? "База подключена, но данные не загружены" : undefined,
     });
   } catch (error: any) {
-    console.error("❌ Database Connection Error in Marketplace:", error);
-    return NextResponse.json({
-      error: "Не удалось подключиться к базе данных. Пожалуйста, проверьте настройки подключения в панели Vercel.",
-      businesses: [],
-      isDbEmpty: true
-    }, { status: 500 });
+    console.error("Database Connection Error in Marketplace:", error);
+    return NextResponse.json(
+      {
+        error: "Не удалось подключиться к базе данных. Проверьте настройки подключения в Vercel.",
+        businesses: [],
+        isDbEmpty: true,
+      },
+      { status: 500 }
+    );
   }
 }

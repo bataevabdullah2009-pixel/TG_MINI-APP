@@ -72,3 +72,5 @@ export async function PATCH(request: NextRequest) {
     return jsonError("Не удалось сохранить настройки бизнеса.", 500);
   }
 }
+
+export const PUT = PATCH;
