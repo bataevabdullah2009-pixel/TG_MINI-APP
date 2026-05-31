@@ -143,10 +143,10 @@ export default function AdminSettingsPage() {
 
   if (isManager) {
     return (
-      <AccessDeniedScreen 
-        backUrl="/admin" 
-        backText="Вернуться в панель" 
-        description="Менеджеры не могут изменять настройки, slug или конфигурации оплаты бизнеса." 
+      <AccessDeniedScreen
+        backUrl="/admin"
+        backText="Вернуться в панель"
+        description="Менеджеры не могут изменять настройки, slug или конфигурации оплаты бизнеса."
       />
     );
   }
@@ -304,4 +304,3 @@ function UploadBox({ title, url, onFile }: { title: string; url: string; onFile:
     </div>
   );
 }
-

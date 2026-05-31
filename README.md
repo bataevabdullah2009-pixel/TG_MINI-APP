@@ -1,5 +1,35 @@
 # TelebiznezHub - Telegram Mini App Platform
 
+## Production Telegram URLs
+
+Telegram Mini App routing is production-domain only:
+
+- Mini App button: `NEXT_PUBLIC_APP_URL + /app`
+- Business page: `/app/[slug]`
+- Webhook: `TELEGRAM_WEBHOOK_URL` or `NEXT_PUBLIC_APP_URL + /api/telegram/webhook`
+
+Set these variables in Vercel before deploy:
+
+```env
+NEXT_PUBLIC_APP_URL=https://production-domain.vercel.app
+NEXT_PUBLIC_WEBAPP_URL=https://production-domain.vercel.app/app
+TELEGRAM_WEBHOOK_URL=https://production-domain.vercel.app/api/telegram/webhook
+```
+
+Production must not use ngrok, localhost, or 127.0.0.1 for Telegram buttons or webhooks. Check Telegram state with:
+
+```bash
+npm run telegram:webhook:info
+npm run telegram:webhook:set
+npm run telegram:webhook:delete
+```
+
+Direct Bot API check:
+
+```text
+https://api.telegram.org/bot<TOKEN>/getWebhookInfo
+```
+
 White-label SaaS платформа для создания Telegram Mini App бизнесом. Один код - много бизнесов.
 
 ## 🚀 Возможности
@@ -407,64 +437,38 @@ TelebiznezHub Team
 
 ---
 
-## 🛠️ Инструкция по локальному запуску и настройке Telegram-бота
+## 🛠️ Инструкция по production-настройке Telegram-бота
 
-Чтобы запустить проект локально с полноценной поддержкой Telegram WebApp, выполните следующие шаги:
+Telegram должен открывать Mini App только на production-домене.
 
-### 1. Локальный запуск проекта
-Запустите сервер разработки Next.js:
-```bash
-npm run dev
-```
-По умолчанию приложение будет доступно на `http://localhost:3000`.
+### 1. Env
 
-### 2. Настройка туннелирования через ngrok
-Для того чтобы Telegram мог отправлять вебхуки и открывать Mini App по безопасному HTTPS-адресу, запустите `ngrok`:
-```bash
-ngrok http 3000
-```
-После запуска скопируйте предоставленный HTTPS-адрес (например, `https://a1b2-34-56-78.ngrok-free.app`).
-
-### 3. Обновление `.env`
-Внесите следующие изменения в файл `.env` в корне проекта:
 ```env
-# Базовый URL для клиента
-NEXT_PUBLIC_APP_URL="https://a1b2-34-56-78.ngrok-free.app"
-
-# Вебхук для Telegram (должен вести на /api/telegram/webhook)
-TELEGRAM_WEBHOOK_URL="https://a1b2-34-56-78.ngrok-free.app/api/telegram/webhook"
-```
-Перезапустите Next.js сервер (`npm run dev`), чтобы новые переменные окружения вступили в силу.
-
-### 4. Регистрация вебхука в Telegram
-Откройте браузер и перейдите по адресу:
-`https://a1b2-34-56-78.ngrok-free.app/api/telegram/set-webhook`
-
-Должен вернуться JSON-ответ с успешным результатом:
-```json
-{
-  "ok": true,
-  "result": true,
-  "description": "Webhook was set"
-}
+NEXT_PUBLIC_APP_URL=https://production-domain.vercel.app
+NEXT_PUBLIC_WEBAPP_URL=https://production-domain.vercel.app/app
+TELEGRAM_WEBHOOK_URL=https://production-domain.vercel.app/api/telegram/webhook
 ```
 
-### 5. Настройка кнопки Menu Button в BotFather
-Чтобы клиенты могли открывать ваше Mini App прямо из чата с ботом одной кнопкой:
-1. Напишите боту [@BotFather](https://t.me/BotFather) в Telegram.
-2. Отправьте команду `/newapp` для создания приложения Mini App или настройте кнопку меню.
-3. Чтобы настроить кнопку меню существующего бота, отправьте `/mybots` и выберите вашего бота.
-4. Перейдите в **Bot Settings** -> **Menu Button** -> **Configure Menu Button**.
-5. Укажите тип кнопки: **WebApp**.
-6. Введите название кнопки (например, `🏪 Заказать / Записаться`).
-7. Введите HTTPS-ссылку на ваше заведение (например, `https://a1b2-34-56-78.ngrok-free.app/demo-cafe`).
-8. Сохраните изменения. Теперь у пользователей в чате с ботом слева внизу появится кнопка открытия Mini App!
+### 2. Webhook
 
-### 🌍 Настройка URL после деплоя (Production / Vercel Staging)
-Когда вы выкатываете проект на реальный сервер или Vercel Staging:
-1. **Переменные окружения:** В панели управления Vercel / вашего хостинга обновите переменную `NEXT_PUBLIC_APP_URL`, установив адрес вашего развернутого сайта (например, `https://smartbiz-staging.vercel.app`).
-2. **В BotFather:** Настройте Menu Button вашего бота через BotFather, изменив старый локальный/ngrok адрес на новый продакшн адрес с указанием нужного слага заведения (например, `https://smartbiz-staging.vercel.app/demo-cafe`).
-3. **Регистрация Webhook:** Для каждого подключенного бота в настройках кабинета продавца (`/admin/settings`) нажмите кнопку **«🔗 Подключить Telegram Webhook»**. Привязка выполнится автоматически к вашему новому рабочему домену, и бот мгновенно перенастроится на новый рабочий сервер.
+```bash
+npm run telegram:webhook:info
+npm run telegram:webhook:set
+npm run telegram:webhook:delete
+```
 
-**Готово к запуску! 🚀**
+Прямая проверка:
 
+```text
+https://api.telegram.org/bot<TOKEN>/getWebhookInfo
+```
+
+### 3. BotFather Menu Button
+
+Укажите WebApp URL:
+
+```text
+https://production-domain.vercel.app/app
+```
+
+`/app` открывает общий каталог SmartBiz AI. Конкретные бизнесы открываются только по `/app/[slug]` после выбора из каталога.

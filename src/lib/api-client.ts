@@ -4,10 +4,10 @@ class ApiClient {
   private client: AxiosInstance;
 
   constructor(baseURL?: string) {
-    let resolvedBaseURL = baseURL || process.env.NEXT_PUBLIC_APP_URL || "https://tg-mini-app-two-ruby.vercel.app";
-    if (typeof window !== "undefined") {
-      resolvedBaseURL = window.location.origin;
-    }
+    const resolvedBaseURL =
+      baseURL ||
+      (typeof window !== "undefined" ? "" : process.env.NEXT_PUBLIC_APP_URL || "");
+
     this.client = axios.create({
       baseURL: `${resolvedBaseURL}/api`,
       timeout: 10000,

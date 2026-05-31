@@ -22,7 +22,7 @@ export class OpenRouterProvider implements AIProvider {
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${this.apiKey}`,
-        "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "https://tg-mini-app-two-ruby.vercel.app",
+        "HTTP-Referer": process.env.OPENROUTER_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || "https://production-domain.vercel.app",
         "X-OpenRouter-Title": process.env.OPENROUTER_SITE_NAME || "LocalAI Systems",
       },
       body: JSON.stringify({
