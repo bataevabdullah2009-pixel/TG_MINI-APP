@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { telegramBot } from "@/lib/telegram-bot-service";
+import { getAppBaseUrl } from "@/lib/production-url";
 
 const orderStatusRu: Record<string, string> = {
   NEW: "Новый",
@@ -20,8 +21,7 @@ const bookingStatusRu: Record<string, string> = {
 };
 
 function adminUrl(path: string) {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  return `${baseUrl}${path}`;
+  return `${getAppBaseUrl()}${path}`;
 }
 
 function formatDateTime(date: Date) {

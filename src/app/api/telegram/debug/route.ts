@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getMiniAppUrl, getTelegramWebhookUrl } from "@/lib/production-url";
 
 export async function GET(request: NextRequest) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -19,6 +20,7 @@ export async function GET(request: NextRequest) {
     TELEGRAM_BOT_USERNAME: process.env.TELEGRAM_BOT_USERNAME || null,
     NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || null,
     NEXT_PUBLIC_WEBAPP_URL: process.env.NEXT_PUBLIC_WEBAPP_URL || null,
+    miniAppUrl: botTokenExists ? getMiniAppUrl() : null,
     TELEGRAM_WEBHOOK_URL: process.env.TELEGRAM_WEBHOOK_URL || null,
     webhookInfo,
   });
@@ -31,8 +33,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: "TELEGRAM_BOT_TOKEN is missing in .env" }, { status: 400 });
     }
 
-    const origin = request.nextUrl.origin;
-    const webhookUrl = `${origin}/api/telegram/webhook`;
+    const webhookUrl = getTelegramWebhookUrl();
 
     console.log(`Setting platform Telegram webhook to: ${webhookUrl}`);
 

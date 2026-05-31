@@ -4,6 +4,7 @@ import { telegramBot } from "@/lib/telegram-bot-service";
 import { AIService } from "@/lib/ai/ai-service";
 import { ensureTelegramUser } from "@/lib/auth/telegram-user-service";
 import { ensureCustomerForTelegramUser } from "@/lib/customer/customer-service";
+import { getMiniAppUrl } from "@/lib/production-url";
 
 export async function POST(request: NextRequest) {
   console.log("webhook received");
@@ -86,10 +87,10 @@ export async function POST(request: NextRequest) {
 
     if (command === "/start") {
       const payload = text.split(" ")[1]?.trim();
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_WEBAPP_URL || "http://localhost:3000";
+      const miniAppUrl = getMiniAppUrl();
       
       // Determine target URL for the Mini App
-      let targetUrl = `${appUrl}/app`;
+      let targetUrl = miniAppUrl;
       let buttonText = "Открыть SmartBiz";
       let message = "Добро пожаловать в SmartBiz AI! 🚀\n\nНажмите на кнопку ниже, чтобы открыть наш Mini App...";
 
@@ -99,15 +100,15 @@ export async function POST(request: NextRequest) {
         .filter(Boolean);
 
       if (payload === "seller") {
-        targetUrl = `${appUrl}/app?mode=seller`;
+        targetUrl = `${miniAppUrl}?mode=seller`;
         buttonText = "Панель продавца";
         message = "Добро пожаловать в Панель управления продавца! 💼\n\nНажмите на кнопку ниже, чтобы открыть ваш кабинет...";
       } else if (payload === "admin" && superAdminIds.includes(from.id.toString())) {
-        targetUrl = `${appUrl}/app?mode=super`;
+        targetUrl = `${miniAppUrl}?mode=super`;
         buttonText = "SaaS Панель";
         message = "Добро пожаловать в SaaS Панель управления! 👑\n\nНажмите на кнопку ниже, чтобы открыть кабинет...";
       } else if (payload === "demo-cafe" || payload === "cafe") {
-        targetUrl = `${appUrl}/app/demo-cafe`;
+        targetUrl = miniAppUrl;
         buttonText = "Открыть Demo Cafe";
         message = "Добро пожаловать в <b>Demo Cafe</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.";
       } else if (payload) {
@@ -130,7 +131,7 @@ export async function POST(request: NextRequest) {
                 telegramLinkExpiresAt: null,
               },
             });
-            targetUrl = `${appUrl}/app?mode=seller`;
+            targetUrl = `${miniAppUrl}?mode=seller`;
             buttonText = "💼 Панель продавца";
             message = `✅ <b>Успешно привязано!</b>\n\nВы привязали аккаунт продавца <b>${ownerUser.email}</b>.\nТеперь вы можете управлять вашим бизнесом прямо внутри Telegram Mini App!`;
           }
@@ -140,19 +141,23 @@ export async function POST(request: NextRequest) {
           });
           if (targetBusiness) {
             business = targetBusiness;
-            targetUrl = `${appUrl}/app/${targetBusiness.slug}`;
+            targetUrl = miniAppUrl;
             buttonText = `Открыть ${targetBusiness.name}`;
             message = `Добро пожаловать в <b>${targetBusiness.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
           } else {
-            targetUrl = `${appUrl}/app/${payload}`;
+            targetUrl = miniAppUrl;
             buttonText = "Открыть Mini App";
             message = "Добро пожаловать! Откройте заведение в Mini App.";
           }
         }
       } else if (business) {
-        targetUrl = `${appUrl}/app/${business.slug}`;
+        targetUrl = miniAppUrl;
         buttonText = `Открыть ${business.name}`;
         message = `Добро пожаловать в <b>${business.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
+      }
+
+      if (targetUrl === miniAppUrl) {
+        buttonText = "Открыть SmartBiz";
       }
 
       // Upsert Customer to ensure they exist in relation to this business
@@ -229,7 +234,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_WEBAPP_URL || "http://localhost:3000";
+      const miniAppUrl = getMiniAppUrl();
 
       await telegramBot.sendNotification(
         chatId,
@@ -237,7 +242,7 @@ export async function POST(request: NextRequest) {
         {
           parse_mode: "HTML",
           reply_markup: {
-            inline_keyboard: [[{ text: "💼 Панель продавца", web_app: { url: `${appUrl}/app?mode=seller` } }]],
+            inline_keyboard: [[{ text: "💼 Панель продавца", web_app: { url: `${miniAppUrl}?mode=seller` } }]],
           },
         }
       );

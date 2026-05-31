@@ -12,7 +12,11 @@
     "db:generate": "prisma generate",
     "db:seed": "ts-node --project prisma/tsconfig.seed.json prisma/seed.ts",
     "db:studio": "prisma studio",
-    "type-check": "tsc --noEmit"
+    "telegram:webhook:info": "node scripts/telegram-webhook.mjs info",
+    "telegram:webhook:set": "node scripts/telegram-webhook.mjs set",
+    "telegram:webhook:delete": "node scripts/telegram-webhook.mjs delete",
+    "type-check": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",
