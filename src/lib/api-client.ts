@@ -4,7 +4,7 @@ class ApiClient {
   private client: AxiosInstance;
 
   constructor(baseURL?: string) {
-    let resolvedBaseURL = baseURL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    let resolvedBaseURL = baseURL || process.env.NEXT_PUBLIC_APP_URL || "https://tg-mini-app-two-ruby.vercel.app";
     if (typeof window !== "undefined") {
       resolvedBaseURL = window.location.origin;
     }

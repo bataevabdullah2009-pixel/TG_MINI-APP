@@ -254,7 +254,7 @@ export default function AdminSettingsPage() {
                           Автоматическое подключение бота в 1 клик
                         </h4>
                         <p className="text-xs text-sky-850 mb-3 leading-relaxed">
-                          Нажмите кнопку ниже, чтобы привязать бота к вашему текущему ngrok/домену. Система мгновенно настроит Webhook на Telegram API, и бот начнёт отвечать!
+                          Нажмите кнопку ниже, чтобы привязать бота к вашему текущему домену. Система мгновенно настроит Webhook на Telegram API, и бот начнёт отвечать!
                         </p>
                         <button type="button" onClick={registerWebhook} disabled={webhookLoading} className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 hover:bg-sky-700 active:scale-[0.98] transition px-4 py-2.5 text-xs font-black text-white disabled:opacity-50">
                           {webhookLoading ? "Подключение..." : "🔗 Подключить Telegram Webhook"}

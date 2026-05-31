@@ -53,7 +53,7 @@ export class TelegramBotService {
 <b>Телефон:</b> ${customerPhone}
 <b>Сумма:</b> ${totalPrice} RUB
 
-<a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/admin/orders">Открыть в админке</a>
+<a href="${process.env.NEXT_PUBLIC_APP_URL || "https://tg-mini-app-two-ruby.vercel.app"}/admin/orders">Открыть в админке</a>
     `;
 
     await this.sendNotification(chatId, message);
@@ -75,7 +75,7 @@ export class TelegramBotService {
 <b>Услуга:</b> ${serviceName}
 <b>Время:</b> ${time}
 
-<a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/admin/bookings">Открыть в админке</a>
+<a href="${process.env.NEXT_PUBLIC_APP_URL || "https://tg-mini-app-two-ruby.vercel.app"}/admin/bookings">Открыть в админке</a>
     `;
 
     await this.sendNotification(chatId, message);
