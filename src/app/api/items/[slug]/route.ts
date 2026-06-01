@@ -13,6 +13,7 @@ export async function GET(
 
     const business = await prisma.business.findUnique({
       where: { slug },
+      select: { id: true },
     });
 
     if (!business) {

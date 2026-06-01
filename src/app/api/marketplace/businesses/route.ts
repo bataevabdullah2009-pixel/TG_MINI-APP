@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { isPrismaMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 const typeLabels: Record<string, string> = {
   CAFE: "Еда",
@@ -9,6 +10,20 @@ const typeLabels: Record<string, string> = {
   HARDWARE_STORE: "Хозмаг",
   CARWASH: "Автомойка",
 };
+
+const marketplaceBusinessSelect = {
+  id: true,
+  slug: true,
+  name: true,
+  type: true,
+  templateKey: true,
+  description: true,
+  logoUrl: true,
+  address: true,
+  primaryColor: true,
+  accentColor: true,
+  _count: { select: { orders: true, bookings: true } },
+} as const;
 
 function isSuperAdmin(telegramUserId: string | null) {
   if (!telegramUserId) return false;
@@ -26,24 +41,25 @@ export async function GET(request: NextRequest) {
     const superAdmin = isSuperAdmin(telegramUserId);
     const hideDemo = process.env.NODE_ENV === "production" && !superAdmin;
 
-    const businesses = await prisma.business.findMany({
-      where: { isActive: true, ...(hideDemo ? { isDemo: false } : {}) },
-      select: {
-        id: true,
-        slug: true,
-        name: true,
-        type: true,
-        templateKey: true,
-        description: true,
-        logoUrl: true,
-        address: true,
-        primaryColor: true,
-        accentColor: true,
-        isDemo: true,
-        _count: { select: { orders: true, bookings: true } },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    let businesses;
+    try {
+      businesses = await prisma.business.findMany({
+        where: { isActive: true, ...(hideDemo ? { isDemo: false } : {}) },
+        select: marketplaceBusinessSelect,
+        orderBy: { createdAt: "desc" },
+      });
+    } catch (error) {
+      if (!hideDemo || !isPrismaMissingColumnError(error, "Business", "isDemo")) {
+        throw error;
+      }
+
+      warnPrismaSchemaDrift("Marketplace loaded without Business.isDemo filter", error);
+      businesses = await prisma.business.findMany({
+        where: { isActive: true },
+        select: marketplaceBusinessSelect,
+        orderBy: { createdAt: "desc" },
+      });
+    }
 
     const isDbEmpty = businesses.length === 0;
 
@@ -58,15 +74,12 @@ export async function GET(request: NextRequest) {
       })),
       message: isDbEmpty ? "База подключена, но данные не загружены" : undefined,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Database Connection Error in Marketplace:", error);
-    return NextResponse.json(
-      {
-        error: "Не удалось подключиться к базе данных. Проверьте настройки подключения в Vercel.",
-        businesses: [],
-        isDbEmpty: true,
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      error: "Marketplace catalog is temporarily unavailable.",
+      businesses: [],
+      isDbEmpty: true,
+    });
   }
 }

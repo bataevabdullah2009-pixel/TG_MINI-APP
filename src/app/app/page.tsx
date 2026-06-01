@@ -114,15 +114,18 @@ export default function MarketplacePage() {
       .then((res) => res.json())
       .then((data) => {
         if (data.error) {
-          setError(data.error);
-        } else if (data.isDbEmpty) {
+          console.warn("[Marketplace] Catalog API returned a fallback response:", data.error);
+        } else if (data.isDbEmpty && data.showTechnicalError) {
           setError("База подключена, но демо-данные не загружены. Пожалуйста, посетите страницу /api/admin/super/seed в браузере для моментальной инициализации базы!");
         }
         setBusinesses(data.businesses || []);
       })
       .catch((err) => {
         console.error("Error loading businesses:", err);
-        setError("Не удалось подключиться к базе данных. Проверьте правильность DATABASE_URL и DIRECT_URL в панели Vercel.");
+        setBusinesses([]);
+        if ((err as any)?.showTechnicalError) {
+          setError("Не удалось подключиться к базе данных. Проверьте правильность DATABASE_URL и DIRECT_URL в панели Vercel.");
+        }
       });
   }, []);
 
@@ -158,8 +161,13 @@ export default function MarketplacePage() {
 
       setShowMockLogin(false);
     } catch (e: any) {
-      console.error(e);
-      setError(e.message || "Ошибка авторизации");
+      console.warn("[Telegram session] Profile is unavailable, continuing with catalog:", e);
+      setSession(null);
+      setActiveWorkspaceMode("CUSTOMER");
+      setShowMockLogin(false);
+      if ((e as any)?.showTechnicalError) {
+        setError(e.message || "Ошибка авторизации");
+      }
     } finally {
       setLoading(false);
     }

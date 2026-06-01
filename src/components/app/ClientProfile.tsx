@@ -32,6 +32,26 @@ export function ClientProfile({ session, onRefreshSession, onSwitchMode }: Clien
     return () => window.clearInterval(interval);
   }, [pollingUntil, isVerified, onRefreshSession]);
 
+  if (!session) {
+    return (
+      <div className="px-4 py-5 text-slate-900 pb-24">
+        <div className="rounded-3xl bg-white p-5 text-center ring-1 ring-slate-100">
+          <h1 className="text-lg font-black text-slate-900">Профиль временно недоступен</h1>
+          <p className="mt-2 text-xs font-semibold text-slate-500">
+            Каталог доступен. Обновите профиль после применения SQL-патча к базе.
+          </p>
+          <button
+            onClick={() => onRefreshSession()}
+            className="mt-4 w-full flex items-center justify-center gap-2 rounded-2xl bg-slate-900 py-3 text-xs font-black text-white hover:bg-indigo-600 transition active:scale-95"
+          >
+            <RefreshCw size={14} />
+            Обновить профиль
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const startVerificationFlow = () => {
     setShowVerifyModal(true);
     setPollingUntil(Date.now() + 20_000);

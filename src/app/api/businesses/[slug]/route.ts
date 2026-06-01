@@ -2,6 +2,51 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession, jsonError } from "@/lib/admin-auth";
 
+const businessDetailSelect = {
+  id: true,
+  slug: true,
+  name: true,
+  type: true,
+  templateKey: true,
+  description: true,
+  logoUrl: true,
+  coverImageUrl: true,
+  primaryColor: true,
+  secondaryColor: true,
+  backgroundColor: true,
+  accentColor: true,
+  phone: true,
+  email: true,
+  address: true,
+  latitude: true,
+  longitude: true,
+  telegramUrl: true,
+  whatsappUrl: true,
+  instagramUrl: true,
+  telegramBotUsername: true,
+  telegramUsername: true,
+  telegramAdminChatId: true,
+  currency: true,
+  language: true,
+  timezone: true,
+  subscriptionStatus: true,
+  subscriptionPlanId: true,
+  subscriptionStartDate: true,
+  subscriptionEndDate: true,
+  modulesEnabled: true,
+  aiProvider: true,
+  aiModel: true,
+  aiEnabled: true,
+  aiDailyLimit: true,
+  aiMonthlyLimit: true,
+  isActive: true,
+  ownerId: true,
+  createdAt: true,
+  updatedAt: true,
+  settings: true,
+  categories: { where: { isActive: true } },
+} as const;
+
 export async function GET(
   _request: NextRequest,
   context: { params: Promise<{ slug: string }> }
@@ -10,10 +55,7 @@ export async function GET(
     const { slug } = await context.params;
     const business = await prisma.business.findUnique({
       where: { slug },
-      include: {
-        settings: true,
-        categories: { where: { isActive: true } },
-      },
+      select: businessDetailSelect,
     });
 
     if (!business) {
@@ -43,6 +85,7 @@ export async function PATCH(
     const body = await request.json();
     const business = await prisma.business.findFirst({
       where: { OR: [{ id: slug }, { slug }] },
+      select: { id: true },
     });
 
     if (!business) return jsonError("Бизнес не найден.", 404);
@@ -62,7 +105,8 @@ export async function PATCH(
         ...(body.isDemo !== undefined ? { isDemo: Boolean(body.isDemo) } : {}),
         ...(body.ownerId !== undefined ? { ownerId: body.ownerId || null } : {}),
       },
-      include: {
+      select: {
+        ...businessDetailSelect,
         _count: { select: { orders: true, customers: true, items: true } },
       },
     });

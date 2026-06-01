@@ -85,7 +85,15 @@ export async function getAdminSession(request: NextRequest): Promise<AdminSessio
 
   const user = await prisma.user.findUnique({
     where: { id },
-    include: { business: true, ownedBusinesses: true },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      businessId: true,
+      isActive: true,
+      business: { select: { id: true, slug: true } },
+      ownedBusinesses: { select: { id: true, slug: true } },
+    },
   });
   if (!user || !user.isActive || user.role === "CUSTOMER") return null;
 

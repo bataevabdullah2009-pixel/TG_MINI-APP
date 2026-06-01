@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
 
     let businessId = undefined;
     if (businessSlug) {
-      const biz = await prisma.business.findUnique({ where: { slug: businessSlug } });
+      const biz = await prisma.business.findUnique({ where: { slug: businessSlug }, select: { id: true } });
       businessId = biz?.id;
     }
 
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error: any) {
     console.error("GET /api/customer/profile failed:", error);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Profile is temporarily unavailable." }, { status: 503 });
   }
 }
 
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
 
     let businessId = undefined;
     if (businessSlug) {
-      const biz = await prisma.business.findUnique({ where: { slug: businessSlug } });
+      const biz = await prisma.business.findUnique({ where: { slug: businessSlug }, select: { id: true } });
       businessId = biz?.id;
     }
 
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
       data: {
         phone: phone || session.customer.phone,
         name: name || session.customer.name,
-        ...(isNewPhone ? { phoneVerified: false, verificationMethod: null } : {}),
+        ...(isNewPhone ? { phoneVerified: false, verificationMethod: "none" } : {}),
       },
     });
 
@@ -79,6 +79,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: any) {
     console.error("POST /api/customer/profile failed:", error);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Profile is temporarily unavailable." }, { status: 503 });
   }
 }

@@ -81,6 +81,7 @@ export async function POST(request: NextRequest) {
 
     const business = await prisma.business.findFirst({
       where: { OR: [{ id: businessId }, { slug: businessId }] },
+      select: { id: true, isActive: true },
     });
     if (!business || !business.isActive) {
       return NextResponse.json({ error: "Business not found or inactive" }, { status: 404 });

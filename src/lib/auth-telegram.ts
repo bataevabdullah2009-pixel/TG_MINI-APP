@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import crypto from "crypto";
 import { ensureTelegramUser } from "./auth/telegram-user-service";
 import { ensureCustomerForTelegramUser } from "./customer/customer-service";
+import { isPrismaMissingColumnError, warnPrismaSchemaDrift } from "./prisma-schema-guard";
 
 export interface TelegramAuthUser {
   id: number;
@@ -60,7 +61,10 @@ export async function getTelegramSessionUser(initData: string, businessId?: stri
     
     // If businessId is specified, fetch its bot token for white-label validation
     if (businessId) {
-      const biz = await prisma.business.findUnique({ where: { id: businessId } });
+      const biz = await prisma.business.findUnique({
+        where: { id: businessId },
+        select: { telegramBotToken: true },
+      });
       if (biz?.telegramBotToken) {
         token = biz.telegramBotToken;
       }
@@ -86,20 +90,45 @@ export async function getTelegramSessionUser(initData: string, businessId?: stri
   // Check if there is an Admin/Seller User (which is the same User object, check its role)
   const adminUser = await prisma.user.findUnique({
     where: { telegramId: telegramUserId },
-    include: { business: true, ownedBusinesses: true },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      telegramId: true,
+      username: true,
+      role: true,
+      businessId: true,
+      isActive: true,
+      business: { select: { id: true, slug: true, name: true } },
+      ownedBusinesses: { select: { id: true, slug: true, name: true } },
+    },
   });
 
   // 2. Fetch or create a Customer record for this Telegram user in the scope of the business (if businessId is provided and not "global")
   let customer = null;
   const effectiveBusinessId = (businessId && businessId !== "global") ? businessId : null;
   
-  customer = await ensureCustomerForTelegramUser({
-    telegramId: telegramUserId,
-    username: tgUser.username,
-    firstName: tgUser.first_name,
-    lastName: tgUser.last_name,
-    businessId: effectiveBusinessId,
-  });
+  try {
+    customer = await ensureCustomerForTelegramUser({
+      telegramId: telegramUserId,
+      username: tgUser.username,
+      firstName: tgUser.first_name,
+      lastName: tgUser.last_name,
+      businessId: effectiveBusinessId,
+    });
+  } catch (error) {
+    if (
+      isPrismaMissingColumnError(error, "Customer", "phone") ||
+      isPrismaMissingColumnError(error, "Customer", "phoneVerified") ||
+      isPrismaMissingColumnError(error, "Customer", "verificationMethod") ||
+      isPrismaMissingColumnError(error, "Customer", "userId")
+    ) {
+      warnPrismaSchemaDrift("Telegram customer session loaded without Customer profile", error);
+      customer = null;
+    } else {
+      throw error;
+    }
+  }
 
   // 3. Determine the effective role
   // Default is CUSTOMER. But if they match the SUPER_ADMIN list, or have a specific User role, we upgrade.
@@ -130,7 +159,8 @@ export async function getTelegramSessionUser(initData: string, businessId?: stri
     try {
       await prisma.user.update({
         where: { id: adminUser.id },
-        data: { businessId: linkedBusinessId }
+        data: { businessId: linkedBusinessId },
+        select: { id: true },
       });
     } catch (e) {
       console.error("[getTelegramSessionUser] Error syncing businessId to user:", e);

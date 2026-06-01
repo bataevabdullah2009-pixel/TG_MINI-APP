@@ -45,8 +45,8 @@ export async function POST(request: NextRequest) {
     }
 
     const [existingSlug, existingEmail] = await Promise.all([
-      prisma.business.findUnique({ where: { slug: normalizedSlug } }),
-      prisma.user.findUnique({ where: { email: ownerEmail } }),
+      prisma.business.findUnique({ where: { slug: normalizedSlug }, select: { id: true } }),
+      prisma.user.findUnique({ where: { email: ownerEmail }, select: { id: true } }),
     ]);
 
     if (existingSlug) {
@@ -96,6 +96,7 @@ export async function POST(request: NextRequest) {
             },
           },
         },
+        select: { id: true, slug: true, name: true },
       });
 
       const linkCode = body.ownerTelegramId 
@@ -118,9 +119,10 @@ export async function POST(request: NextRequest) {
           telegramLinkExpiresAt: linkExpires,
           isActive: true,
         },
+        select: { id: true, email: true, telegramLinkCode: true },
       });
 
-      await tx.business.update({ where: { id: business.id }, data: { ownerId: owner.id } });
+      await tx.business.update({ where: { id: business.id }, data: { ownerId: owner.id }, select: { id: true } });
       await seedTemplateContent(tx, business.id, template.key);
 
       return { business: { ...business, ownerId: owner.id }, owner };

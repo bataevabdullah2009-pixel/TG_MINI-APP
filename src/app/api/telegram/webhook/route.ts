@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { telegramBot } from "@/lib/telegram-bot-service";
 import { AIService } from "@/lib/ai/ai-service";
-import { ensureTelegramUser } from "@/lib/auth/telegram-user-service";
+import { ensureTelegramUser, trySyncUserPhone } from "@/lib/auth/telegram-user-service";
 import { ensureCustomerForTelegramUser } from "@/lib/customer/customer-service";
 import { getMiniAppUrl } from "@/lib/production-url";
 
@@ -73,9 +73,9 @@ export async function POST(request: NextRequest) {
           verificationMethod: "telegram_contact",
         },
       });
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { phone },
+      await trySyncUserPhone(user.id, phone, {
+        verified: true,
+        context: "telegram webhook contact user phone sync",
       });
 
       await telegramBot.sendNotification(chatId, "✅ Номер подтверждён. Теперь можно оформлять заказы и записи.");
@@ -93,7 +93,18 @@ export async function POST(request: NextRequest) {
     let business = null;
     if (queryBusinessId) {
       business = await prisma.business.findUnique({
-        where: { id: queryBusinessId }
+        where: { id: queryBusinessId },
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          type: true,
+          description: true,
+          phone: true,
+          address: true,
+          aiProvider: true,
+          aiModel: true,
+        },
       });
     }
 
@@ -134,6 +145,7 @@ export async function POST(request: NextRequest) {
               telegramLinkCode: cleanCode,
               telegramLinkExpiresAt: { gt: new Date() },
             },
+            select: { id: true, email: true, username: true },
           });
           if (ownerUser) {
             await prisma.user.update({
@@ -144,6 +156,7 @@ export async function POST(request: NextRequest) {
                 telegramLinkCode: null,
                 telegramLinkExpiresAt: null,
               },
+              select: { id: true },
             });
             targetUrl = `${miniAppUrl}?mode=seller`;
 
@@ -152,7 +165,18 @@ export async function POST(request: NextRequest) {
           }
         } else {
           const targetBusiness = await prisma.business.findFirst({
-            where: { OR: [{ slug: payload }, { id: payload }] }
+            where: { OR: [{ slug: payload }, { id: payload }] },
+            select: {
+              id: true,
+              slug: true,
+              name: true,
+              type: true,
+              description: true,
+              phone: true,
+              address: true,
+              aiProvider: true,
+              aiModel: true,
+            },
           });
           if (targetBusiness) {
             business = targetBusiness;
@@ -241,6 +265,7 @@ export async function POST(request: NextRequest) {
           telegramLinkCode: code,
           telegramLinkExpiresAt: { gt: new Date() },
         },
+        select: { id: true, email: true, username: true },
       });
 
       if (!ownerUser) {
@@ -259,6 +284,7 @@ export async function POST(request: NextRequest) {
           telegramLinkCode: null,
           telegramLinkExpiresAt: null,
         },
+        select: { id: true },
       });
 
       const miniAppUrl = getMiniAppUrl();
@@ -285,7 +311,21 @@ export async function POST(request: NextRequest) {
         telegramUserId: BigInt(from.id),
         ...(business ? { businessId: business.id } : {})
       },
-      include: { business: true },
+      include: {
+        business: {
+          select: {
+            id: true,
+            slug: true,
+            name: true,
+            type: true,
+            description: true,
+            phone: true,
+            address: true,
+            aiProvider: true,
+            aiModel: true,
+          },
+        },
+      },
       orderBy: { createdAt: "desc" },
     });
 

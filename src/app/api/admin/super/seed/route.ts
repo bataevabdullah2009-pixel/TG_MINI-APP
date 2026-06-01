@@ -83,6 +83,7 @@ async function runSeedProcess() {
       role: "SUPER_ADMIN",
       isActive: true,
     },
+    select: { id: true },
   });
 
   // 3. Seeding Templates
@@ -136,6 +137,7 @@ async function runSeedProcess() {
         role: "BUSINESS_OWNER",
         isActive: true,
       },
+      select: { id: true },
     });
 
     const business = await prisma.business.upsert({
@@ -189,11 +191,13 @@ async function runSeedProcess() {
             ? "booking,staff,profile,calendar"
             : "catalog,cart,delivery,pickup,profile",
       },
+      select: { id: true, slug: true },
     });
 
     await prisma.user.update({
       where: { id: owner.id },
       data: { businessId: business.id },
+      select: { id: true },
     });
 
     await prisma.businessSettings.upsert({

@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
 
     const business = await prisma.business.findFirst({
       where: { OR: [{ id: businessId }, { slug: businessId }] },
+      select: { id: true, isActive: true, subscriptionStatus: true },
     });
 
     if (!business || !business.isActive) {
