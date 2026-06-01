@@ -54,8 +54,14 @@ export async function POST(request: NextRequest) {
     const resolved = await resolveBusiness(request, body.businessId || body.businessSlug);
     if ("error" in resolved) return resolved.error;
 
-    if (!body.name || body.price === undefined || body.price === "") {
+    const itemName = String(body.name || body.title || "").trim();
+    if (!itemName || body.price === undefined || body.price === "") {
       return jsonError("Укажите название и цену.", 400);
+    }
+
+    const price = Number(body.price);
+    if (!Number.isFinite(price) || price < 0) {
+      return jsonError("Укажите корректную цену.", 400);
     }
 
     const rawCategoryId = body.categoryId;
@@ -86,9 +92,9 @@ export async function POST(request: NextRequest) {
         businessId: resolved.business.id,
         categoryId: categoryId,
         type: body.type === "SERVICE" ? "SERVICE" : "PRODUCT",
-        name: String(body.name).trim(),
+        name: itemName,
         description: body.description ? String(body.description).trim() : "",
-        price: Number(body.price || 0),
+        price,
         imageUrl: body.imageUrl || undefined,
         durationMinutes: body.durationMinutes ? Number(body.durationMinutes) : undefined,
         stock: body.stock !== undefined && body.stock !== "" ? Number(body.stock) : undefined,

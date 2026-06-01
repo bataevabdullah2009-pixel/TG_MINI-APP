@@ -52,6 +52,17 @@ const businessListSelect = {
   },
 } as const;
 
+function normalizeSlug(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/['"]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -93,15 +104,23 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { slug, name, type, description, primaryColor, accentColor } = body;
+    if (!name) {
+      return NextResponse.json({ error: "Укажите название бизнеса." }, { status: 400 });
+    }
 
-    const existing = await prisma.business.findUnique({ where: { slug }, select: { id: true } });
+    const normalizedSlug = normalizeSlug(String(slug || name));
+    if (!normalizedSlug) {
+      return NextResponse.json({ error: "Не удалось сформировать slug. Укажите короткую ссылку латиницей." }, { status: 400 });
+    }
+
+    const existing = await prisma.business.findUnique({ where: { slug: normalizedSlug }, select: { id: true } });
     if (existing) {
-      return NextResponse.json({ error: "Slug already taken" }, { status: 400 });
+      return NextResponse.json({ error: "Такой slug уже занят." }, { status: 400 });
     }
 
     const business = await prisma.business.create({
       data: {
-        slug,
+        slug: normalizedSlug,
         name,
         type: type || "CUSTOM",
         description,

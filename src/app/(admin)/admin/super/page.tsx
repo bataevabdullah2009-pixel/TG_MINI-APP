@@ -107,8 +107,9 @@ export default function SuperAdminDashboard() {
         throw new Error(data.error || "Ошибка заполнения базы данных");
       }
     } catch (err: any) {
-      alert(`❌ Ошибка: ${err.message}`);
-      setSeedMessage(`Ошибка: ${err.message}`);
+      const message = err.message || "Не удалось заполнить базу демо-данными.";
+      alert(`❌ ${message}`);
+      setSeedMessage(message);
     } finally {
       setSeeding(false);
     }

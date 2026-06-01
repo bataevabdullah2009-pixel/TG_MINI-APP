@@ -131,6 +131,19 @@ Do not commit real secrets. Use `.env.example` as a template and store productio
 `SUPABASE_STORAGE_BUSINESS_COVERS_BUCKET`
 - Defaults to `business-covers`.
 
+## Upload storage
+
+Current upload routes use Supabase Storage server-side:
+
+- `/api/upload`
+- `/api/uploads`
+- `/api/admin/media/upload`
+
+Required variables for uploads are `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and server-only `SUPABASE_SERVICE_ROLE_KEY`.
+Optional bucket overrides are `SUPABASE_STORAGE_BUSINESS_MEDIA_BUCKET`, `SUPABASE_STORAGE_PRODUCT_IMAGES_BUCKET` and `SUPABASE_STORAGE_BUSINESS_COVERS_BUCKET`.
+
+`BLOB_READ_WRITE_TOKEN` is not required for the current upload implementation.
+
 `ALLOW_UNVERIFIED_PHONE_IN_DEV`
 - Development bypass for phone verification. Do not enable in production.
 

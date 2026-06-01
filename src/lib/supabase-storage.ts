@@ -46,6 +46,18 @@ export function assertUploadImage(file: File) {
   }
 }
 
+export function publicUploadErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  if (
+    message.startsWith("Можно загрузить") ||
+    message.startsWith("Изображение должно") ||
+    message.startsWith("Supabase Storage не настроен")
+  ) {
+    return message;
+  }
+  return "Не удалось загрузить файл. Проверьте формат PNG/JPG/WEBP до 5 MB и попробуйте снова.";
+}
+
 export function bucketForUploadType(type: string) {
   if (type === "logo") return process.env.SUPABASE_STORAGE_BUSINESS_MEDIA_BUCKET || uploadBuckets.businessMedia;
   if (type === "cover") return process.env.SUPABASE_STORAGE_BUSINESS_COVERS_BUCKET || uploadBuckets.businessCovers;

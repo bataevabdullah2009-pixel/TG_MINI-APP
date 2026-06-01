@@ -338,14 +338,19 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: any) {
     console.error("❌ Seeding failed:", error);
-    return NextResponse.json({ error: error.message || "Ошибка при заполнении базы данных" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось заполнить базу демо-данными. Подробности записаны в server logs." }, { status: 500 });
   }
 }
 
 // 2. Open GET handler for direct browser bootstrapper
 export async function GET(request: NextRequest) {
   try {
-    console.log("⚡ Executing public db seed bootstrapper via GET request...");
+    const session = await getAdminSession(request);
+    if (!session || !requireRole(session, ["SUPER_ADMIN"])) {
+      return jsonError("Недостаточно прав для выполнения этой операции.", 403);
+    }
+
+    console.log("⚡ Executing db seed bootstrapper via GET request...");
     
     await runSeedProcess();
 
@@ -353,13 +358,13 @@ export async function GET(request: NextRequest) {
       success: true,
       message: "База данных успешно инициализирована и заполнена демо-данными!",
       nextSteps: {
-        adminUrl: "https://tg-mini-app-two-ruby.vercel.app/admin/login",
+        adminUrl: "/admin/login",
         superAdminCredentials: "admin@example.com / admin123",
         demoBusinessCredentials: "owner-cafe@example.com / owner123",
       }
     });
   } catch (error: any) {
     console.error("❌ GET Seeding failed:", error);
-    return NextResponse.json({ error: error.message || "Ошибка при инициализации базы данных" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось инициализировать демо-данные. Подробности записаны в server logs." }, { status: 500 });
   }
 }

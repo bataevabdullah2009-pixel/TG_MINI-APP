@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
-import { bucketForUploadType, uploadImageToSupabaseStorage } from "@/lib/supabase-storage";
+import { bucketForUploadType, publicUploadErrorMessage, uploadImageToSupabaseStorage } from "@/lib/supabase-storage";
 import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 export async function POST(request: NextRequest) {
@@ -53,12 +53,12 @@ export async function POST(request: NextRequest) {
       await prisma.item.update({ where: { id: itemId }, data: { imageUrl: asset.url } });
     }
 
-    return NextResponse.json({ ok: true, imageUrl: asset.url, publicUrl: asset.url, data: asset }, { status: 201 });
+    return NextResponse.json({ ok: true, url: asset.url, imageUrl: asset.url, publicUrl: asset.url, data: asset }, { status: 201 });
   } catch (error) {
     console.error("POST /api/admin/media/upload failed:", error);
     if (isBusinessIsDemoMissingColumnError(error)) {
       warnPrismaSchemaDrift("Admin media upload failed while Business.isDemo is missing", error);
     }
-    return jsonError("Upload is temporarily unavailable.", 500);
+    return jsonError(publicUploadErrorMessage(error), 500);
   }
 }

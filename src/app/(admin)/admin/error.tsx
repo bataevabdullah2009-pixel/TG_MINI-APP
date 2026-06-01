@@ -59,7 +59,7 @@ export default function AdminError({
           {showDetails && (
             <div className="mt-2.5 rounded-xl bg-slate-50 p-3.5 border border-slate-150 max-h-40 overflow-y-auto">
               <p className="text-red-700 font-mono text-[9px] break-all leading-relaxed whitespace-pre-wrap">
-                {error.message || "Unknown error"}
+                Подробности ошибки записаны в server logs.
               </p>
               {error.digest && (
                 <p className="text-slate-400 font-mono text-[8px] mt-1.5">

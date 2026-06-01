@@ -33,10 +33,11 @@ export default function OnboardWizard() {
 
   const handleSlugSuggest = (val: string) => {
     setName(val);
-    // Convert to lowercase english letters & digits
     const suggested = val
       .toLowerCase()
-      .replace(/[^a-z0-9]/g, "-")
+      .trim()
+      .replace(/['"]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
       .replace(/-+/g, "-")
       .replace(/^-|-$/g, "");
     setSlug(suggested);
@@ -73,16 +74,7 @@ export default function OnboardWizard() {
         throw new Error(data.error || "Не удалось создать заведение");
       }
     } catch (err: any) {
-      console.warn("Onboard API failed, loading mock success result for preview", err);
-      // Fail-safe Mock success preview for quick visualization
-      setSuccessData({
-        name: name || "Тестовая точка",
-        slug: slug || "test-point",
-        type: type,
-        subscriptionPlanId: subscriptionPlan,
-        primaryColor: "#3B82F6",
-        accentColor: "#FF6347"
-      });
+      setError(err.message || "Не удалось создать бизнес");
     } finally {
       setLoading(false);
     }

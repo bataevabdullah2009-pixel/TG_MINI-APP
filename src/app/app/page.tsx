@@ -116,7 +116,7 @@ export default function MarketplacePage() {
         if (data.error) {
           console.warn("[Marketplace] Catalog API returned a fallback response:", data.error);
         } else if (data.isDbEmpty && data.showTechnicalError) {
-          setError("База подключена, но демо-данные не загружены. Пожалуйста, посетите страницу /api/admin/super/seed в браузере для моментальной инициализации базы!");
+          setError("База подключена, но демо-данные не загружены. Суперадмин может восстановить их в панели управления.");
         }
         setBusinesses(data.businesses || []);
       })

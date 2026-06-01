@@ -174,6 +174,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, content, provider: usedProvider, model: routing.model, estimatedCost });
   } catch (error: any) {
     console.error("POST /api/admin/ai/generate failed:", error);
-    return jsonError(error.message || "Ошибка генерации.", 500);
+    return jsonError("ИИ временно недоступен. Попробуйте позже.", 500);
   }
 }

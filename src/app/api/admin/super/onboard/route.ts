@@ -10,6 +10,17 @@ const PLAN_IDS: Record<string, string> = {
   BUSINESS: "plan-business",
 };
 
+function normalizeSlug(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/['"]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80);
+}
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getAdminSession(request);
@@ -32,16 +43,19 @@ export async function POST(request: NextRequest) {
       aiDailyLimit = "30",
     } = body;
 
-    if (!name || !slug || !type || !ownerEmail || !ownerPassword) {
-      return NextResponse.json({ error: "Required fields are missing" }, { status: 400 });
+    if (!name || !type || !ownerEmail || !ownerPassword) {
+      return NextResponse.json({ error: "Заполните название бизнеса, тип, email и пароль владельца." }, { status: 400 });
     }
 
-    const normalizedSlug = String(slug).toLowerCase().trim().replace(/[^a-z0-9-_]/g, "");
+    const normalizedSlug = normalizeSlug(String(slug || name));
+    if (!normalizedSlug) {
+      return NextResponse.json({ error: "Не удалось сформировать slug. Укажите короткую ссылку латиницей." }, { status: 400 });
+    }
     const selectedTemplateKey = templateKey || templateKeyFromBusinessType(type);
     const template = BUSINESS_TEMPLATES[selectedTemplateKey as keyof typeof BUSINESS_TEMPLATES];
 
     if (!template) {
-      return NextResponse.json({ error: "Unknown business template" }, { status: 400 });
+      return NextResponse.json({ error: "Неизвестный шаблон бизнеса." }, { status: 400 });
     }
 
     const [existingSlug, existingEmail] = await Promise.all([
@@ -50,11 +64,11 @@ export async function POST(request: NextRequest) {
     ]);
 
     if (existingSlug) {
-      return NextResponse.json({ error: "Slug is already taken" }, { status: 400 });
+      return NextResponse.json({ error: "Такой slug уже занят. Укажите другую короткую ссылку." }, { status: 400 });
     }
 
     if (existingEmail) {
-      return NextResponse.json({ error: "Owner email is already registered" }, { status: 400 });
+      return NextResponse.json({ error: "Этот email уже зарегистрирован. Укажите другой email владельца." }, { status: 400 });
     }
 
     const hashedPassword = await bcrypt.hash(ownerPassword, 10);
@@ -146,7 +160,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Onboard API error:", error);
-    return NextResponse.json({ error: "Server error while creating business" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось создать бизнес. Подробности записаны в server logs." }, { status: 500 });
   }
 }
 

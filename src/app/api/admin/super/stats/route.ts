@@ -76,6 +76,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error: any) {
     console.error("Super Admin stats API error:", error);
-    return NextResponse.json({ ok: false, error: error.message || "Ошибка сбора статистики" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Не удалось собрать статистику." }, { status: 500 });
   }
 }

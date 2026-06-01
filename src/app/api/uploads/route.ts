@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
-import { bucketForUploadType, uploadImageToSupabaseStorage } from "@/lib/supabase-storage";
+import { bucketForUploadType, publicUploadErrorMessage, uploadImageToSupabaseStorage } from "@/lib/supabase-storage";
 import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 export async function POST(request: NextRequest) {
@@ -35,6 +35,6 @@ export async function POST(request: NextRequest) {
     if (isBusinessIsDemoMissingColumnError(error)) {
       warnPrismaSchemaDrift("Upload business lookup failed while Business.isDemo is missing", error);
     }
-    return NextResponse.json({ error: "Upload is temporarily unavailable." }, { status: 500 });
+    return NextResponse.json({ error: publicUploadErrorMessage(error) }, { status: 500 });
   }
 }
