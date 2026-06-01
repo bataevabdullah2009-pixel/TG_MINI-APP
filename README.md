@@ -1,489 +1,179 @@
-# TelebiznezHub - Telegram Mini App Platform
+# SmartBiz AI / Vitrina AI
 
-## Production Telegram URLs
+Telegram Mini App SaaS-платформа для локального бизнеса: каталог заведений, карточки бизнеса, товары и услуги, корзина, заказы, записи, панель продавца, Super Admin и AI-помощник для контента.
 
-Telegram Mini App routing is production-domain only:
+Рабочее название в коде пока не меняется. В документации допустимые будущие варианты бренда: Vitrina AI, LocalBiz AI, BizMini AI, SmartVitrina.
 
-- Mini App button: `NEXT_PUBLIC_APP_URL + /app`
-- Business page: `/app/[slug]`
-- Webhook: `TELEGRAM_WEBHOOK_URL` or `NEXT_PUBLIC_APP_URL + /api/telegram/webhook`
+## Что уже есть
 
-Set these variables in Vercel before deploy:
+- Клиентский каталог бизнесов: `/app`.
+- Страница бизнеса: `/app/[businessSlug]`.
+- Каталог товаров и услуг, корзина, checkout и создание заказов.
+- Подтверждение телефона через Telegram contact.
+- Избранное и история заказов клиента.
+- Панель продавца внутри Mini App.
+- Управление заказами, записями, товарами, медиа и настройками бизнеса.
+- Super Admin панель для SaaS-управления бизнесами.
+- Telegram bot открывает Mini App через production Vercel URL.
+- Supabase Postgres + Prisma ORM.
+- Supabase Storage для изображений.
+- AI-помощник через mock, OpenRouter или Polza AI.
 
-```env
-NEXT_PUBLIC_APP_URL=https://production-domain.vercel.app
-NEXT_PUBLIC_WEBAPP_URL=https://production-domain.vercel.app/app
-TELEGRAM_WEBHOOK_URL=https://production-domain.vercel.app/api/telegram/webhook
-```
+## Stack
 
-Production must not use ngrok, localhost, or 127.0.0.1 for Telegram buttons or webhooks. Check Telegram state with:
+- Next.js App Router, React, TypeScript.
+- Tailwind CSS, lucide-react.
+- Next.js API routes.
+- Prisma ORM.
+- Supabase Postgres и Supabase Storage.
+- Telegram WebApp SDK и Bot API.
+- Vercel deployment.
 
-```bash
-npm run telegram:webhook:info
-npm run telegram:webhook:set
-npm run telegram:webhook:delete
-```
+## Локальный запуск
 
-Direct Bot API check:
-
-```text
-https://api.telegram.org/bot<TOKEN>/getWebhookInfo
-```
-
-## MVP Stabilization Notes
-
-- Production media uploads use Supabase Storage instead of local `public/uploads` writes.
-- Required buckets: `business-media`, `product-images`, `business-covers`.
-- New seller onboarding flow: create business in Super Admin, set Telegram ID or share `/link CODE`, then seller opens the Mini App seller panel.
-- Phone verification now refreshes profile status automatically after Telegram contact sharing and keeps a manual status check button.
-- Demo businesses are marked with `isDemo=true` and can be hidden from regular production catalog views.
-
-Required Supabase env:
-
-```env
-NEXT_PUBLIC_SUPABASE_URL="https://your-project.supabase.co"
-NEXT_PUBLIC_SUPABASE_ANON_KEY="your_supabase_anon_key"
-SUPABASE_SERVICE_ROLE_KEY="your_supabase_service_role_key"
-```
-White-label SaaS платформа для создания Telegram Mini App бизнесом. Один код - много бизнесов.
-
-## 🚀 Возможности
-
-- **Multi-business архитектура** - один код для всех клиентов
-- **Telegram Mini App** - полностью встроенная в Telegram
-- **Admin Panel** - управление бизнесом
-- **Автоматические уведомления** - через Telegram Bot
-- **Готовые шаблоны**: Кафе, Барбершоп, Автомойка, Магазин
-- **White-label настройки** - логотип, цвета, брендирование
-- **Система заказов** - с доставкой/самовывозом
-- **Онлайн-записи** - с календарем и расписанием
-- **Управление товарами** - категории, популярные, остатки
-- **Клиентская база** - с историей покупок
-
-## 🛠️ Технологический стек
-
-- **Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS
-- **Backend**: Next.js API Routes
-- **Database**: PostgreSQL + Prisma ORM
-- **State**: Zustand
-- **Validation**: Zod
-- **Telegram**: Telegram WebApp SDK, Bot API
-- **UI**: shadcn/ui components
-
-## 📋 Требования
-
-- Node.js 18+
-- PostgreSQL 13+
-- npm или pnpm
-
-## ⚙️ Установка
-
-### 1. Клонирование репозитория
-
-```bash
-git clone <repository>
-cd telegram-miniapp-platform
-```
-
-### 2. Установка зависимостей
+1. Установить зависимости:
 
 ```bash
 npm install
-# или
-pnpm install
 ```
 
-### 3. Настройка базы данных
+2. Создать `.env` из шаблона:
 
-Скопируйте `.env.example` в `.env`:
+```bash
+copy .env.example .env
+```
+
+На macOS/Linux:
 
 ```bash
 cp .env.example .env
 ```
 
-Отредактируйте `.env` и установите `DATABASE_URL`:
+3. Заполнить минимум:
 
 ```env
-DATABASE_URL="postgresql://user:password@localhost:5432/telegram_miniapp_db"
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE?pgbouncer=true&connection_limit=1"
+DIRECT_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
+NEXT_PUBLIC_WEBAPP_URL="http://localhost:3000/app"
+TELEGRAM_BOT_TOKEN="telegram_bot_token"
+JWT_SECRET="long_random_secret"
+ENCRYPTION_SECRET="long_random_secret"
 ```
 
-### 4. Запуск PostgreSQL
-
-**С Docker:**
-
-```bash
-docker run --name postgres \
-  -e POSTGRES_USER=user \
-  -e POSTGRES_PASSWORD=password \
-  -e POSTGRES_DB=telegram_miniapp_db \
-  -p 5432:5432 \
-  -d postgres:15
-```
-
-**Или установите PostgreSQL локально**
-
-### 5. Создание таблиц
-
-Сначала сгенерируйте клиент:
+4. Сгенерировать Prisma Client:
 
 ```bash
 npx prisma generate
 ```
 
-Затем создайте таблицы:
+5. Проверить схему:
 
 ```bash
-npx prisma db push
+npx prisma validate
 ```
 
-Или с миграциями:
-
-```bash
-npm run db:migrate
-```
-
-### 6. Заполнение демо-данных
-
-```bash
-npm run db:seed
-```
-
-Это создаст:
-- Super admin (admin@example.com / admin123)
-- 4 demo бизнеса (кафе, барбершоп, автомойка, магазин)
-- Категории и товары/услуги
-- Демо сотрудников, клиентов, заказов и записей
-
-### 7. Запуск dev сервера
+6. Запустить dev-сервер:
 
 ```bash
 npm run dev
 ```
 
-Приложение будет доступно на: **http://localhost:3000**
+Открыть:
 
-## 🔐 Demo Accounts
+- Клиентский Mini App shell: `http://localhost:3000/app`
+- Бизнес: `http://localhost:3000/app/[businessSlug]`
+- Admin: `http://localhost:3000/admin`
 
-### Admin Panel
-- **Email**: admin@example.com
-- **Password**: admin123
-- **URL**: http://localhost:3000/admin
+## Env переменные
 
-### Telegram Mini App
-- Откройте ссылку бизнеса на главной странице
-- Или используйте Telegram Bot (при наличии token)
+Полный список в [docs/ENV.md](docs/ENV.md).
 
-## 📱 Mini App Routes
-
-- `/` - Home страница с выбором бизнеса
-- `/:slug` - Главная бизнеса
-- `/:slug/catalog` - Каталог товаров/услуг
-- `/:slug/item/:id` - Карточка товара/услуги
-- `/:slug/cart` - Корзина
-- `/:slug/checkout` - Оформление заказа
-- `/:slug/booking` - Онлайн-запись
-- `/:slug/orders/:id` - Статус заказа
-- `/:slug/profile` - Профиль клиента
-- `/:slug/contacts` - Контакты
-
-## 🖥️ Admin Panel Routes
-
-- `/admin/login` - Вход
-- `/admin` - Dashboard
-- `/admin/businesses` - Список бизнесов (Super Admin)
-- `/admin/orders` - Управление заказами
-- `/admin/bookings` - Управление записями
-- `/admin/items` - Товары/услуги
-- `/admin/categories` - Категории
-- `/admin/customers` - Клиенты
-- `/admin/staff` - Сотрудники
-- `/admin/settings` - Настройки бизнеса
-- `/admin/design` - Дизайн (цвета, логотип)
-
-## 🤖 Telegram Bot
-
-### Подготовка
-
-1. Создайте бота через @BotFather в Telegram
-2. Скопируйте bot token в `.env`:
-   ```env
-   TELEGRAM_BOT_TOKEN=your_bot_token_here
-   ```
-
-### Запуск бота
-
-```bash
-npm run bot:dev
-```
-
-### Команды
-
-- `/start` - Начало, открытие Mini App
-- `/admin` - Ссылка на админ-панель (для владельца)
-- `/orders` - Последние заказы
-- `/bookings` - Ближайшие записи
-
-## 🤖 ИИ-Модуль (OpenRouter & Polza AI)
-
-### Проверка OpenRouter
-
-В `.env` укажите:
-```env
-AI_PROVIDER="openrouter"
-OPENROUTER_API_KEY="ваш_ключ"
-OPENROUTER_MODEL="z-ai/glm-4.6"
-```
-
-Затем:
-1. Запустите проект `npm run dev`
-2. Откройте `/admin/ai`
-3. Нажмите кнопку "Проверить AI" (тестирование бота) или перейдите в `/admin/content` для генерации.
-
-### Проверка Polza AI
-
-В `.env` укажите:
-```env
-AI_PROVIDER="polza"
-POLZA_AI_API_KEY="ваш_ключ"
-POLZA_TEXT_MODEL="z-ai/glm-4.7-flash"
-```
-
-Затем:
-1. Запустите проект `npm run dev`
-2. Откройте `/admin/ai`
-3. Протестируйте ответы или сгенерируйте пост в `/admin/content`.
-
-⚠️ **Контроль расходов:** Лимиты ИИ настроены в `.env` (например, `AI_FREE_PLAN_DAILY_LIMIT=10`). Все генерации записываются в базу данных (таблица `AIUsageLog`). Если лимит превышен, генератор выдаст ошибку, а бот переведет диалог на менеджера.
-
-## 📊 Database Schema
-
-Основные модели:
-
-- **Business** - Бизнес (кафе, магазин и т.д.)
-- **Category** - Категория товаров/услуг
-- **Item** - Товар или услуга
-- **Order** - Заказ
-- **OrderItem** - Позиция в заказе
-- **Booking** - Запись на услугу
-- **Customer** - Клиент
-- **Staff** - Сотрудник
-- **User** - Пользователь (админ)
-- **Payment** - Платеж
-- **Notification** - Уведомление
-
-## 🎨 White-Label Настройки
-
-В Admin Panel > Settings можно менять:
-
-- Название бизнеса
-- Логотип и обложка
-- Основной и дополнительный цвета
-- Адрес и контакты
-- Социальные сети (Telegram, WhatsApp, Instagram)
-- Включенные модули (каталог, корзина, записи и т.д.)
-
-## 🔐 Безопасность
-
-- ✅ Telegram initData валидация
-- ✅ JWT tokens
-- ✅ Role-based access control (RBAC)
-- ✅ Input validation с Zod
-- ✅ Business data isolation (все запросы фильтруются по businessId)
-- ✅ Environment variables для secrets
-
-## 📝 Переменные окружения
+Ключевые production env:
 
 ```env
-# Database
-DATABASE_URL=postgresql://user:password@localhost:5432/db
-
-# App
-NODE_ENV=development
-NEXT_PUBLIC_APP_URL=http://localhost:3000
-
-# Telegram
-TELEGRAM_BOT_TOKEN=your_token
-TELEGRAM_BOT_USERNAME=your_bot_username
-
-# JWT
-JWT_SECRET=your_super_secret_key_min_32_chars
-
-# Admin
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=password
+DATABASE_URL=""
+DIRECT_URL=""
+NEXT_PUBLIC_APP_URL="https://your-vercel-domain.vercel.app"
+NEXT_PUBLIC_WEBAPP_URL="https://your-vercel-domain.vercel.app/app"
+TELEGRAM_BOT_TOKEN=""
+TELEGRAM_BOT_USERNAME=""
+TELEGRAM_SUPER_ADMIN_IDS=""
+TELEGRAM_WEBHOOK_URL="https://your-vercel-domain.vercel.app/api/telegram/webhook"
+NEXT_PUBLIC_SUPABASE_URL=""
+NEXT_PUBLIC_SUPABASE_ANON_KEY=""
+SUPABASE_SERVICE_ROLE_KEY=""
+JWT_SECRET=""
+ENCRYPTION_SECRET=""
+AI_PROVIDER="mock"
 ```
 
-## 🚀 Деплой
+Не хранить реальные ключи в репозитории.
 
-### Vercel (Frontend)
+## Деплой на Vercel
 
-1. Подключите репозиторий к Vercel
-2. Установите env переменные
-3. Deploy
+1. Создать Supabase проект.
+2. Скопировать pooled connection string в `DATABASE_URL`.
+3. Скопировать direct connection string в `DIRECT_URL`.
+4. Добавить все env в Vercel Project Settings.
+5. Выполнить manual SQL patches из `docs/manual-*.sql`, если production база отстает от `prisma/schema.prisma`.
+6. Убедиться, что build command использует:
 
 ```bash
-vercel deploy
+npm run build
 ```
 
-### VPS (Full Stack)
+7. Задеплоить в Vercel.
+8. Настроить Telegram BotFather Mini App URL:
+
+```text
+https://your-vercel-domain.vercel.app/app
+```
+
+9. Настроить webhook:
 
 ```bash
-# Установите Node.js и PostgreSQL
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs postgresql
-
-# Клонируйте проект
-git clone <repo>
-cd project
-
-# Установите зависимости
-npm install
-
-# Настройте .env
-cp .env.example .env
-# Отредактируйте .env
-
-# Запустите миграции
-npm run db:push
-npm run db:seed
-
-# Запустите PM2
-npm install -g pm2
-pm2 start npm --name "app" -- start
-pm2 save
-pm2 startup
-```
-
-## 📚 API Documentation
-
-### Orders
-
-```bash
-# Создать заказ
-POST /api/orders
-{
-  "businessId": "uuid",
-  "customerName": "Иван",
-  "customerPhone": "+7...",
-  "items": [{ "itemId": "uuid", "quantity": 2 }],
-  "deliveryType": "DELIVERY"
-}
-
-# Получить заказ
-GET /api/orders/[id]
-
-# Обновить статус
-PATCH /api/orders/[id]
-{ "status": "ACCEPTED" }
-```
-
-### Bookings
-
-```bash
-# Создать запись
-POST /api/bookings
-{
-  "businessId": "uuid",
-  "serviceId": "uuid",
-  "customerName": "Иван",
-  "customerPhone": "+7...",
-  "startTime": "2024-01-15T10:00:00Z"
-}
-
-# Получить доступные слоты
-GET /api/bookings?businessId=uuid&startDate=...&endDate=...
-```
-
-### Items
-
-```bash
-# Получить товары
-GET /api/items/[slug]?categoryId=uuid&search=query
-```
-
-## 🐛 Troubleshooting
-
-### "Database connection error"
-- Проверьте, запущен ли PostgreSQL
-- Проверьте DATABASE_URL в .env
-- Запустите `npm run db:push`
-
-### "Prisma not found"
-```bash
-npm run db:generate
-```
-
-### "Seed error"
-```bash
-npm run db:push
-npm run db:seed
-```
-
-## 📖 Документация
-
-- [Prisma](https://www.prisma.io/docs)
-- [Next.js](https://nextjs.org/docs)
-- [Telegram WebApp](https://core.telegram.org/bots/webapps)
-- [Tailwind CSS](https://tailwindcss.com/docs)
-
-## 🎯 Roadmap MVP
-
-- [x] Database schema
-- [x] Demo seed data
-- [x] API endpoints
-- [ ] Mini App UI pages
-- [ ] Admin Panel UI
-- [ ] Telegram Bot integration
-- [ ] Notifications system
-- [ ] Payment integration
-- [ ] Testing
-
-## 📄 Лицензия
-
-Proprietary - для коммерческого использования
-
-## 👥 Автор
-
-TelebiznezHub Team
-
-## 📞 Поддержка
-
-Для вопросов и проблем создавайте issues в репозитории.
-
----
-
-## 🛠️ Инструкция по production-настройке Telegram-бота
-
-Telegram должен открывать Mini App только на production-домене.
-
-### 1. Env
-
-```env
-NEXT_PUBLIC_APP_URL=https://production-domain.vercel.app
-NEXT_PUBLIC_WEBAPP_URL=https://production-domain.vercel.app/app
-TELEGRAM_WEBHOOK_URL=https://production-domain.vercel.app/api/telegram/webhook
-```
-
-### 2. Webhook
-
-```bash
-npm run telegram:webhook:info
 npm run telegram:webhook:set
-npm run telegram:webhook:delete
+npm run telegram:webhook:info
 ```
 
-Прямая проверка:
+Подробно: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+## Как открыть Mini App
+
+Production Mini App должен открываться только через Vercel HTTPS URL:
 
 ```text
-https://api.telegram.org/bot<TOKEN>/getWebhookInfo
+https://your-vercel-domain.vercel.app/app
 ```
 
-### 3. BotFather Menu Button
-
-Укажите WebApp URL:
+Business page:
 
 ```text
-https://production-domain.vercel.app/app
+https://your-vercel-domain.vercel.app/app/[businessSlug]
 ```
 
-`/app` открывает общий каталог SmartBiz AI. Конкретные бизнесы открываются только по `/app/[slug]` после выбора из каталога.
+Telegram bot должен использовать production URL. Не возвращать ngrok, localhost или 127.0.0.1 в production Telegram routes/webhooks.
+
+## Проверки перед сдачей
+
+```bash
+npm run lint
+npm run typecheck
+npm run build
+npx prisma validate
+npx prisma generate
+```
+
+QA checklist: [docs/TESTING_CHECKLIST.md](docs/TESTING_CHECKLIST.md).
+
+## Документация
+
+- Product spec: [docs/FEATURE_SPEC.md](docs/FEATURE_SPEC.md)
+- Technical spec: [docs/TECHNICAL_SPEC.md](docs/TECHNICAL_SPEC.md)
+- Database schema: [docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md)
+- Env: [docs/ENV.md](docs/ENV.md)
+- Deployment: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+- Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
+- Project rules: [docs/PROJECT_RULES.md](docs/PROJECT_RULES.md)
+- Agent rules: [AGENTS.md](AGENTS.md)
