@@ -1,5 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+
+const historyBusinessSelect = {
+  id: true,
+  slug: true,
+  name: true,
+  primaryColor: true,
+  accentColor: true,
+} as const;
 
 export async function GET(req: Request) {
   try {
@@ -26,7 +35,7 @@ export async function GET(req: Request) {
         customerId: { in: customerIds },
       },
       include: {
-        business: true,
+        business: { select: historyBusinessSelect },
         items: true,
       },
       orderBy: { createdAt: "desc" },
@@ -38,7 +47,7 @@ export async function GET(req: Request) {
         customerId: { in: customerIds },
       },
       include: {
-        business: true,
+        business: { select: historyBusinessSelect },
         service: true,
         staff: true,
       },
@@ -55,6 +64,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, data: safeData });
   } catch (e: any) {
     console.error("[customer history GET error]", e);
-    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+    if (isBusinessIsDemoMissingColumnError(e)) {
+      warnPrismaSchemaDrift("Customer history loaded as an empty list while Business.isDemo is missing", e);
+      return NextResponse.json({ ok: true, data: { orders: [], bookings: [] } });
+    }
+    return NextResponse.json({ ok: false, error: "Order history is temporarily unavailable." }, { status: 500 });
   }
 }

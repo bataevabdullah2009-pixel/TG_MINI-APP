@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { AIService } from "@/lib/ai/ai-service";
 import { prisma } from "@/lib/prisma";
 
+const aiContentBusinessSelect = {
+  id: true,
+  name: true,
+  type: true,
+  aiProvider: true,
+  aiModel: true,
+} as const;
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -13,9 +21,9 @@ export async function POST(request: NextRequest) {
 
     let business;
     if (businessId) {
-      business = await prisma.business.findUnique({ where: { id: businessId } });
+      business = await prisma.business.findUnique({ where: { id: businessId }, select: aiContentBusinessSelect });
     } else {
-      business = await prisma.business.findFirst();
+      business = await prisma.business.findFirst({ select: aiContentBusinessSelect });
     }
 
     if (!business) {

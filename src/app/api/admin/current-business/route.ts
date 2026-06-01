@@ -1,6 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
+import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+
+const currentBusinessSelect = {
+  id: true,
+  slug: true,
+  name: true,
+  type: true,
+  templateKey: true,
+  description: true,
+  logoUrl: true,
+  coverImageUrl: true,
+  primaryColor: true,
+  secondaryColor: true,
+  backgroundColor: true,
+  accentColor: true,
+  phone: true,
+  email: true,
+  address: true,
+  telegramBotToken: true,
+  telegramBotUsername: true,
+  telegramUsername: true,
+  telegramAdminChatId: true,
+  currency: true,
+  language: true,
+  timezone: true,
+  subscriptionStatus: true,
+  modulesEnabled: true,
+  aiProvider: true,
+  aiModel: true,
+  aiEnabled: true,
+  aiDailyLimit: true,
+  aiMonthlyLimit: true,
+  isActive: true,
+  ownerId: true,
+  settings: true,
+} as const;
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,8 +46,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const value = searchParams.get("businessId") || session.businessId || undefined;
     const business = value
-      ? await prisma.business.findFirst({ where: { OR: [{ id: value }, { slug: value }] }, include: { settings: true } })
-      : await prisma.business.findFirst({ where: { isActive: true }, include: { settings: true } });
+      ? await prisma.business.findFirst({ where: { OR: [{ id: value }, { slug: value }] }, select: currentBusinessSelect })
+      : await prisma.business.findFirst({ where: { isActive: true }, select: currentBusinessSelect });
 
     if (!business) return jsonError("Бизнес не найден.", 404);
     if (!canUseBusiness(session, business.id)) return jsonError("Нет доступа к этому бизнесу.", 403);
@@ -19,6 +55,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: true, data: { ...business, telegramAdminChatId: business.telegramAdminChatId?.toString() || null } });
   } catch (error) {
     console.error("GET /api/admin/current-business failed:", error);
+    if (isBusinessIsDemoMissingColumnError(error)) {
+      warnPrismaSchemaDrift("Current business settings could not load Business.isDemo", error);
+    }
     return jsonError("Не удалось загрузить настройки бизнеса.", 500);
   }
 }
@@ -63,12 +102,15 @@ export async function PATCH(request: NextRequest) {
         ...(body.telegramUsername !== undefined ? { telegramUsername: body.telegramUsername } : {}),
         ...(telegramAdminChatIdValue !== undefined ? { telegramAdminChatId: telegramAdminChatIdValue } : {}),
       },
-      include: { settings: true },
+      select: currentBusinessSelect,
     });
 
     return NextResponse.json({ ok: true, data: { ...business, telegramAdminChatId: business.telegramAdminChatId?.toString() || null } });
   } catch (error) {
     console.error("PATCH /api/admin/current-business failed:", error);
+    if (isBusinessIsDemoMissingColumnError(error)) {
+      warnPrismaSchemaDrift("Current business settings could not save while Business.isDemo is missing", error);
+    }
     return jsonError("Не удалось сохранить настройки бизнеса.", 500);
   }
 }

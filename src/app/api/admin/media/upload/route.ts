@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 import { bucketForUploadType, uploadImageToSupabaseStorage } from "@/lib/supabase-storage";
+import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,6 +19,7 @@ export async function POST(request: NextRequest) {
 
     const business = await prisma.business.findFirst({
       where: { OR: [{ id: businessValue }, { slug: businessValue }] },
+      select: { id: true, slug: true },
     });
     if (!business) return jsonError("Бизнес не найден.", 404);
     if (!canUseBusiness(session, business.id)) return jsonError("Нет доступа к этому бизнесу.", 403);
@@ -40,10 +42,10 @@ export async function POST(request: NextRequest) {
     });
 
     if (type === "logo") {
-      await prisma.business.update({ where: { id: business.id }, data: { logoUrl: asset.url } });
+      await prisma.business.update({ where: { id: business.id }, data: { logoUrl: asset.url }, select: { id: true } });
     }
     if (type === "cover") {
-      await prisma.business.update({ where: { id: business.id }, data: { coverImageUrl: asset.url } });
+      await prisma.business.update({ where: { id: business.id }, data: { coverImageUrl: asset.url }, select: { id: true } });
     }
     if (itemId && (type === "product" || type === "service" || type === "item")) {
       const item = await prisma.item.findUnique({ where: { id: itemId } });
@@ -54,6 +56,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, imageUrl: asset.url, publicUrl: asset.url, data: asset }, { status: 201 });
   } catch (error) {
     console.error("POST /api/admin/media/upload failed:", error);
-    return jsonError(error instanceof Error ? error.message : "Не удалось загрузить файл.", 500);
+    if (isBusinessIsDemoMissingColumnError(error)) {
+      warnPrismaSchemaDrift("Admin media upload failed while Business.isDemo is missing", error);
+    }
+    return jsonError("Upload is temporarily unavailable.", 500);
   }
 }

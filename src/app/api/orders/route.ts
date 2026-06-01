@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { NotificationService } from "@/lib/notifications/notification-service";
 import { ensureTelegramUser } from "@/lib/auth/telegram-user-service";
+import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 export async function POST(request: NextRequest) {
   try {
@@ -134,6 +135,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(order, { status: 201 });
   } catch (error) {
     console.error("Error creating order:", error);
+    if (isBusinessIsDemoMissingColumnError(error)) {
+      warnPrismaSchemaDrift("Order creation hit Business.isDemo schema drift", error);
+      return NextResponse.json({ error: "Order service is temporarily unavailable." }, { status: 503 });
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -180,6 +185,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(orders);
   } catch (error) {
     console.error("Error fetching orders:", error);
+    if (isBusinessIsDemoMissingColumnError(error)) {
+      warnPrismaSchemaDrift("Orders loaded as an empty list while Business.isDemo is missing", error);
+      return NextResponse.json([]);
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

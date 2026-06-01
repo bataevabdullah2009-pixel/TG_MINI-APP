@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 import { bucketForUploadType, uploadImageToSupabaseStorage } from "@/lib/supabase-storage";
+import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,6 +18,7 @@ export async function POST(request: NextRequest) {
 
     const business = await prisma.business.findFirst({
       where: { OR: [{ id: businessValue }, { slug: businessValue }] },
+      select: { id: true, slug: true },
     });
     if (!business) return jsonError("Бизнес не найден.", 404);
     if (!canUseBusiness(session, business.id)) return jsonError("Нет доступа к этому бизнесу.", 403);
@@ -30,6 +32,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, url: uploaded.publicUrl, publicUrl: uploaded.publicUrl });
   } catch (error: any) {
     console.error("Upload error:", error);
-    return NextResponse.json({ error: error.message || "Ошибка загрузки." }, { status: 500 });
+    if (isBusinessIsDemoMissingColumnError(error)) {
+      warnPrismaSchemaDrift("Upload business lookup failed while Business.isDemo is missing", error);
+    }
+    return NextResponse.json({ error: "Upload is temporarily unavailable." }, { status: 500 });
   }
 }

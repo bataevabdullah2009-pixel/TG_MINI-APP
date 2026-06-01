@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession, jsonError } from "@/lib/admin-auth";
+import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 const businessDetailSelect = {
   id: true,
@@ -68,6 +69,9 @@ export async function GET(
     });
   } catch (error) {
     console.error("Error fetching business:", error);
+    if (isBusinessIsDemoMissingColumnError(error)) {
+      warnPrismaSchemaDrift("Business detail could not load Business.isDemo", error);
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -117,6 +121,9 @@ export async function PATCH(
     });
   } catch (error) {
     console.error("PATCH /api/businesses/[slug] failed:", error);
+    if (isBusinessIsDemoMissingColumnError(error)) {
+      warnPrismaSchemaDrift("Business detail update failed while Business.isDemo is missing", error);
+    }
     return jsonError("Не удалось обновить бизнес.", 500);
   }
 }

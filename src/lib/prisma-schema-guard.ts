@@ -15,11 +15,15 @@ export function isPrismaMissingColumnError(error: unknown, table?: string, colum
   return lower.includes(target.toLowerCase()) || lower.includes(`"${column?.toLowerCase()}"`);
 }
 
+export function isBusinessIsDemoMissingColumnError(error: unknown) {
+  return isPrismaMissingColumnError(error, "Business", "isDemo");
+}
+
 export function warnPrismaSchemaDrift(context: string, error: unknown) {
   const err = error as { code?: string; message?: string; meta?: Record<string, unknown> };
 
   console.warn(
-    `[DB SCHEMA SYNC] ${context}: production database is behind prisma/schema.prisma. Apply docs/manual-supabase-patch.sql in Supabase SQL Editor.`,
+    `[DB SCHEMA SYNC] ${context}: production database is behind prisma/schema.prisma. Apply docs/manual-supabase-hotfix-business-is-demo.sql in Supabase SQL Editor.`,
     {
       code: err?.code,
       meta: err?.meta,

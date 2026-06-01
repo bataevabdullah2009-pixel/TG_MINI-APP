@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { NotificationService } from "@/lib/notifications/notification-service";
 import { ensureTelegramUser } from "@/lib/auth/telegram-user-service";
+import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 import { getAdminSession } from "@/lib/admin-auth";
 
@@ -55,6 +56,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(bookings);
   } catch (error) {
     console.error("Error fetching bookings:", error);
+    if (isBusinessIsDemoMissingColumnError(error)) {
+      warnPrismaSchemaDrift("Bookings loaded as an empty list while Business.isDemo is missing", error);
+      return NextResponse.json([]);
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -173,6 +178,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(booking, { status: 201 });
   } catch (error) {
     console.error("Error creating booking:", error);
+    if (isBusinessIsDemoMissingColumnError(error)) {
+      warnPrismaSchemaDrift("Booking creation hit Business.isDemo schema drift", error);
+      return NextResponse.json({ error: "Booking service is temporarily unavailable." }, { status: 503 });
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

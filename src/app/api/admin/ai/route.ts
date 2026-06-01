@@ -3,6 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { getAiRouting, getDailyUsage, getMonthlyUsage } from "@/lib/ai/ai-cost-control";
 
+const adminAiBusinessSelect = {
+  id: true,
+  name: true,
+  type: true,
+  templateKey: true,
+} as const;
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getAdminSession(request);
@@ -11,8 +18,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const value = searchParams.get("businessId") || session.businessId || undefined;
     const business = value
-      ? await prisma.business.findFirst({ where: { OR: [{ id: value }, { slug: value }] } })
-      : await prisma.business.findFirst({ where: { isActive: true } });
+      ? await prisma.business.findFirst({ where: { OR: [{ id: value }, { slug: value }] }, select: adminAiBusinessSelect })
+      : await prisma.business.findFirst({ where: { isActive: true }, select: adminAiBusinessSelect });
 
     if (!business) return jsonError("Бизнес не найден.", 404);
     if (!canUseBusiness(session, business.id)) return jsonError("Нет доступа к этому бизнесу.", 403);
