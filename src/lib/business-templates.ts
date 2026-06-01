@@ -140,5 +140,6 @@ export function templateKeyFromBusinessType(type: string): TemplateKey {
   if (normalized === "GROCERY") return "grocery";
   if (normalized === "HARDWARE_STORE") return "hardware_store";
   if (normalized === "CARWASH") return "carwash";
-  return "cafe";
+  if (normalized === "CUSTOM" || normalized === "COURSES") return "shop";
+  return "shop";
 }

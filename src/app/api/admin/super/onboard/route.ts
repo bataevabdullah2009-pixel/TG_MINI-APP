@@ -10,8 +10,51 @@ const PLAN_IDS: Record<string, string> = {
   BUSINESS: "plan-business",
 };
 
-function normalizeSlug(value: string) {
+const cyrillicMap: Record<string, string> = {
+  а: "a",
+  б: "b",
+  в: "v",
+  г: "g",
+  д: "d",
+  е: "e",
+  ё: "e",
+  ж: "zh",
+  з: "z",
+  и: "i",
+  й: "y",
+  к: "k",
+  л: "l",
+  м: "m",
+  н: "n",
+  о: "o",
+  п: "p",
+  р: "r",
+  с: "s",
+  т: "t",
+  у: "u",
+  ф: "f",
+  х: "h",
+  ц: "c",
+  ч: "ch",
+  ш: "sh",
+  щ: "sch",
+  ъ: "",
+  ы: "y",
+  ь: "",
+  э: "e",
+  ю: "yu",
+  я: "ya",
+};
+
+function transliterate(value: string) {
   return value
+    .split("")
+    .map((char) => cyrillicMap[char.toLowerCase()] ?? char)
+    .join("");
+}
+
+function normalizeSlug(value: string) {
+  return transliterate(value)
     .toLowerCase()
     .trim()
     .replace(/['"]/g, "")
@@ -19,6 +62,15 @@ function normalizeSlug(value: string) {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 80);
+}
+
+function resolveTemplateKey(type?: string, templateKey?: string) {
+  const requested = String(templateKey || "").toLowerCase();
+  if (requested && requested in BUSINESS_TEMPLATES) return requested as keyof typeof BUSINESS_TEMPLATES;
+
+  const normalizedType = String(type || "").toUpperCase();
+  if (normalizedType === "CUSTOM" || normalizedType === "COURSES") return "shop";
+  return templateKeyFromBusinessType(normalizedType);
 }
 
 export async function POST(request: NextRequest) {
@@ -51,7 +103,7 @@ export async function POST(request: NextRequest) {
     if (!normalizedSlug) {
       return NextResponse.json({ error: "Не удалось сформировать slug. Укажите короткую ссылку латиницей." }, { status: 400 });
     }
-    const selectedTemplateKey = templateKey || templateKeyFromBusinessType(type);
+    const selectedTemplateKey = resolveTemplateKey(type, templateKey);
     const template = BUSINESS_TEMPLATES[selectedTemplateKey as keyof typeof BUSINESS_TEMPLATES];
 
     if (!template) {
@@ -80,7 +132,7 @@ export async function POST(request: NextRequest) {
         data: {
           name,
           slug: normalizedSlug,
-          type: template.businessType,
+          type: String(type).toUpperCase() === "CUSTOM" || String(type).toUpperCase() === "COURSES" ? "CUSTOM" : template.businessType,
           templateKey: template.key,
           description: template.description,
           primaryColor: template.theme.primaryColor,

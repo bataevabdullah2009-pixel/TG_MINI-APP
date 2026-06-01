@@ -6,6 +6,12 @@ import { ensureTelegramUser, trySyncUserPhone } from "@/lib/auth/telegram-user-s
 import { ensureCustomerForTelegramUser } from "@/lib/customer/customer-service";
 import { getMiniAppUrl } from "@/lib/production-url";
 
+function withTelegramWebAppCacheBust(url: string) {
+  const parsed = new URL(url);
+  parsed.searchParams.set("v", Date.now().toString());
+  return parsed.toString();
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -240,7 +246,7 @@ export async function POST(request: NextRequest) {
       await telegramBot.sendNotification(chatId, message, {
         parse_mode: "HTML",
         reply_markup: {
-          inline_keyboard: [[{ text: buttonText, web_app: { url: targetUrl } }]],
+          inline_keyboard: [[{ text: buttonText, web_app: { url: withTelegramWebAppCacheBust(targetUrl) } }]],
         },
       });
 
@@ -296,7 +302,7 @@ export async function POST(request: NextRequest) {
         {
           parse_mode: "HTML",
           reply_markup: {
-            inline_keyboard: [[{ text: "💼 Панель продавца", web_app: { url: `${miniAppUrl}?mode=seller` } }]],
+            inline_keyboard: [[{ text: "💼 Панель продавца", web_app: { url: withTelegramWebAppCacheBust(`${miniAppUrl}?mode=seller`) } }]],
 
           },
         }

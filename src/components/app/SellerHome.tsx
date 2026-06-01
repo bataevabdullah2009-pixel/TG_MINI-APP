@@ -24,7 +24,8 @@ import {
   MapPin,
   Check,
   User,
-  Clock
+  Clock,
+  Pencil
 } from "lucide-react";
 import { MediaUpload } from "./MediaUpload";
 import { AiCenter } from "./AiCenter";
@@ -62,6 +63,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const [newItemDesc, setNewItemDesc] = useState("");
   const [newItemType, setNewItemType] = useState<"PRODUCT" | "SERVICE">("PRODUCT");
   const [newItemImage, setNewItemImage] = useState("");
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
   
   // Category management inside catalog
   const [newCatName, setNewCatName] = useState("");
@@ -188,8 +190,29 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         showError(d.error || "Не удалось создать категорию");
       }
     } catch (err) {
-      showError("Ошибка сети");
+      showError("Не удалось создать категорию");
     }
+  };
+
+  const resetItemForm = () => {
+    setEditingItemId(null);
+    setNewItemName("");
+    setNewItemPrice("");
+    setNewItemCategory(categories[0]?.id || "");
+    setNewItemDesc("");
+    setNewItemType("PRODUCT");
+    setNewItemImage("");
+  };
+
+  const startEditItem = (item: any) => {
+    setEditingItemId(item.id);
+    setNewItemName(item.name || "");
+    setNewItemPrice(item.price === undefined || item.price === null ? "" : String(item.price));
+    setNewItemCategory(item.categoryId || item.category?.id || "");
+    setNewItemDesc(item.description || "");
+    setNewItemType(item.type === "SERVICE" ? "SERVICE" : "PRODUCT");
+    setNewItemImage(item.imageUrl || "");
+    setActiveTab("ITEMS");
   };
 
   const handleAddItem = async (e: React.FormEvent) => {
@@ -200,11 +223,11 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     }
 
     try {
-      const res = await miniAppFetch("/api/admin/items", {
-        method: "POST",
+      const res = await miniAppFetch(editingItemId ? `/api/admin/items/${editingItemId}` : "/api/admin/items", {
+        method: editingItemId ? "PATCH" : "POST",
         body: JSON.stringify({
           businessId,
-          categoryId: newItemCategory || undefined,
+          categoryId: newItemCategory || null,
           name: newItemName,
           price: parseFloat(newItemPrice),
           description: newItemDesc,
@@ -215,18 +238,15 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       });
 
       if (res.ok) {
-        showSuccess("Позиция успешно добавлена!");
-        setNewItemName("");
-        setNewItemPrice("");
-        setNewItemDesc("");
-        setNewItemImage("");
+        showSuccess(editingItemId ? "Позиция обновлена!" : "Позиция успешно добавлена!");
+        resetItemForm();
         fetchSellerData();
       } else {
         const rData = await res.json();
-        showError(rData.error || "Не удалось добавить товар");
+        showError(rData.error || (editingItemId ? "Не удалось изменить товар" : "Не удалось добавить товар"));
       }
     } catch (e) {
-      showError("Ошибка соединения с сервером");
+      showError(editingItemId ? "Не удалось изменить товар" : "Ошибка соединения с сервером");
     }
   };
 
@@ -878,12 +898,26 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
             {/* Item add form */}
             <form onSubmit={handleAddItem} className="bg-white rounded-3xl p-5 shadow-sm ring-1 ring-slate-100/80 space-y-3.5">
-              <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">Быстрое добавление</h3>
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">
+                  {editingItemId ? "Редактирование позиции" : "Быстрое добавление"}
+                </h3>
+                {editingItemId && (
+                  <button
+                    type="button"
+                    onClick={resetItemForm}
+                    className="text-[10px] font-black text-slate-400 hover:text-slate-900"
+                  >
+                    Отмена
+                  </button>
+                )}
+              </div>
               
               <div className="space-y-3">
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">ФОТО ТОВАРА</label>
                   <MediaUpload
+                    key={editingItemId || "new-item"}
                     businessId={businessId}
                     type="gallery"
                     initialUrl={newItemImage}
@@ -956,7 +990,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                   type="submit"
                   className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-950 py-3 text-xs font-black text-white hover:bg-indigo-650 transition"
                 >
-                  <Plus size={14} /> Добавить на витрину
+                  {editingItemId ? <Save size={14} /> : <Plus size={14} />}
+                  {editingItemId ? "Сохранить изменения" : "Добавить на витрину"}
                 </button>
               </div>
             </form>
@@ -973,7 +1008,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                       <div className="flex items-center gap-3">
                         <div className="h-11 w-11 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center text-slate-400">
                           {it.imageUrl ? (
-                            <img src={it.imageUrl} className="h-full w-full object-cover" />
+                            <img src={it.imageUrl} alt={it.name} className="h-full w-full object-cover" />
                           ) : (
                             <ImageIcon size={14} />
                           )}
@@ -988,13 +1023,22 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           )}
                         </div>
                       </div>
-                      <button 
-                        onClick={() => handleDeleteItem(it.id)}
-                        className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 active:scale-95 transition"
-                        title="Удалить"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => startEditItem(it)}
+                          className="p-2 rounded-xl text-indigo-600 hover:bg-indigo-50 active:scale-95 transition"
+                          title="Изменить"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteItem(it.id)}
+                          className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 active:scale-95 transition"
+                          title="Удалить"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}

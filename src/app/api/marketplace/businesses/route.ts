@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { isPrismaMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 const typeLabels: Record<string, string> = {
   CAFE: "Еда",
@@ -39,29 +38,20 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const telegramUserId = searchParams.get("telegramUserId");
     const superAdmin = isSuperAdmin(telegramUserId);
-    const hideDemo = process.env.NODE_ENV === "production" && !superAdmin;
 
-    let businesses;
-    try {
-      businesses = await prisma.business.findMany({
-        where: { isActive: true, ...(hideDemo ? { isDemo: false } : {}) },
-        select: marketplaceBusinessSelect,
-        orderBy: { createdAt: "desc" },
-      });
-    } catch (error) {
-      if (!hideDemo || !isPrismaMissingColumnError(error, "Business", "isDemo")) {
-        throw error;
-      }
-
-      warnPrismaSchemaDrift("Marketplace loaded without Business.isDemo filter", error);
-      businesses = await prisma.business.findMany({
-        where: { isActive: true },
-        select: marketplaceBusinessSelect,
-        orderBy: { createdAt: "desc" },
-      });
-    }
+    const businesses = await prisma.business.findMany({
+      where: { isActive: true },
+      select: marketplaceBusinessSelect,
+      orderBy: { createdAt: "desc" },
+    });
 
     const isDbEmpty = businesses.length === 0;
+    if (businesses.length > 0 && businesses.length < 3) {
+      console.warn("[Marketplace] Fewer than 3 active businesses returned.", {
+        count: businesses.length,
+        slugs: businesses.map((business) => business.slug),
+      });
+    }
 
     return NextResponse.json({
       isSuperAdmin: superAdmin,

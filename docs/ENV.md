@@ -126,10 +126,10 @@ Do not commit real secrets. Use `.env.example` as a template and store productio
 - Defaults to `business-media`.
 
 `SUPABASE_STORAGE_PRODUCT_IMAGES_BUCKET`
-- Defaults to `product-images`.
+- Legacy optional variable. Current upload routes use `SUPABASE_STORAGE_BUSINESS_MEDIA_BUCKET` for product images too.
 
 `SUPABASE_STORAGE_BUSINESS_COVERS_BUCKET`
-- Defaults to `business-covers`.
+- Legacy optional variable. Current upload routes use `SUPABASE_STORAGE_BUSINESS_MEDIA_BUCKET` for covers too.
 
 ## Upload storage
 
@@ -140,7 +140,7 @@ Current upload routes use Supabase Storage server-side:
 - `/api/admin/media/upload`
 
 Required variables for uploads are `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and server-only `SUPABASE_SERVICE_ROLE_KEY`.
-Optional bucket overrides are `SUPABASE_STORAGE_BUSINESS_MEDIA_BUCKET`, `SUPABASE_STORAGE_PRODUCT_IMAGES_BUCKET` and `SUPABASE_STORAGE_BUSINESS_COVERS_BUCKET`.
+The active bucket is `SUPABASE_STORAGE_BUSINESS_MEDIA_BUCKET`, defaulting to public bucket `business-media`.
 
 `BLOB_READ_WRITE_TOKEN` is not required for the current upload implementation.
 

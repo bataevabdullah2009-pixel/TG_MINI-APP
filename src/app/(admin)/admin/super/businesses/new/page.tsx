@@ -49,7 +49,7 @@ export default function OnboardWizard() {
     setError("");
 
     try {
-      const response = await fetch("/api/admin/super/onboard", {
+      const response = await fetch("/api/admin/super/businesses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

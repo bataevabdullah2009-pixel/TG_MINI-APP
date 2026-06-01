@@ -185,11 +185,11 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
     else if (typeUpper === "COURSES") templateKey = "courses";
 
     try {
-      const res = await miniAppFetch("/api/admin/super/onboard", {
+      const res = await miniAppFetch("/api/admin/super/businesses", {
         method: "POST",
         body: JSON.stringify({
           name: bizName,
-          slug: bizSlug.toLowerCase().trim().replace(/[^a-z0-9-_]/g, ""),
+          slug: bizSlug,
           type: bizType,
           templateKey,
           ownerEmail,

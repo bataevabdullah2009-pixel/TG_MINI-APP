@@ -4,8 +4,6 @@ import path from "path";
 export const uploadImageTypes = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
 export const uploadBuckets = {
   businessMedia: "business-media",
-  productImages: "product-images",
-  businessCovers: "business-covers",
 } as const;
 
 type UploadOptions = {
@@ -55,13 +53,14 @@ export function publicUploadErrorMessage(error: unknown) {
   ) {
     return message;
   }
+  if (message.startsWith("Не удалось подготовить bucket")) {
+    return "Не удалось подготовить Supabase Storage. Создайте публичный bucket business-media или проверьте SUPABASE_SERVICE_ROLE_KEY.";
+  }
   return "Не удалось загрузить файл. Проверьте формат PNG/JPG/WEBP до 5 MB и попробуйте снова.";
 }
 
 export function bucketForUploadType(type: string) {
-  if (type === "logo") return process.env.SUPABASE_STORAGE_BUSINESS_MEDIA_BUCKET || uploadBuckets.businessMedia;
-  if (type === "cover") return process.env.SUPABASE_STORAGE_BUSINESS_COVERS_BUCKET || uploadBuckets.businessCovers;
-  return process.env.SUPABASE_STORAGE_PRODUCT_IMAGES_BUCKET || uploadBuckets.productImages;
+  return process.env.SUPABASE_STORAGE_BUSINESS_MEDIA_BUCKET || uploadBuckets.businessMedia;
 }
 
 async function ensureBucket(supabaseUrl: string, serviceRoleKey: string, bucket: string) {
