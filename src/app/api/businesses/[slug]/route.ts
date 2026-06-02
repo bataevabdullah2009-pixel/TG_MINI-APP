@@ -60,7 +60,7 @@ export async function GET(
     });
 
     if (!business) {
-      return NextResponse.json({ error: "Business not found" }, { status: 404 });
+      return NextResponse.json({ error: "Бизнес не найден." }, { status: 404 });
     }
 
     return NextResponse.json({
@@ -72,7 +72,7 @@ export async function GET(
     if (isBusinessIsDemoMissingColumnError(error)) {
       warnPrismaSchemaDrift("Business detail could not load Business.isDemo", error);
     }
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось загрузить бизнес." }, { status: 500 });
   }
 }
 

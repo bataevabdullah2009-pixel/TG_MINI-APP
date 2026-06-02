@@ -41,6 +41,9 @@ For new Prisma fields:
 
 Known current manual patch:
 - `docs/manual-supabase-hotfix-business-is-demo.sql`
+- `docs/manual-supabase-hotfix-schema-sync.sql`
+
+If Vercel logs show `column does not exist` for `Business.isDemo` or User phone verification fields, run `docs/manual-supabase-hotfix-schema-sync.sql` in Supabase SQL Editor, then redeploy without resetting the database.
 
 ## 3. Vercel setup
 

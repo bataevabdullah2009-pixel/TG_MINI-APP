@@ -172,9 +172,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     if (!newCatName) return;
 
     try {
-      const res = await miniAppFetch(`/api/businesses/${businessId}/categories`, {
+      const res = await miniAppFetch("/api/categories", {
         method: "POST",
         body: JSON.stringify({
+          businessId,
           name: newCatName,
           isActive: true,
         }),
@@ -190,7 +191,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         showError(d.error || "Не удалось создать категорию");
       }
     } catch (err) {
-      showError("Не удалось создать категорию");
+      showError("Не удалось создать категорию. Проверьте соединение и попробуйте снова.");
     }
   };
 
@@ -265,7 +266,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         showError("Не удалось удалить товар");
       }
     } catch (err) {
-      showError("Ошибка сети");
+      showError("Не удалось удалить товар. Проверьте соединение и попробуйте снова.");
     }
   };
 
@@ -288,7 +289,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         showError(d.error || "Не удалось обновить статус заказа");
       }
     } catch (err) {
-      showError("Ошибка сети");
+      showError("Не удалось обновить статус заказа. Проверьте соединение и попробуйте снова.");
     }
   };
 
@@ -303,10 +304,11 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         showSuccess("Статус записи изменен!");
         fetchSellerData();
       } else {
-        showError("Не удалось обновить запись");
+        const d = await res.json().catch(() => ({}));
+        showError(d.error || "Не удалось обновить запись");
       }
     } catch (err) {
-      showError("Ошибка сети");
+      showError("Не удалось обновить запись. Проверьте соединение и попробуйте снова.");
     }
   };
 

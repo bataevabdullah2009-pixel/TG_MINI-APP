@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
       warnPrismaSchemaDrift("Businesses loaded as an empty list while Business.isDemo is missing", error);
       return NextResponse.json([]);
     }
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось загрузить список бизнесов." }, { status: 500 });
   }
 }
 
@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
     if (isBusinessIsDemoMissingColumnError(error)) {
       warnPrismaSchemaDrift("Business create failed while Business.isDemo is missing", error);
     }
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось создать бизнес." }, { status: 500 });
   }
 }
 
@@ -207,6 +207,6 @@ export async function PATCH(request: NextRequest) {
     if (isBusinessIsDemoMissingColumnError(error)) {
       warnPrismaSchemaDrift("Business update failed while Business.isDemo is missing", error);
     }
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось обновить бизнес." }, { status: 500 });
   }
 }

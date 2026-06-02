@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, businessId, sortOrder } = body;
+    const { name, businessId, sortOrder, isActive } = body;
 
     if (!name || !businessId) {
       return NextResponse.json({ error: "Название и ID бизнеса обязательны" }, { status: 400 });
@@ -38,14 +38,18 @@ export async function POST(request: NextRequest) {
       data: {
         name,
         businessId,
-        sortOrder: parseInt(sortOrder || "0"),
+        isActive: isActive ?? true,
+        sortOrder: Number.isFinite(Number(sortOrder)) ? Number(sortOrder) : 0,
       },
     });
 
-    return NextResponse.json(category, { status: 201 });
-  } catch (error) {
+    return NextResponse.json({ ok: true, data: category, category }, { status: 201 });
+  } catch (error: any) {
     console.error("POST Category Error:", error);
-    return NextResponse.json({ error: "Ошибка создания категории" }, { status: 500 });
+    if (error?.code === "P2002") {
+      return NextResponse.json({ ok: false, error: "Такая категория уже есть." }, { status: 400 });
+    }
+    return NextResponse.json({ ok: false, error: "Ошибка создания категории" }, { status: 500 });
   }
 }
 

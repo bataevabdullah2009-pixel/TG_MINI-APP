@@ -199,7 +199,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
         showSuccess("Бизнес успешно создан!");
         setBizName("");
@@ -207,8 +207,9 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
         setOwnerEmail("");
         setOwnerPassword("");
         
-        if (data.owner?.telegramLinkCode) {
-          setCreatedLinkCode(data.owner.telegramLinkCode);
+        const linkCode = data.sellerLinkCode || data.owner?.telegramLinkCode;
+        if (linkCode) {
+          setCreatedLinkCode(linkCode);
         }
         
         setActiveTab("OVERVIEW");
@@ -216,7 +217,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
         showError(data.error || "Ошибка создания бизнеса");
       }
     } catch (err) {
-      showError("Ошибка связи с сервером");
+      showError("Не удалось связаться с сервером создания бизнеса. Проверьте соединение и попробуйте снова.");
     } finally {
       setFormSubmitting(false);
     }

@@ -7,6 +7,8 @@ import { BUSINESS_TEMPLATES, templateKeyFromBusinessType, type TemplateKey } fro
 
 export { GET } from "@/app/api/businesses/route";
 
+type BusinessTypeValue = "CAFE" | "BARBERSHOP" | "CARWASH" | "SHOP" | "GROCERY" | "HARDWARE_STORE" | "COURSES" | "CUSTOM";
+
 const cyrillicMap: Record<string, string> = {
   а: "a",
   б: "b",
@@ -74,6 +76,11 @@ function sellerLinkCode() {
   return crypto.randomBytes(3).toString("hex").toUpperCase();
 }
 
+function resolveBusinessType(requestedType: string, templateBusinessType: BusinessTypeValue): BusinessTypeValue {
+  if (requestedType === "CUSTOM" || requestedType === "COURSES") return requestedType;
+  return templateBusinessType;
+}
+
 async function seedTemplateContent(tx: any, businessId: string, templateKey: TemplateKey) {
   const template = BUSINESS_TEMPLATES[templateKey];
   const categoryIds = new Map<string, string>();
@@ -135,7 +142,7 @@ export async function POST(request: NextRequest) {
 
     const templateKey = resolveTemplateKey(requestedType, body.templateKey);
     const template = BUSINESS_TEMPLATES[templateKey];
-    const businessType = requestedType === "CUSTOM" || requestedType === "COURSES" ? "CUSTOM" : template.businessType;
+    const businessType = resolveBusinessType(requestedType, template.businessType);
 
     const [existingSlug, existingEmail] = await Promise.all([
       prisma.business.findUnique({ where: { slug }, select: { id: true } }),
@@ -143,10 +150,10 @@ export async function POST(request: NextRequest) {
     ]);
 
     if (existingSlug) {
-      return jsonError("Такой slug уже занят. Укажите другую короткую ссылку.", 400);
+      return jsonError("Такой slug уже занят. Укажите другой slug.", 400);
     }
     if (existingEmail) {
-      return jsonError("Этот email уже зарегистрирован. Укажите другой email владельца.", 400);
+      return jsonError("Этот email уже зарегистрирован. Укажите другой email.", 400);
     }
 
     const hashedPassword = await bcrypt.hash(ownerPassword, 10);

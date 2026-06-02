@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     });
 
     const isDbEmpty = businesses.length === 0;
-    if (businesses.length > 0 && businesses.length < 3) {
+    if (businesses.length < 3) {
       console.warn("[Marketplace] Fewer than 3 active businesses returned.", {
         count: businesses.length,
         slugs: businesses.map((business) => business.slug),

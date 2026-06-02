@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
       warnPrismaSchemaDrift("Bookings loaded as an empty list while Business.isDemo is missing", error);
       return NextResponse.json([]);
     }
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось загрузить записи." }, { status: 500 });
   }
 }
 
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     } = body;
 
     if (!businessId || !customerName || !customerPhone || !startTime) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      return NextResponse.json({ error: "Заполните обязательные поля для записи." }, { status: 400 });
     }
 
     const business = await prisma.business.findFirst({
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
       select: { id: true, isActive: true },
     });
     if (!business || !business.isActive) {
-      return NextResponse.json({ error: "Business not found or inactive" }, { status: 404 });
+      return NextResponse.json({ error: "Бизнес не найден или временно недоступен." }, { status: 404 });
     }
 
     // Calculate endTime from service duration if not provided
@@ -180,8 +180,8 @@ export async function POST(request: NextRequest) {
     console.error("Error creating booking:", error);
     if (isBusinessIsDemoMissingColumnError(error)) {
       warnPrismaSchemaDrift("Booking creation hit Business.isDemo schema drift", error);
-      return NextResponse.json({ error: "Booking service is temporarily unavailable." }, { status: 503 });
+      return NextResponse.json({ error: "Создание записи временно недоступно." }, { status: 503 });
     }
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось создать запись. Проверьте данные и попробуйте снова." }, { status: 500 });
   }
 }

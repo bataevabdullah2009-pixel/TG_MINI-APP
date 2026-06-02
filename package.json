@@ -15,6 +15,7 @@
     "telegram:webhook:info": "node scripts/telegram-webhook.mjs info",
     "telegram:webhook:set": "node scripts/telegram-webhook.mjs set",
     "telegram:webhook:delete": "node scripts/telegram-webhook.mjs delete",
+    "smoke:production-flow": "node scripts/smoke-production-flow.js",
     "type-check": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "postinstall": "prisma generate"

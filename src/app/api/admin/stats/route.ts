@@ -63,6 +63,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Error fetching stats:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось загрузить статистику." }, { status: 500 });
   }
 }

@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { ArrowLeft, CalendarDays, Heart, Minus, Plus, Search, ShoppingBag, Star } from "lucide-react";
+import { PhoneVerificationScreen } from "@/components/app/PhoneVerificationScreen";
 
 type Item = {
   id: string;
@@ -81,6 +82,9 @@ export default function BusinessMiniAppPage() {
   const [slots, setSlots] = useState<string[]>([]);
   const [selectedTime, setSelectedTime] = useState("");
   const [success, setSuccess] = useState("");
+  const [checkoutError, setCheckoutError] = useState("");
+  const [needsPhoneVerification, setNeedsPhoneVerification] = useState(false);
+  const [verifyOpen, setVerifyOpen] = useState(false);
   const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", address: "", deliveryType: "PICKUP", comment: "" });
 
   useEffect(() => {
@@ -145,26 +149,37 @@ export default function BusinessMiniAppPage() {
 
   async function submitOrder(event: React.FormEvent) {
     event.preventDefault();
+    setCheckoutError("");
+    setNeedsPhoneVerification(false);
     const user = telegramUser();
-    const res = await fetch(`/api/businesses/${slug}/orders`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        customerName: `${form.firstName} ${form.lastName}`.trim(),
-        customerPhone: form.phone,
-        customerAddress: form.deliveryType === "DELIVERY" ? form.address : "",
-        deliveryType: form.deliveryType,
-        comment: form.comment,
-        telegramUserId: user?.id,
-        username: user?.username,
-        items: cart.map((line) => ({ itemId: line.item.id, quantity: line.quantity })),
-      }),
-    });
+    try {
+      const res = await fetch(`/api/businesses/${slug}/orders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerName: `${form.firstName} ${form.lastName}`.trim(),
+          customerPhone: form.phone,
+          customerAddress: form.deliveryType === "DELIVERY" ? form.address : "",
+          deliveryType: form.deliveryType,
+          comment: form.comment,
+          telegramUserId: user?.id,
+          username: user?.username,
+          items: cart.map((line) => ({ itemId: line.item.id, quantity: line.quantity })),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
 
-    if (res.ok) {
-      setCart([]);
-      setCheckoutOpen(false);
-      setSuccess("Заказ оформлен. Продавец уже получил уведомление.");
+      if (res.ok) {
+        setCart([]);
+        setCheckoutOpen(false);
+        setSuccess("Заказ оформлен. Продавец уже получил уведомление.");
+      } else {
+        const message = data.error || "Не удалось оформить заказ. Проверьте данные и попробуйте снова.";
+        setCheckoutError(message);
+        setNeedsPhoneVerification(res.status === 403 && message.toLowerCase().includes("телефон"));
+      }
+    } catch (error) {
+      setCheckoutError("Не удалось отправить заказ. Проверьте соединение и попробуйте снова.");
     }
   }
 
@@ -343,9 +358,37 @@ export default function BusinessMiniAppPage() {
               <option value="PICKUP">Самовывоз</option>
               <option value="DELIVERY">Доставка</option>
             </select>
+            {checkoutError && (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700">
+                {checkoutError}
+                {needsPhoneVerification && (
+                  <button
+                    type="button"
+                    onClick={() => setVerifyOpen(true)}
+                    className="mt-2 block rounded-xl bg-rose-600 px-3 py-2 text-xs font-black text-white"
+                  >
+                    Подтвердить номер
+                  </button>
+                )}
+              </div>
+            )}
             <button className="w-full rounded-2xl bg-slate-950 px-4 py-3 font-black text-white">Подтвердить заказ на {rub(cartTotal)}</button>
           </form>
         </Modal>
+      )}
+
+      {verifyOpen && business && (
+        <PhoneVerificationScreen
+          businessId={business.id}
+          telegramUserId={telegramUser()?.id?.toString() || ""}
+          onVerified={(phone) => {
+            setForm((current) => ({ ...current, phone }));
+            setCheckoutError("");
+            setNeedsPhoneVerification(false);
+            setVerifyOpen(false);
+          }}
+          onClose={() => setVerifyOpen(false)}
+        />
       )}
 
       {bookingOpen && selectedService && (

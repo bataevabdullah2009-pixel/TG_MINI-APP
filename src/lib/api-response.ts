@@ -43,6 +43,6 @@ export function handleError(error: any) {
   console.error("Unexpected error:", error);
   return {
     statusCode: 500,
-    body: errorResponse("Internal server error"),
+    body: errorResponse("Не удалось обработать запрос."),
   };
 }

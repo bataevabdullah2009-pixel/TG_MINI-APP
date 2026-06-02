@@ -79,6 +79,10 @@ Do not commit real secrets. Use `.env.example` as a template and store productio
 - `mock`, `openrouter` or `polza`.
 - Use `mock` if no paid provider is configured.
 
+`NEXT_PUBLIC_ENABLE_ADVANCED_AI`
+- Public feature flag for extra AI tabs.
+- Set to `false` for MVP production so only `Карточка товара`, `TG Пост` and `Улучшить текст` are shown.
+
 `OPENROUTER_API_KEY`
 - Required only when `AI_PROVIDER=openrouter`.
 - Source: OpenRouter dashboard.

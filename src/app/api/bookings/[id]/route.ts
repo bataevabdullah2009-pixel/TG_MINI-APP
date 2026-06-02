@@ -13,7 +13,7 @@ export async function PATCH(
 
     const booking = await prisma.booking.findUnique({ where: { id } });
     if (!booking) {
-      return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+      return NextResponse.json({ error: "Запись не найдена." }, { status: 404 });
     }
 
     const updated = await prisma.booking.update({
@@ -33,7 +33,7 @@ export async function PATCH(
     return NextResponse.json(updated);
   } catch (error) {
     console.error("Error updating booking:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось обновить запись." }, { status: 500 });
   }
 }
 
@@ -54,12 +54,12 @@ export async function GET(
     });
 
     if (!booking) {
-      return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+      return NextResponse.json({ error: "Запись не найдена." }, { status: 404 });
     }
 
     return NextResponse.json(booking);
   } catch (error) {
     console.error("Error fetching booking:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось загрузить запись." }, { status: 500 });
   }
 }

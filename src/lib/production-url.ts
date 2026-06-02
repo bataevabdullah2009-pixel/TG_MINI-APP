@@ -59,17 +59,17 @@ function stripMiniAppPath(value: string) {
 
 export function getAppBaseUrl() {
   const configured =
+    process.env.NEXT_PUBLIC_WEBAPP_URL ||
     process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.WEBAPP_URL ||
-    process.env.NEXT_PUBLIC_WEBAPP_URL;
+    process.env.WEBAPP_URL;
 
   if (!configured) {
     throw new Error(
-      "[URL CONFIG] NEXT_PUBLIC_APP_URL is required for Telegram Mini App routing."
+      "[URL CONFIG] NEXT_PUBLIC_WEBAPP_URL or NEXT_PUBLIC_APP_URL is required for Telegram Mini App routing."
     );
   }
 
-  return stripMiniAppPath(assertProductionUrl("NEXT_PUBLIC_APP_URL", configured));
+  return stripMiniAppPath(assertProductionUrl("NEXT_PUBLIC_WEBAPP_URL/NEXT_PUBLIC_APP_URL", configured));
 }
 
 export function getMiniAppUrl(path = "/app") {
