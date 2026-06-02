@@ -5,6 +5,7 @@ import { AIService } from "@/lib/ai/ai-service";
 import { ensureTelegramUser, trySyncUserPhone } from "@/lib/auth/telegram-user-service";
 import { ensureCustomerForTelegramUser } from "@/lib/customer/customer-service";
 import { getMiniAppUrl } from "@/lib/production-url";
+import { looksLikeSellerLinkAttempt, parseSellerLinkText } from "@/lib/seller-link";
 
 function withTelegramWebAppCacheBust(url: string) {
   const parsed = new URL(url);
@@ -12,7 +13,95 @@ function withTelegramWebAppCacheBust(url: string) {
   return parsed.toString();
 }
 
+type TelegramMessageFrom = {
+  id: number | string;
+  username?: string;
+  first_name?: string;
+  last_name?: string;
+};
+
+function sellerPanelUrl() {
+  return withTelegramWebAppCacheBust(`${getMiniAppUrl()}?mode=seller`);
+}
+
+async function handleSellerLinkCode(text: string, chatId: string | number, from?: TelegramMessageFrom | null) {
+  const parsed = parseSellerLinkText(text);
+  if (!parsed.attempt) return false;
+
+  if (!from?.id || !parsed.code) {
+    await telegramBot.sendNotification(
+      chatId,
+      "❌ Код не найден или истёк. Попросите Super Admin создать новый код."
+    );
+    return true;
+  }
+
+  const ownerUser = await prisma.user.findFirst({
+    where: {
+      telegramLinkCode: parsed.code,
+      telegramLinkExpiresAt: { gt: new Date() },
+    },
+    select: { id: true, email: true, username: true },
+  });
+
+  if (!ownerUser) {
+    await telegramBot.sendNotification(
+      chatId,
+      "❌ Код не найден или истёк. Попросите Super Admin создать новый код."
+    );
+    return true;
+  }
+
+  const telegramId = BigInt(from.id);
+
+  await prisma.$transaction(async (tx) => {
+    const linkedTelegramUser = await tx.user.findUnique({
+      where: { telegramId },
+      select: { id: true, role: true, businessId: true },
+    });
+
+    if (linkedTelegramUser && linkedTelegramUser.id !== ownerUser.id) {
+      if (linkedTelegramUser.role !== "CUSTOMER" || linkedTelegramUser.businessId) {
+        throw new Error("Telegram account is already linked to another seller/admin user.");
+      }
+
+      await tx.user.update({
+        where: { id: linkedTelegramUser.id },
+        data: { telegramId: null },
+        select: { id: true },
+      });
+    }
+
+    await tx.user.update({
+      where: { id: ownerUser.id },
+      data: {
+        telegramId,
+        username: from.username || ownerUser.username,
+        telegramLinkCode: null,
+        telegramLinkExpiresAt: null,
+        isActive: true,
+      },
+      select: { id: true },
+    });
+  });
+
+  await telegramBot.sendNotification(
+    chatId,
+    "✅ Продавец привязан. Теперь откройте панель управления."
+  );
+  await telegramBot.sendNotification(chatId, "Панель продавца", {
+    reply_markup: {
+      inline_keyboard: [[{ text: "Панель продавца", web_app: { url: sellerPanelUrl() } }]],
+    },
+  });
+
+  return true;
+}
+
 export async function POST(request: NextRequest) {
+  let webhookChatId: string | number | null = null;
+  let webhookText = "";
+
   try {
     const { searchParams } = new URL(request.url);
     const queryBusinessId = searchParams.get("businessId");
@@ -27,6 +116,8 @@ export async function POST(request: NextRequest) {
     const chatId = body.message.chat.id;
     const text = body.message.text || "";
     const from = body.message.from;
+    webhookChatId = chatId;
+    webhookText = text;
 
     // Add dynamic and safe logging for debugging in Vercel Logs
     console.log("====== [TELEGRAM WEBHOOK ENTRY] ======");
@@ -94,6 +185,10 @@ export async function POST(request: NextRequest) {
     console.log("Chat ID:", chatId);
     console.log("Message Text:", text);
     console.log("Command:", command);
+
+    if (await handleSellerLinkCode(text, chatId, from)) {
+      return NextResponse.json({ ok: true });
+    }
 
     // 1. Resolve Business
     let business = null;
@@ -367,6 +462,17 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (looksLikeSellerLinkAttempt(webhookText)) {
+      console.error("[SELLER_LINK_ERROR]", error);
+      if (webhookChatId) {
+        await telegramBot.sendNotification(
+          webhookChatId,
+          "❌ Ошибка привязки. Админ уже увидит детали в логах Vercel."
+        );
+      }
+      return NextResponse.json({ ok: true });
+    }
+
     console.error("Error details in telegram webhook:", error);
     return NextResponse.json({ ok: true });
   }

@@ -230,17 +230,28 @@ export default function BusinessMiniAppPage() {
 
   return (
     <main className="min-h-screen bg-slate-100 pb-28 text-slate-950">
-      <section
-        className={`bg-gradient-to-br ${ui.accent} px-4 pb-8 pt-5 text-white`}
-        style={business.coverImageUrl ? { backgroundImage: `linear-gradient(135deg, rgba(2,6,23,.78), rgba(2,6,23,.35)), url(${business.coverImageUrl})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
-      >
-        <div className="mx-auto max-w-3xl">
+      <section className={`relative min-h-[340px] overflow-hidden bg-gradient-to-br ${ui.accent} px-4 pb-8 pt-5 text-white`}>
+        {business.coverImageUrl && (
+          <>
+            <img
+              src={business.coverImageUrl}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover object-center"
+            />
+            <div className="absolute inset-0 bg-slate-950/55" />
+          </>
+        )}
+        <div className="relative mx-auto max-w-3xl">
           <div className="mb-5 flex items-center justify-between">
             <Link href="/app" className="grid h-10 w-10 place-items-center rounded-full bg-white/15"><ArrowLeft size={18} /></Link>
             <button className="grid h-10 w-10 place-items-center rounded-full bg-white/15"><Heart size={18} /></button>
           </div>
           <div className="rounded-[28px] bg-black/20 p-5 backdrop-blur">
-            {business.logoUrl && <img src={business.logoUrl} alt={business.name} className="mb-4 h-16 w-16 rounded-2xl object-cover ring-2 ring-white/70" />}
+            {business.logoUrl && (
+              <div className="mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-white/90 p-1.5 ring-2 ring-white/70">
+                <img src={business.logoUrl} alt={business.name} className="h-full w-full object-contain" />
+              </div>
+            )}
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/65">{ui.title}</p>
             <h1 className="mt-2 text-3xl font-black tracking-tight">{business.name}</h1>
             <p className="mt-2 line-clamp-3 text-sm leading-6 text-white/75">{business.description}</p>

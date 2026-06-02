@@ -134,7 +134,7 @@ export function ClientHome({
             >
               <div className="flex gap-4">
                 <div
-                  className="grid h-18 w-18 shrink-0 place-items-center rounded-2xl text-2xl font-black text-white relative shadow-sm"
+                  className="grid h-[72px] w-[72px] shrink-0 place-items-center rounded-2xl p-1.5 text-2xl font-black text-white relative shadow-sm"
                   style={{
                     background: `linear-gradient(135deg, ${business.primaryColor}, ${business.accentColor})`,
                   }}
@@ -143,7 +143,7 @@ export function ClientHome({
                     <img
                       src={business.logoUrl}
                       alt=""
-                      className="h-full w-full rounded-2xl object-cover"
+                      className="h-full w-full rounded-xl bg-white/90 object-contain"
                     />
                   ) : (
                     business.name[0]

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession, jsonError, requireRole } from "@/lib/admin-auth";
 import { BUSINESS_TEMPLATES, templateKeyFromBusinessType, type TemplateKey } from "@/lib/business-templates";
+import { buildSellerDeepLink, generateSellerLinkCode } from "@/lib/seller-link";
 
 export { GET } from "@/app/api/businesses/route";
 
@@ -72,13 +72,19 @@ function resolveTemplateKey(type?: string, templateKey?: string): TemplateKey {
   return templateKeyFromBusinessType(normalizedType);
 }
 
-function sellerLinkCode() {
-  return crypto.randomBytes(3).toString("hex").toUpperCase();
-}
-
 function resolveBusinessType(requestedType: string, templateBusinessType: BusinessTypeValue): BusinessTypeValue {
   if (requestedType === "CUSTOM" || requestedType === "COURSES") return requestedType;
   return templateBusinessType;
+}
+
+async function createUniqueSellerLinkCode(tx: any) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const code = generateSellerLinkCode();
+    const existing = await tx.user.findUnique({ where: { telegramLinkCode: code }, select: { id: true } });
+    if (!existing) return code;
+  }
+
+  throw new Error("Could not generate unique seller link code.");
 }
 
 async function seedTemplateContent(tx: any, businessId: string, templateKey: TemplateKey) {
@@ -146,21 +152,36 @@ export async function POST(request: NextRequest) {
 
     const [existingSlug, existingEmail] = await Promise.all([
       prisma.business.findUnique({ where: { slug }, select: { id: true } }),
-      prisma.user.findUnique({ where: { email: ownerEmail }, select: { id: true } }),
+      prisma.user.findUnique({
+        where: { email: ownerEmail },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          username: true,
+          role: true,
+          businessId: true,
+          ownedBusinesses: { select: { id: true }, take: 1 },
+        },
+      }),
     ]);
 
     if (existingSlug) {
       return jsonError("Такой slug уже занят. Укажите другой slug.", 400);
     }
-    if (existingEmail) {
-      return jsonError("Этот email уже зарегистрирован. Укажите другой email.", 400);
+    if (existingEmail?.businessId || (existingEmail?.ownedBusinesses.length || 0) > 0) {
+      return jsonError("Этот email уже привязан к другому бизнесу. Укажите другой email владельца.", 400);
+    }
+    if (existingEmail && (existingEmail.role === "SUPER_ADMIN" || existingEmail.role === "MANAGER")) {
+      return jsonError("Этот email уже используется учетной записью администратора. Укажите другой email владельца.", 400);
     }
 
     const hashedPassword = await bcrypt.hash(ownerPassword, 10);
-    const code = sellerLinkCode();
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     const result = await prisma.$transaction(async (tx) => {
+      const code = await createUniqueSellerLinkCode(tx);
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
       const business = await tx.business.create({
         data: {
           slug,
@@ -192,20 +213,35 @@ export async function POST(request: NextRequest) {
         select: { id: true, slug: true, name: true, type: true, templateKey: true },
       });
 
-      const owner = await tx.user.create({
-        data: {
-          email: ownerEmail,
-          password: hashedPassword,
-          name: `${name} Owner`,
-          username: ownerEmail.split("@")[0],
-          role: "BUSINESS_OWNER",
-          businessId: business.id,
-          telegramLinkCode: code,
-          telegramLinkExpiresAt: expiresAt,
-          isActive: true,
-        },
-        select: { id: true, email: true, telegramLinkCode: true, telegramLinkExpiresAt: true },
-      });
+      const owner = existingEmail
+        ? await tx.user.update({
+            where: { id: existingEmail.id },
+            data: {
+              password: hashedPassword,
+              name: existingEmail.name || `${name} Owner`,
+              username: existingEmail.username || ownerEmail.split("@")[0],
+              role: "BUSINESS_OWNER",
+              businessId: business.id,
+              telegramLinkCode: code,
+              telegramLinkExpiresAt: expiresAt,
+              isActive: true,
+            },
+            select: { id: true, email: true, telegramLinkCode: true, telegramLinkExpiresAt: true },
+          })
+        : await tx.user.create({
+            data: {
+              email: ownerEmail,
+              password: hashedPassword,
+              name: `${name} Owner`,
+              username: ownerEmail.split("@")[0],
+              role: "BUSINESS_OWNER",
+              businessId: business.id,
+              telegramLinkCode: code,
+              telegramLinkExpiresAt: expiresAt,
+              isActive: true,
+            },
+            select: { id: true, email: true, telegramLinkCode: true, telegramLinkExpiresAt: true },
+          });
 
       await tx.business.update({
         where: { id: business.id },
@@ -218,12 +254,15 @@ export async function POST(request: NextRequest) {
       return { business: { ...business, ownerId: owner.id }, owner };
     });
 
+    const sellerLinkCode = result.owner.telegramLinkCode;
+
     return NextResponse.json({
       ok: true,
       success: true,
       business: result.business,
       owner: result.owner,
-      sellerLinkCode: result.owner.telegramLinkCode,
+      sellerLinkCode,
+      sellerDeepLink: sellerLinkCode ? buildSellerDeepLink(sellerLinkCode) : null,
     });
   } catch (error) {
     console.error("POST /api/admin/super/businesses failed:", error);

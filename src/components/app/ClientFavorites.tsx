@@ -127,7 +127,7 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
                     className="flex items-center gap-3.5 rounded-3xl bg-white p-3 shadow-sm ring-1 ring-slate-100"
                   >
                     <div
-                      className="grid h-12 w-12 shrink-0 place-items-center rounded-xl text-lg font-black text-white"
+                      className="grid h-12 w-12 shrink-0 place-items-center rounded-xl p-1 text-lg font-black text-white"
                       style={{
                         background: `linear-gradient(135deg, ${fav.business.primaryColor}, ${fav.business.accentColor})`,
                       }}
@@ -136,7 +136,7 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
                         <img
                           src={fav.business.logoUrl}
                           alt=""
-                          className="h-full w-full rounded-xl object-cover"
+                          className="h-full w-full rounded-lg bg-white/90 object-contain"
                         />
                       ) : (
                         fav.business.name[0]
