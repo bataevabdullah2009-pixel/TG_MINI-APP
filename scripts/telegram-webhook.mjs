@@ -29,15 +29,15 @@ function assertSafeProductionUrl(label, value) {
 
 function appBaseUrl() {
   const configured =
+    process.env.NEXT_PUBLIC_WEBAPP_URL ||
     process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.WEBAPP_URL ||
-    process.env.NEXT_PUBLIC_WEBAPP_URL;
+    process.env.WEBAPP_URL;
 
   if (!configured) {
-    fail("NEXT_PUBLIC_APP_URL is required to derive TELEGRAM_WEBHOOK_URL.");
+    fail("NEXT_PUBLIC_WEBAPP_URL or NEXT_PUBLIC_APP_URL is required to derive TELEGRAM_WEBHOOK_URL.");
   }
 
-  const parsed = new URL(assertSafeProductionUrl("NEXT_PUBLIC_APP_URL", configured));
+  const parsed = new URL(assertSafeProductionUrl("NEXT_PUBLIC_WEBAPP_URL/NEXT_PUBLIC_APP_URL", configured));
   if (parsed.pathname === "/app" || parsed.pathname.startsWith("/app/")) {
     parsed.pathname = "";
     parsed.search = "";
