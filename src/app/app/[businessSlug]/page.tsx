@@ -4,42 +4,16 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { ArrowLeft, CalendarDays, Heart, LayoutGrid, List, Minus, Package, Plus, Search, ShoppingBag, Star, X } from "lucide-react";
+import { CalendarDays, LayoutGrid, List, Package, Search, X } from "lucide-react";
 import { PhoneVerificationScreen } from "@/components/app/PhoneVerificationScreen";
 import { FullScreenCheckout } from "@/components/storefront/FullScreenCheckout";
-
-type Item = {
-  id: string;
-  name: string;
-  description?: string | null;
-  price: number;
-  imageUrl?: string | null;
-  type: "PRODUCT" | "SERVICE";
-  durationMinutes?: number | null;
-  stock?: number | null;
-  isPopular: boolean;
-  category?: { id: string; name: string } | null;
-};
+import { BusinessHero } from "@/components/storefront/BusinessHero";
+import { CartBar } from "@/components/storefront/CartBar";
+import { CategoryTabs } from "@/components/storefront/CategoryTabs";
+import { ProductGrid } from "@/components/storefront/ProductGrid";
+import type { StorefrontBusiness as Business, StorefrontCartLine as CartItem, StorefrontItem as Item } from "@/components/storefront/types";
 
 type Staff = { id: string; name: string; role?: string | null };
-
-type Business = {
-  id: string;
-  slug: string;
-  name: string;
-  type: string;
-  templateKey: string;
-  description?: string | null;
-  phone?: string | null;
-  address?: string | null;
-  logoUrl?: string | null;
-  coverImageUrl?: string | null;
-  primaryColor: string;
-  accentColor: string;
-  isOpen?: boolean;
-};
-
-type CartItem = { item: Item; quantity: number };
 
 const templateUi: Record<string, { title: string; accent: string; mode: "cart" | "booking"; cta: string }> = {
   cafe: { title: "Меню и доставка", accent: "from-orange-500 to-amber-400", mode: "cart", cta: "Добавить" },
@@ -52,7 +26,16 @@ const templateUi: Record<string, { title: string; accent: string; mode: "cart" |
 
 function telegramUser() {
   if (typeof window === "undefined") return null;
-  return (window as any).Telegram?.WebApp?.initDataUnsafe?.user || null;
+  const telegramRuntimeUser = (window as any).Telegram?.WebApp?.initDataUnsafe?.user;
+  if (telegramRuntimeUser) return telegramRuntimeUser;
+
+  try {
+    const initData = sessionStorage.getItem("tgInitData") || "";
+    const rawUser = new URLSearchParams(initData).get("user");
+    return rawUser ? JSON.parse(rawUser) : null;
+  } catch {
+    return null;
+  }
 }
 
 function rub(value: number) {
@@ -88,6 +71,9 @@ export default function BusinessMiniAppPage() {
   const [selectedTime, setSelectedTime] = useState("");
   const [success, setSuccess] = useState("");
   const [checkoutError, setCheckoutError] = useState("");
+  const [favoriteToast, setFavoriteToast] = useState("");
+  const [businessFavorited, setBusinessFavorited] = useState(false);
+  const [favoriteProductIds, setFavoriteProductIds] = useState<string[]>([]);
   const [needsPhoneVerification, setNeedsPhoneVerification] = useState(false);
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", address: "", deliveryType: "PICKUP", comment: "" });
@@ -113,6 +99,35 @@ export default function BusinessMiniAppPage() {
       })
       .finally(() => setLoading(false));
   }, [slug]);
+
+  useEffect(() => {
+    if (!business) return undefined;
+
+    const user = telegramUser();
+    if (!user?.id) return undefined;
+
+    let cancelled = false;
+    const telegramUserId = String(user.id);
+
+    Promise.all([
+      fetch(`/api/favorites/business?telegramUserId=${encodeURIComponent(telegramUserId)}&slug=${encodeURIComponent(slug)}`).then((res) => res.json()),
+      fetch(`/api/favorites/product?telegramUserId=${encodeURIComponent(telegramUserId)}`).then((res) => res.json()),
+    ])
+      .then(([businessRes, productRes]) => {
+        if (cancelled) return;
+        if (businessRes.ok) {
+          setBusinessFavorited(Boolean(businessRes.data?.favorited));
+        }
+        if (productRes.ok) {
+          setFavoriteProductIds(productRes.data?.productIds || []);
+        }
+      })
+      .catch((error) => console.warn("[Storefront favorites] Could not load favorites:", error));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [business, slug]);
 
   useEffect(() => {
     const saved = localStorage.getItem(`vitrina:${slug}:catalog-view`);
@@ -162,6 +177,76 @@ export default function BusinessMiniAppPage() {
         .map((line) => line.item.id === itemId ? { ...line, quantity: line.quantity + delta } : line)
         .filter((line) => line.quantity > 0)
     );
+  }
+
+  function showFavoriteError(message = "Не удалось обновить избранное. Попробуйте ещё раз.") {
+    setFavoriteToast(message);
+    window.setTimeout(() => setFavoriteToast(""), 4000);
+  }
+
+  async function toggleBusinessFavorite() {
+    if (!business) return;
+
+    const user = telegramUser();
+    if (!user?.id) {
+      showFavoriteError("Избранное доступно после входа через Telegram.");
+      return;
+    }
+
+    const previous = businessFavorited;
+    const next = !businessFavorited;
+    setBusinessFavorited(next);
+
+    try {
+      const res = await fetch("/api/favorites/business", {
+        method: next ? "POST" : "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          telegramUserId: String(user.id),
+          businessId: business.id,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || "Не удалось обновить избранное");
+      }
+    } catch (error) {
+      console.error("[Storefront favorite business error]", error);
+      setBusinessFavorited(previous);
+      showFavoriteError();
+    }
+  }
+
+  async function toggleProductFavorite(itemId: string) {
+    const user = telegramUser();
+    if (!user?.id) {
+      showFavoriteError("Избранное доступно после входа через Telegram.");
+      return;
+    }
+
+    const previous = favoriteProductIds;
+    const isFavorite = favoriteProductIds.includes(itemId);
+    const next = isFavorite ? favoriteProductIds.filter((id) => id !== itemId) : [...favoriteProductIds, itemId];
+    setFavoriteProductIds(next);
+
+    try {
+      const res = await fetch("/api/favorites/product", {
+        method: isFavorite ? "DELETE" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          telegramUserId: String(user.id),
+          productId: itemId,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || "Не удалось обновить избранное");
+      }
+    } catch (error) {
+      console.error("[Storefront favorite product error]", error);
+      setFavoriteProductIds(previous);
+      showFavoriteError();
+    }
   }
 
   async function submitOrder(event: React.FormEvent) {
@@ -247,41 +332,19 @@ export default function BusinessMiniAppPage() {
 
   return (
     <main className="min-h-screen bg-slate-100 pb-28 text-slate-950">
-      <section className={`relative min-h-[340px] overflow-hidden bg-gradient-to-br ${ui.accent} px-4 pb-8 pt-5 text-white`}>
-        {business.coverImageUrl && (
-          <>
-            <img
-              src={business.coverImageUrl}
-              alt=""
-              className="absolute inset-0 h-full w-full object-cover object-center"
-            />
-            <div className="absolute inset-0 bg-slate-950/55" />
-          </>
-        )}
-        <div className="relative mx-auto max-w-3xl">
-          <div className="mb-5 flex items-center justify-between">
-            <Link href="/app" className="grid h-10 w-10 place-items-center rounded-full bg-white/15"><ArrowLeft size={18} /></Link>
-            <button className="grid h-10 w-10 place-items-center rounded-full bg-white/15"><Heart size={18} /></button>
-          </div>
-          <div className="rounded-[28px] bg-black/20 p-5 backdrop-blur">
-            {business.logoUrl && (
-              <div className="mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-white/90 p-1.5 ring-2 ring-white/70">
-                <img src={business.logoUrl} alt={business.name} className="h-full w-full object-cover" />
-              </div>
-            )}
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/65">{ui.title}</p>
-            <h1 className="mt-2 text-3xl font-black tracking-tight">{business.name}</h1>
-            <p className="mt-2 line-clamp-3 text-sm leading-6 text-white/75">{business.description}</p>
-            <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold">
-              <span className="rounded-full bg-white/15 px-3 py-1">★ 4.8</span>
-              <span className={`rounded-full px-3 py-1 ${business.isOpen !== false ? "bg-emerald-400 text-emerald-950" : "bg-white/15 text-white"}`}>
-                {business.isOpen !== false ? "Открыт" : "Закрыт"}
-              </span>
-              {business.address && <span className="rounded-full bg-white/15 px-3 py-1">{business.address}</span>}
-            </div>
-          </div>
+      <BusinessHero
+        business={business}
+        title={ui.title}
+        accent={ui.accent}
+        isFavorite={businessFavorited}
+        onFavoriteToggle={toggleBusinessFavorite}
+      />
+
+      {favoriteToast && (
+        <div className="fixed left-4 right-4 top-4 z-50 mx-auto max-w-md rounded-2xl bg-rose-600 px-4 py-3 text-xs font-black text-white shadow-xl">
+          {favoriteToast}
         </div>
-      </section>
+      )}
 
       <section className="mx-auto max-w-3xl px-4 py-5">
         <label className="mb-4 flex items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-sm">
@@ -311,13 +374,7 @@ export default function BusinessMiniAppPage() {
           </div>
         </div>
 
-        <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1">
-          {categories.map((name) => (
-            <button key={name} onClick={() => setCategory(name)} className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold ${category === name ? "bg-slate-950 text-white" : "bg-white text-slate-600"}`}>
-              {name}
-            </button>
-          ))}
-        </div>
+        <CategoryTabs categories={categories} activeCategory={category} onCategoryChange={setCategory} />
 
         {mode === "booking" && (
           <div className="mb-4 rounded-3xl bg-white p-4 shadow-sm">
@@ -335,83 +392,36 @@ export default function BusinessMiniAppPage() {
           </div>
         )}
 
-        <div className={viewMode === "grid" ? "grid grid-cols-2 gap-3" : "grid gap-3"}>
-          {filtered.map((item) => (
-            <article key={item.id} className="h-full overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200/70">
-              <div className={`${viewMode === "grid" ? "aspect-square" : "aspect-[4/3]"} bg-slate-100`}>
-                {item.imageUrl ? (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPreviewItem(item)}
-                    className="block h-full w-full"
-                    aria-label={item.name}
-                  >
-                    <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
-                  </button>
-                ) : (
-                  <div className="grid h-full place-items-center bg-slate-50 text-slate-400">
-                    <div className="flex flex-col items-center gap-1 text-[10px] font-black uppercase tracking-wider">
-                      <Package size={viewMode === "grid" ? 26 : 34} strokeWidth={1.8} />
-                      {item.type === "SERVICE" ? "Услуга" : "Товар"}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className={viewMode === "grid" ? "p-3" : "flex items-start justify-between gap-4 p-4"}>
-                <div className="min-w-0">
-                  <div className="mb-1 flex items-center gap-2">
-                    <h3 className="font-black line-clamp-2">{item.name}</h3>
-                    {item.isPopular && <Star size={14} className="text-amber-500" fill="currentColor" />}
-                  </div>
-                  <p className="line-clamp-2 text-sm text-slate-500">{item.description}</p>
-                  {item.durationMinutes && <p className="mt-1 text-xs font-bold text-slate-400">{item.durationMinutes} мин.</p>}
-                </div>
-                <div className={viewMode === "grid" ? "mt-2" : "text-right"}>
-                  <p className="whitespace-nowrap font-black">{rub(item.price)}</p>
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-2 px-4 pb-4">
-                <button
-                  onClick={() => {
-                    if (mode === "cart") addToCart(item);
-                    else {
-                      setSelectedService(item);
-                      setBookingOpen(true);
-                    }
-                  }}
-                  className="min-w-0 flex-1 rounded-full px-4 py-2 text-sm font-bold text-white"
-                  style={{ backgroundColor: business.primaryColor }}
-                >
-                  {ui.cta}
-                </button>
-                <button className="shrink-0 rounded-full border border-slate-200 px-3 py-2 text-xs font-bold">
-                  {viewMode === "grid" ? "★" : "★ Избранное"}
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
+        <ProductGrid
+          items={filtered}
+          viewMode={viewMode}
+          mode={mode}
+          cta={ui.cta}
+          primaryColor={business.primaryColor}
+          favoriteProductIds={favoriteProductIds}
+          formatPrice={rub}
+          onPreview={setSelectedPreviewItem}
+          onFavoriteToggle={toggleProductFavorite}
+          onAction={(item) => {
+            if (mode === "cart") addToCart(item);
+            else {
+              setSelectedService(item);
+              setBookingOpen(true);
+            }
+          }}
+        />
       </section>
 
-      {mode === "cart" && cartCount > 0 && (
-        <div className={`fixed inset-x-0 bottom-0 mx-auto max-w-3xl bg-white/95 p-4 shadow-2xl backdrop-blur ${cartPulse ? "animate-cart-bump" : ""}`}>
-          <div className="mb-3 space-y-2">
-            {cart.map((line) => (
-              <div key={line.item.id} className="flex items-center justify-between text-sm">
-                <span className="font-bold">{line.item.name}</span>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => updateCart(line.item.id, -1)} className="grid h-7 w-7 place-items-center rounded-full bg-slate-100"><Minus size={14} /></button>
-                  <span className="w-5 text-center font-black">{line.quantity}</span>
-                  <button onClick={() => updateCart(line.item.id, 1)} className="grid h-7 w-7 place-items-center rounded-full bg-slate-100"><Plus size={14} /></button>
-                </div>
-              </div>
-            ))}
-          </div>
-          <button onClick={() => setCheckoutOpen(true)} className="flex w-full items-center justify-between rounded-2xl bg-slate-950 px-4 py-4 text-sm font-black text-white">
-            <span className="flex min-w-0 items-center gap-2"><ShoppingBag size={18} /> Корзина · {cartCount} товаров</span>
-            <span>{rub(cartTotal)}</span>
-          </button>
-        </div>
+      {mode === "cart" && (
+        <CartBar
+          cart={cart}
+          cartCount={cartCount}
+          cartTotal={cartTotal}
+          cartPulse={cartPulse}
+          formatPrice={rub}
+          onQuantityChange={updateCart}
+          onCheckout={() => setCheckoutOpen(true)}
+        />
       )}
 
       {selectedPreviewItem && (

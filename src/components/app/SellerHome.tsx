@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { 
   TrendingUp, 
   ShoppingBag, 
@@ -16,7 +17,7 @@ import {
   ClipboardList,
   Calendar,
   Users,
-  ExternalLink,
+  Eye,
   Phone,
   Trash2,
   AlertTriangle,
@@ -37,6 +38,7 @@ interface SellerHomeProps {
 }
 
 export function SellerHome({ session, businessId }: SellerHomeProps) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<
     "DASHBOARD" | "ORDERS" | "BOOKINGS" | "ITEMS" | "AI" | "CLIENTS" | "MEDIA" | "SETTINGS"
   >("DASHBOARD");
@@ -407,7 +409,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
   const openStorefront = () => {
     if (businessData?.slug) {
-      window.open(`/${businessData.slug}/catalog`, "_blank");
+      router.push(`/app/${businessData.slug}`);
     }
   };
 
@@ -439,9 +441,9 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
             <button 
               onClick={openStorefront}
               className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition text-white"
-              title="Открыть витрину"
+              title="Предпросмотр витрины"
             >
-              <ExternalLink size={12} />
+              <Eye size={12} />
             </button>
           </div>
         </div>
@@ -540,7 +542,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                   onClick={openStorefront}
                   className="p-2.5 bg-slate-950 text-white rounded-xl hover:bg-slate-900 transition active:scale-95 flex items-center justify-center gap-1"
                 >
-                  Витрина <ExternalLink size={10} />
+                  Предпросмотр витрины <Eye size={10} />
                 </button>
               </div>
             </div>

@@ -22,7 +22,7 @@ export class MockAIProvider implements AIProvider {
     businessPhone?: string;
     businessUsername?: string;
   }): Promise<string> {
-    if (input.contentType === "product_card") {
+    if (input.contentType === "product_card" || input.contentType === "productCard") {
       const raw = input.productOrService?.trim() || "Товар";
       const nameMatch = raw.match(/Название:\s*([^,\n]+)/i);
       const categoryMatch = raw.match(/Категория:\s*([^,\n]+)/i);

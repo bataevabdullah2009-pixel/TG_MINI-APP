@@ -30,6 +30,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Бизнес не найден." }, { status: 404 });
     }
 
+    const isProductCard = type === "product_card" || type === "productCard";
+
     const content = await AIService.generateContent(
       business.id,
       business.aiProvider || "mock",
@@ -37,12 +39,29 @@ export async function POST(request: NextRequest) {
       {
         businessName: business.name,
         businessType: business.type,
-        contentType: type,
+        contentType: isProductCard ? "product_card" : type,
         productOrService: prompt,
         tone: tone || "продающий",
         goal: goal || "привлечь внимание",
       }
     );
+
+    if (isProductCard) {
+      try {
+        const cleanContent = content.trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+        const parsed = JSON.parse(cleanContent);
+        return NextResponse.json(parsed);
+      } catch (err) {
+        console.error("Failed to parse product_card JSON:", err);
+        return NextResponse.json({
+          name: prompt || "Новый товар",
+          description: content,
+          category: "Разное",
+          marketingText: content,
+          imagePrompt: `photo of ${prompt || "item"}, clean background, photorealistic`
+        });
+      }
+    }
 
     return NextResponse.json({ content });
   } catch (error: any) {

@@ -22,9 +22,11 @@ export function getAIProviderConfig(providerName?: string, modelName?: string): 
 
   if (provider === "polza") {
     const key = process.env.POLZA_AI_API_KEY;
-    if (key) return new PolzaAIProvider(key, modelName);
-    console.error("[AI Service] 'polza' was selected but POLZA_AI_API_KEY is not defined.");
-    throw new Error("Polza AI API key is not configured.");
+    if (!key) {
+      console.error("[AI Service] 'polza' was selected but POLZA_AI_API_KEY is not defined.");
+      throw new Error("Polza AI API key is not configured.");
+    }
+    return new PolzaAIProvider(key, modelName);
   }
 
   throw new Error(`Unsupported AI provider: ${provider}`);

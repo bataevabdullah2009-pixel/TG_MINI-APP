@@ -16,7 +16,7 @@ export class PolzaAIProvider implements AIProvider {
 
     const maxTokens = parseInt(process.env.AI_MAX_OUTPUT_TOKENS || "500");
     const temperature = parseFloat(process.env.AI_TEMPERATURE || "0.7");
-    const baseUrl = process.env.POLZA_BASE_URL || "https://polza.ai/api/v1/chat/completions";
+    const baseUrl = process.env.POLZA_CHAT_BASE_URL || process.env.POLZA_BASE_URL || "https://polza.ai/api/v1/chat/completions";
 
     const endpoint = baseUrl.endsWith("/chat/completions") ? baseUrl : `${baseUrl}/chat/completions`;
 
@@ -53,11 +53,12 @@ export class PolzaAIProvider implements AIProvider {
   }
 
   async generateContent(input: any): Promise<string> {
-    if (input.contentType === "product_card") {
+    if (input.contentType === "product_card" || input.contentType === "productCard") {
       const system = [
         "Ты помогаешь продавцу заполнить карточку товара в Telegram Mini App.",
         "Верни только валидный JSON без markdown, без пояснений и без code fence.",
         "Схема строго такая: {\"name\":string,\"description\":string,\"category\":string,\"marketingText\":string,\"imagePrompt\":string}.",
+        "Поле imagePrompt пиши на английском языке для генерации предметного фото.",
         "Пиши по-русски. Не выдумывай цену и факты, которых нет во входных данных.",
       ].join(" ");
       const user = [

@@ -72,7 +72,6 @@ export default function AdminItemsPage() {
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [search, setSearch] = useState("");
@@ -80,6 +79,81 @@ export default function AdminItemsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [form, setForm] = useState<FormState>(initialForm);
+
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+
+  async function handleAiGenerate() {
+    if (!aiPrompt.trim() || !business) return;
+    setAiLoading(true);
+    setAiError("");
+    setError("");
+    try {
+      const currentCategory = categories.find((entry) => entry.id === form.categoryId)?.name || "Основное";
+      const textRes = await apiClient.post("/admin/ai/generate", {
+        businessId: business.id,
+        feature: "product_card",
+        contentType: "product_card",
+        tone: "дружелюбный",
+        prompt: [
+          `Идея товара: ${aiPrompt}`,
+          form.name ? `Текущее название: ${form.name}` : "",
+          form.description ? `Текущее описание: ${form.description}` : "",
+          form.price ? `Цена: ${form.price} ₽` : "",
+          `Категория: ${currentCategory}`,
+          categories.length ? `Существующие категории: ${categories.map((entry) => entry.name).join(", ")}` : "",
+        ].filter(Boolean).join(", "),
+      });
+      const textData = textRes.data;
+
+      if (textData.category && categories.length > 0) {
+        const foundCategory = categories.find(
+          (c) => c.name.toLowerCase().includes(textData.category.toLowerCase()) ||
+                 textData.category.toLowerCase().includes(c.name.toLowerCase())
+        );
+        if (foundCategory) {
+          setForm((current) => ({ ...current, categoryId: foundCategory.id }));
+        }
+      }
+
+      setForm((current) => ({
+        ...current,
+        name: textData.name || current.name || aiPrompt,
+        description: textData.description || textData.marketingText || current.description,
+      }));
+
+      if (textData.imagePrompt) {
+        try {
+          const imgRes = await fetch("/api/admin/ai/generate-image", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              businessId: business.id,
+              prompt: textData.imagePrompt,
+            }),
+          });
+          const imgData = await imgRes.json();
+          if (imgRes.ok && imgData.ok && imgData.data?.url) {
+            setForm((current) => ({ ...current, imageUrl: imgData.data.url }));
+            setToast("Карточка и изображение успешно созданы!");
+            setTimeout(() => setToast(""), 2500);
+          } else {
+            setAiError(`Текст создан, но изображение не создано: ${imgData.error || "Ошибка генерации фото"}`);
+          }
+        } catch (imgErr: any) {
+          setAiError(`Текст создан, но изображение не создано: ${imgErr.message || "Ошибка сети при генерации фото"}`);
+        }
+      } else {
+        setToast("Карточка товара успешно сгенерирована!");
+        setTimeout(() => setToast(""), 2500);
+      }
+    } catch (err: any) {
+      setAiError(apiError(err));
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   useEffect(() => {
     const userJson = localStorage.getItem("adminUser");
@@ -235,46 +309,6 @@ export default function AdminItemsPage() {
     setForm((current) => ({ ...current, imageUrl: data.url || data.imageUrl || data.data?.url || "" }));
   }
 
-  async function generateProductCard() {
-    if (!business) return;
-    if (!form.name.trim()) {
-      setError("Укажите название товара перед генерацией.");
-      return;
-    }
-
-    setAiLoading(true);
-    setError("");
-    try {
-      const currentCategory = categories.find((entry) => entry.id === form.categoryId)?.name || "Основное";
-      const res = await apiClient.post("/admin/ai/generate", {
-        businessId: business.id,
-        feature: "product_card",
-        contentType: "product_card",
-        tone: "дружелюбный",
-        prompt: [
-          `Название: ${form.name}`,
-          form.description ? `Описание: ${form.description}` : "",
-          form.price ? `Цена: ${form.price} ₽` : "",
-          `Категория: ${currentCategory}`,
-        ].filter(Boolean).join(", "),
-      });
-      const data = res.data;
-      const matchedCategory = categories.find((entry) => entry.name.toLowerCase() === String(data.category || "").toLowerCase());
-      setForm((current) => ({
-        ...current,
-        name: data.name || current.name,
-        description: data.description || data.marketingText || current.description,
-        categoryId: matchedCategory?.id || current.categoryId,
-      }));
-      setToast("Карточка заполнена ИИ");
-      setTimeout(() => setToast(""), 2500);
-    } catch (err) {
-      setError(apiError(err));
-    } finally {
-      setAiLoading(false);
-    }
-  }
-
   async function saveItem(event: FormEvent) {
     event.preventDefault();
     if (!business) return;
@@ -318,10 +352,10 @@ export default function AdminItemsPage() {
 
   if (isManager) {
     return (
-      <AccessDeniedScreen 
-        backUrl="/admin" 
-        backText="Вернуться в панель" 
-        description="Менеджеры не имеют доступа к добавлению, изменению или удалению товаров и услуг." 
+      <AccessDeniedScreen
+        backUrl="/admin"
+        backText="Вернуться в панель"
+        description="Менеджеры не имеют доступа к добавлению, изменению или удалению товаров и услуг."
       />
     );
   }
@@ -463,15 +497,38 @@ export default function AdminItemsPage() {
             </div>
 
             {form.type === "PRODUCT" && (
-              <button
-                type="button"
-                onClick={generateProductCard}
-                disabled={aiLoading}
-                className="mb-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-50 px-4 py-3 text-sm font-black text-indigo-700 disabled:opacity-50"
-              >
-                <Sparkles size={17} />
-                {aiLoading ? "Генерация..." : "Заполнить карточку с ИИ"}
-              </button>
+              <div className="mb-5 rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4">
+                <div className="mb-2 flex items-center gap-2">
+                  <Sparkles size={16} className="text-indigo-700" />
+                  <h3 className="text-xs font-black uppercase tracking-wider text-indigo-950">AI-генератор карточки товара</h3>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Например: Свежий круассан с миндалем"
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                    className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none focus:border-indigo-400"
+                  />
+                  <button
+                    type="button"
+                    disabled={aiLoading || !aiPrompt.trim()}
+                    onClick={handleAiGenerate}
+                    className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-black text-white transition hover:bg-indigo-700 disabled:bg-indigo-300"
+                  >
+                    {aiLoading ? "Генерация..." : "Создать с ИИ"}
+                  </button>
+                </div>
+                {aiLoading && (
+                  <div className="mt-3 flex animate-pulse items-center gap-2 text-xs font-bold text-indigo-600">
+                    <div className="h-2 w-2 animate-bounce rounded-full bg-indigo-600" />
+                    Генерируем текст и изображение...
+                  </div>
+                )}
+                {aiError && (
+                  <p className="mt-2 text-[10px] font-bold text-rose-600">⚠️ {aiError}</p>
+                )}
+              </div>
             )}
 
             <div className="grid gap-3 md:grid-cols-2">
