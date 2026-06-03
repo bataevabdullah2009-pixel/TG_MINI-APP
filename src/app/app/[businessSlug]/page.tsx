@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { CalendarDays, LayoutGrid, List, Package, Search, X } from "lucide-react";
+import { CalendarDays, LayoutGrid, List, Package, Search, X, ArrowLeft, User, Phone, MapPin, MessageSquare, Wallet, Smartphone, Store, Truck, ShoppingBag } from "lucide-react";
 import { PhoneVerificationScreen } from "@/components/app/PhoneVerificationScreen";
 import { BusinessHero } from "@/components/storefront/BusinessHero";
 import { CartBar } from "@/components/storefront/CartBar";
@@ -76,6 +76,8 @@ export default function BusinessMiniAppPage() {
   const [needsPhoneVerification, setNeedsPhoneVerification] = useState(false);
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", address: "", deliveryType: "PICKUP", comment: "" });
+  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "TRANSFER">("CASH");
+  const [orderSuccessDetails, setOrderSuccessDetails] = useState<any>(null);
 
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp;
@@ -248,8 +250,8 @@ export default function BusinessMiniAppPage() {
     }
   }
 
-  async function submitOrder(event: React.FormEvent) {
-    event.preventDefault();
+  async function submitOrder(event?: React.FormEvent) {
+    if (event) event.preventDefault();
     setCheckoutError("");
     setNeedsPhoneVerification(false);
     const user = telegramUser();
@@ -262,7 +264,7 @@ export default function BusinessMiniAppPage() {
           customerPhone: form.phone,
           customerAddress: form.deliveryType === "DELIVERY" ? form.address : "",
           deliveryType: form.deliveryType,
-          comment: form.comment,
+          comment: form.comment + (paymentMethod === "TRANSFER" ? " (Оплата: перевод)" : " (Оплата: наличные)"),
           telegramUserId: user?.id,
           username: user?.username,
           items: cart.map((line) => ({ itemId: line.item.id, quantity: line.quantity })),
@@ -272,8 +274,12 @@ export default function BusinessMiniAppPage() {
 
       if (res.ok) {
         setCart([]);
-        setCheckoutOpen(false);
-        setSuccess("Заказ оформлен. Продавец уже получил уведомление.");
+        setOrderSuccessDetails({
+          id: data.id || "создан",
+          total: cartTotal,
+          deliveryType: form.deliveryType,
+          address: form.address,
+        });
       } else {
         const message = data.error || "Не удалось оформить заказ. Проверьте данные и попробуйте снова.";
         setCheckoutError(message);
@@ -442,30 +448,282 @@ export default function BusinessMiniAppPage() {
       )}
 
       {checkoutOpen && (
-        <Modal title="Оформление заказа" onClose={() => setCheckoutOpen(false)}>
-          <form onSubmit={submitOrder} className="space-y-3">
-            <CheckoutFields form={form} setForm={setForm} showAddress={form.deliveryType === "DELIVERY"} />
-            <select value={form.deliveryType} onChange={(e) => setForm({ ...form, deliveryType: e.target.value })} className="w-full rounded-2xl border px-4 py-3 text-sm">
-              <option value="PICKUP">Самовывоз</option>
-              <option value="DELIVERY">Доставка</option>
-            </select>
-            {checkoutError && (
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700">
-                {checkoutError}
-                {needsPhoneVerification && (
-                  <button
-                    type="button"
-                    onClick={() => setVerifyOpen(true)}
-                    className="mt-2 block rounded-xl bg-rose-600 px-3 py-2 text-xs font-black text-white"
-                  >
-                    Подтвердить номер
-                  </button>
+        <div className="fixed inset-0 z-50 bg-white overflow-y-auto flex flex-col justify-between animate-fade-in text-slate-900">
+          <style dangerouslySetInnerHTML={{__html: `
+            @keyframes scaleIn {
+              0% { transform: scale(0.4); opacity: 0; }
+              100% { transform: scale(1); opacity: 1; }
+            }
+            @keyframes drawCheck {
+              0% { stroke-dashoffset: 48; }
+              100% { stroke-dashoffset: 0; }
+            }
+            .animate-scale-in {
+              animation: scaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            }
+            .animate-draw-check {
+              stroke-dasharray: 48;
+              stroke-dashoffset: 48;
+              animation: drawCheck 0.6s 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            }
+          `}} />
+
+          {orderSuccessDetails ? (
+            /* SUCCESS SCREEN */
+            <div className="flex-1 flex flex-col justify-between p-6 bg-white animate-fade-in">
+              <div className="flex-1 flex flex-col items-center justify-center text-center my-auto">
+                <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mb-6 animate-scale-in border border-emerald-100">
+                  <svg className="w-10 h-10 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                    <path className="animate-draw-check" strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+
+                <h2 className="text-xl font-black text-slate-900 mb-2">Заказ успешно оформлен!</h2>
+                <p className="text-xs text-slate-505 max-w-xs mx-auto leading-relaxed mb-6">
+                  Мы уже передали ваш заказ продавцу. Уведомление отправлено!
+                </p>
+
+                <div className="bg-slate-50 rounded-2xl p-5 w-full max-w-sm border border-slate-100 space-y-3.5 text-left">
+                  <div className="flex justify-between items-center text-[10px] font-black text-slate-450">
+                    <span>НОМЕР ЗАКАЗА</span>
+                    <span className="text-slate-900 bg-white px-2 py-0.5 rounded-md border border-slate-150 font-mono text-xs">
+                      #{orderSuccessDetails.id?.slice(-6).toUpperCase() || "СОЗДАН"}
+                    </span>
+                  </div>
+
+                  <div className="border-t border-slate-100 pt-3 flex justify-between text-xs font-bold">
+                    <span className="text-slate-400">СПОСОБ ПОЛУЧЕНИЯ</span>
+                    <span className="text-slate-900">
+                      {orderSuccessDetails.deliveryType === "DELIVERY" ? "🚚 Доставка" : "🏪 Самовывоз"}
+                    </span>
+                  </div>
+
+                  {orderSuccessDetails.address && orderSuccessDetails.deliveryType === "DELIVERY" && (
+                    <div className="border-t border-slate-100 pt-3 flex flex-col gap-0.5 text-xs font-bold">
+                      <span className="text-slate-400">АДРЕС</span>
+                      <span className="text-slate-900 line-clamp-1">{orderSuccessDetails.address}</span>
+                    </div>
+                  )}
+
+                  <div className="border-t border-slate-100 pt-3 flex justify-between text-xs font-bold">
+                    <span className="text-slate-400">ИТОГО К ОПЛАТЕ</span>
+                    <span className="text-slate-900 text-sm font-black" style={{ color: business.primaryColor }}>
+                      {rub(orderSuccessDetails.total)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="w-full max-w-sm mx-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOrderSuccessDetails(null);
+                    setCheckoutOpen(false);
+                  }}
+                  className="w-full py-4 text-xs font-black rounded-2xl text-white shadow-md active:scale-[0.98] transition"
+                  style={{ backgroundColor: business.primaryColor }}
+                >
+                  Отлично
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* CHECKOUT FORM */
+            <>
+              {/* Header */}
+              <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-slate-100 px-4 py-4.5 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setCheckoutOpen(false)}
+                  className="h-9 w-9 flex items-center justify-center rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-800 transition"
+                >
+                  <ArrowLeft size={18} />
+                </button>
+                <h1 className="text-xs font-black flex-1 text-slate-900 uppercase tracking-wider">Оформление заказа</h1>
+                <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                  {cartCount} поз.
+                </span>
+              </div>
+
+              {/* Form inputs container */}
+              <div className="flex-1 p-4 space-y-4 max-w-md mx-auto w-full">
+                {/* Order summary box */}
+                <div className="bg-slate-50 rounded-2xl p-4.5 border border-slate-100 space-y-3.5">
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <ShoppingBag size={14} />
+                    <span className="text-[10px] font-black uppercase tracking-wider">Сводка заказа</span>
+                  </div>
+                  <div className="space-y-2 max-h-36 overflow-y-auto pr-1 no-scrollbar text-xs font-bold">
+                    {cart.map((line) => (
+                      <div key={line.item.id} className="flex justify-between items-center">
+                        <span className="text-slate-600 line-clamp-1">{line.item.name} × {line.quantity}</span>
+                        <span className="text-slate-900 font-mono ml-2 shrink-0">{rub(line.item.price * line.quantity)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="border-t border-dashed border-slate-200 pt-3 flex justify-between items-center text-xs font-black">
+                    <span>Итого к оплате:</span>
+                    <span className="text-sm" style={{ color: business.primaryColor }}>
+                      {rub(cartTotal)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Delivery Selectable Cards */}
+                <div className="space-y-2">
+                  <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Способ получения</span>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { value: "PICKUP", label: "Самовывоз", desc: "Заберу сам", icon: Store },
+                      { value: "DELIVERY", label: "Доставка", desc: "Привезем вам", icon: Truck },
+                    ].map((option) => {
+                      const Icon = option.icon;
+                      const isSelected = form.deliveryType === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setForm({ ...form, deliveryType: option.value })}
+                          className={`p-3.5 rounded-2xl border-2 text-left transition-all relative ${
+                            isSelected ? "shadow-xs border-indigo-600" : "border-slate-100 bg-slate-50/50"
+                          }`}
+                          style={{
+                            borderColor: isSelected ? business.primaryColor : undefined,
+                            backgroundColor: isSelected ? `${business.primaryColor}06` : undefined,
+                          }}
+                        >
+                          <Icon size={16} className="mb-1.5" style={{ color: isSelected ? business.primaryColor : "#94A3B8" }} />
+                          <div className="font-extrabold text-xs text-slate-900">{option.label}</div>
+                          <div className="text-[9px] font-bold text-slate-400 mt-0.5">{option.desc}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Inputs block */}
+                <div className="space-y-3 bg-white p-1">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"><User size={13} /></span>
+                      <input
+                        required
+                        value={form.firstName}
+                        onChange={(e) => setForm({ ...form, firstName: e.target.value })}
+                        placeholder="Имя *"
+                        className="w-full pl-9 pr-3 py-3 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50/60 focus:bg-white outline-none transition"
+                      />
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"><User size={13} /></span>
+                      <input
+                        value={form.lastName}
+                        onChange={(e) => setForm({ ...form, lastName: e.target.value })}
+                        placeholder="Фамилия"
+                        className="w-full pl-9 pr-3 py-3 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50/60 focus:bg-white outline-none transition"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"><Phone size={13} /></span>
+                    <input
+                      required
+                      value={form.phone}
+                      onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                      placeholder="Телефон *"
+                      className="w-full pl-9 pr-3 py-3 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50/60 focus:bg-white outline-none transition"
+                    />
+                  </div>
+
+                  {form.deliveryType === "DELIVERY" && (
+                    <div className="relative animate-fade-in">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"><MapPin size={13} /></span>
+                      <input
+                        required
+                        value={form.address}
+                        onChange={(e) => setForm({ ...form, address: e.target.value })}
+                        placeholder="Адрес доставки *"
+                        className="w-full pl-9 pr-3 py-3 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50/60 focus:bg-white outline-none transition"
+                      />
+                    </div>
+                  )}
+
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-3 text-slate-400"><MessageSquare size={13} /></span>
+                    <textarea
+                      value={form.comment}
+                      onChange={(e) => setForm({ ...form, comment: e.target.value })}
+                      placeholder="Комментарий к заказу"
+                      rows={2.5}
+                      className="w-full pl-9 pr-3.5 py-2.5 text-xs font-bold border border-slate-200 rounded-xl bg-slate-50/60 focus:bg-white resize-none outline-none transition"
+                    />
+                  </div>
+                </div>
+
+                {/* Payment select */}
+                <div className="space-y-2">
+                  <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Способ оплаты</span>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { value: "CASH" as const, label: "Наличные", icon: Wallet },
+                      { value: "TRANSFER" as const, label: "Перевод", icon: Smartphone },
+                    ].map((option) => {
+                      const Icon = option.icon;
+                      const isSelected = paymentMethod === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setPaymentMethod(option.value)}
+                          className={`p-3 rounded-xl border-2 flex items-center justify-center gap-2 font-black text-xs transition-all ${
+                            isSelected ? "text-white shadow-xs" : "border-slate-100 bg-slate-50/50"
+                          }`}
+                          style={{
+                            backgroundColor: isSelected ? business.primaryColor : undefined,
+                            borderColor: isSelected ? business.primaryColor : undefined,
+                          }}
+                        >
+                          <Icon size={13} />
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Error handling */}
+                {checkoutError && (
+                  <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3.5 text-xs font-bold text-rose-700 space-y-2">
+                    <p>⚠️ {checkoutError}</p>
+                    {needsPhoneVerification && (
+                      <button
+                        type="button"
+                        onClick={() => setVerifyOpen(true)}
+                        className="rounded-xl bg-rose-600 px-3 py-2 text-xs font-black text-white active:scale-95 transition"
+                      >
+                        Подтвердить номер
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
-            <button className="w-full rounded-2xl bg-slate-950 px-4 py-3 font-black text-white">Подтвердить заказ на {rub(cartTotal)}</button>
-          </form>
-        </Modal>
+
+              {/* Sticky bottom button */}
+              <div className="sticky bottom-0 bg-white border-t border-slate-100 p-4 w-full max-w-md mx-auto z-30">
+                <button
+                  type="button"
+                  onClick={() => submitOrder()}
+                  className="w-full py-4 text-xs font-black rounded-2xl text-white shadow-md active:scale-[0.98] transition"
+                  style={{ backgroundColor: business.primaryColor }}
+                >
+                  Подтвердить заказ на {rub(cartTotal)}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       )}
 
       {verifyOpen && business && (

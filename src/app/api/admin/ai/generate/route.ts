@@ -9,6 +9,7 @@ const featureLabels: Record<string, string> = {
   post: "пост для Telegram",
   promo: "акция",
   product_description: "описание товара или услуги",
+  product_card: "карточка товара с ИИ",
   review_reply: "ответ на отзыв",
   ideas: "идеи контента на 7 дней",
   broadcast: "текст рассылки",
@@ -70,7 +71,16 @@ export async function POST(request: NextRequest) {
       `Ограничение: до ${routing.maxTokens} токенов.`,
     ].join(" ");
 
-    if (feature === "product_description" || feature === "product_card") {
+    if (feature === "product_card") {
+      goal += ` ВНИМАНИЕ: Верни строго валидный JSON без какого-либо дополнительного текста, markdown разметки или бэкквотов (без \`\`\`json). JSON должен строго соответствовать следующей схеме:
+      {
+        "name": "Название товара",
+        "description": "Продающее описание товара",
+        "category": "Рекомендация категории",
+        "marketingText": "Текст для рекламы/поста в Telegram",
+        "imagePrompt": "Промпт для генерации картинки на английском языке"
+      }`;
+    } else if (feature === "product_description") {
       goal += ` ВНИМАНИЕ: Верни строго валидный JSON без какого-либо дополнительного текста, markdown разметки или бэкквотов (без \`\`\`json). JSON должен строго соответствовать следующей схеме:
       {
         "name": "Название товара",
@@ -97,12 +107,30 @@ export async function POST(request: NextRequest) {
     
     if (cached) {
       const responseText = cached.response;
-      if (feature === "product_description" || feature === "product_card") {
+      if (feature === "product_card") {
+        try {
+          const cleanContent = responseText.trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+          const parsed = JSON.parse(cleanContent);
+          return NextResponse.json({
+            ok: true,
+            name: parsed.name,
+            description: parsed.description,
+            category: parsed.category || "Основное",
+            marketingText: parsed.marketingText || parsed.description,
+            imagePrompt: parsed.imagePrompt || "",
+            provider: cached.provider,
+            model: cached.model,
+            cached: true
+          });
+        } catch (e: any) {
+          return jsonError(`Не удалось распарсить кэшированный ИИ-ответ: ${e.message}`, 422);
+        }
+      }
+      if (feature === "product_description") {
         try {
           const parsed = JSON.parse(responseText.trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim());
           return NextResponse.json({ ok: true, ...parsed, provider: cached.provider, model: cached.model, cached: true });
         } catch (e) {
-          // Cached item was not JSON, fallback gracefully
           const fallbackJson = {
             name: prompt.replace("Создай карточку товара. Название: ", "").split(",")[0].trim() || "Товар",
             description: responseText,
@@ -123,7 +151,10 @@ export async function POST(request: NextRequest) {
     try {
       content = await provider.generateContent(input);
     } catch (error) {
-      console.error("AI provider failed, fallback to mock:", error);
+      console.error("AI provider failed:", error);
+      if (feature === "product_card") {
+        return jsonError("Polza AI недоступен или неверный ключ. Проверьте POLZA_AI_API_KEY.", 500);
+      }
       const fallback = getAIProviderConfig("mock", "mock");
       content = await fallback.generateContent(input);
       usedProvider = "mock";
@@ -137,7 +168,31 @@ export async function POST(request: NextRequest) {
       create: { businessId: business.id, feature, promptHash: hash, provider: usedProvider, model: routing.model, response: content },
     });
 
-    if (feature === "product_description" || feature === "product_card") {
+    if (feature === "product_card") {
+      try {
+        const cleanContent = content.trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+        const parsed = JSON.parse(cleanContent);
+        if (!parsed.name || !parsed.description) {
+          throw new Error("В ответе отсутствуют обязательные поля name или description.");
+        }
+        return NextResponse.json({
+          ok: true,
+          name: parsed.name,
+          description: parsed.description,
+          category: parsed.category || "Основное",
+          marketingText: parsed.marketingText || parsed.description,
+          imagePrompt: parsed.imagePrompt || "",
+          provider: usedProvider,
+          model: routing.model,
+          estimatedCost
+        });
+      } catch (e: any) {
+        console.error("Failed to parse product_card JSON:", content, e);
+        return jsonError(`Не удалось распарсить ИИ-ответ: ${e.message}`, 422);
+      }
+    }
+
+    if (feature === "product_description") {
       try {
         const parsed = JSON.parse(content.trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim());
         parsed.name = parsed.name || prompt.replace("Создай карточку товара. Название: ", "").split(",")[0].trim() || "Товар";

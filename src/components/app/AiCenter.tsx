@@ -102,7 +102,7 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
       ? `Создай карточку товара. Название: ${pcName}, Описание: ${pcDesc}, Цена: ${pcPrice} ₽. Категория: ${pcCategory}.`
       : prompt;
 
-    const targetFeature = activeSubTab === "product_card" ? "product_description" : activeSubTab;
+    const targetFeature = activeSubTab;
 
     try {
       const initData = typeof window !== "undefined" ? (window as any).Telegram?.WebApp?.initData : "";
@@ -135,7 +135,9 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
           name: data.name || pcName,
           price: parseFloat(pcPrice),
           category: pcCategory,
-          description: data.description || data.content || "",
+          description: data.description || "",
+          marketingText: data.marketingText || "",
+          imagePrompt: data.imagePrompt || "",
           telegramPost: data.marketingText || `✨ **${data.name || pcName}**\n\n${data.description || "Новинка!"}\n\n💳 Цена: ${pcPrice} ₽\n\nЗаказывайте прямо в нашем боте! 🚀`,
           shortCopy: data.marketingText ? data.marketingText.slice(0, 80) : `Закажите ${data.name || pcName} всего за ${pcPrice} ₽!`,
           tags: data.tags || ["новинка", businessType.toLowerCase()],
@@ -442,26 +444,20 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
                 </div>
 
                 <div>
-                  <span className="block text-[9px] font-black text-slate-400 uppercase">Короткий промо-тизер</span>
-                  <p className="text-indigo-600 font-semibold italic bg-indigo-50/50 p-2.5 rounded-xl border border-indigo-100/40">
-                    "{generatedResult.shortCopy}"
+                  <span className="block text-[9px] font-black text-slate-400 uppercase">Маркетинговый промо-текст</span>
+                  <p className="text-indigo-650 font-bold bg-indigo-50/50 p-2.5 rounded-xl border border-indigo-100/40">
+                    {generatedResult.marketingText}
                   </p>
                 </div>
 
-                <div>
-                  <span className="block text-[9px] font-black text-slate-400 uppercase">Пост для Telegram</span>
-                  <pre className="text-slate-700 font-mono text-[10px] whitespace-pre-wrap bg-white rounded-xl p-3 border border-slate-100">
-                    {generatedResult.telegramPost}
-                  </pre>
-                </div>
-
-                <div className="flex flex-wrap gap-1 pt-1">
-                  {generatedResult.tags.map((t: string) => (
-                    <span key={t} className="flex items-center gap-0.5 text-[9px] font-black text-slate-500 bg-slate-150 px-2 py-0.5 rounded-full">
-                      <Tag size={8} /> #{t}
-                    </span>
-                  ))}
-                </div>
+                {generatedResult.imagePrompt && (
+                  <div>
+                    <span className="block text-[9px] font-black text-slate-400 uppercase">Промпт для фотогенерации ИИ (imagePrompt)</span>
+                    <pre className="text-slate-700 font-mono text-[10px] whitespace-pre-wrap bg-white rounded-xl p-3 border border-slate-100">
+                      {generatedResult.imagePrompt}
+                    </pre>
+                  </div>
+                )}
               </div>
 
               {/* Premium Operations */}
