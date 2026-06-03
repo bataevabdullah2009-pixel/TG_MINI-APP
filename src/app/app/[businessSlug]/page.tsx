@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { ArrowLeft, CalendarDays, Heart, LayoutGrid, List, Minus, Package, Plus, Search, ShoppingBag, Star, X } from "lucide-react";
 import { PhoneVerificationScreen } from "@/components/app/PhoneVerificationScreen";
+import { FullScreenCheckout } from "@/components/storefront/FullScreenCheckout";
 
 type Item = {
   id: string;
@@ -432,30 +433,19 @@ export default function BusinessMiniAppPage() {
       )}
 
       {checkoutOpen && (
-        <Modal title="Оформление заказа" onClose={() => setCheckoutOpen(false)}>
-          <form onSubmit={submitOrder} className="space-y-3">
-            <CheckoutFields form={form} setForm={setForm} showAddress={form.deliveryType === "DELIVERY"} />
-            <select value={form.deliveryType} onChange={(e) => setForm({ ...form, deliveryType: e.target.value })} className="w-full rounded-2xl border px-4 py-3 text-sm">
-              <option value="PICKUP">Самовывоз</option>
-              <option value="DELIVERY">Доставка</option>
-            </select>
-            {checkoutError && (
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700">
-                {checkoutError}
-                {needsPhoneVerification && (
-                  <button
-                    type="button"
-                    onClick={() => setVerifyOpen(true)}
-                    className="mt-2 block rounded-xl bg-rose-600 px-3 py-2 text-xs font-black text-white"
-                  >
-                    Подтвердить номер
-                  </button>
-                )}
-              </div>
-            )}
-            <button className="w-full rounded-2xl bg-slate-950 px-4 py-3 font-black text-white">Подтвердить заказ на {rub(cartTotal)}</button>
-          </form>
-        </Modal>
+        <FullScreenCheckout
+          cart={cart}
+          cartTotal={cartTotal}
+          cartCount={cartCount}
+          form={form}
+          setForm={setForm}
+          checkoutError={checkoutError}
+          needsPhoneVerification={needsPhoneVerification}
+          onSubmit={submitOrder}
+          onClose={() => setCheckoutOpen(false)}
+          onVerifyPhone={() => setVerifyOpen(true)}
+          formatPrice={rub}
+        />
       )}
 
       {verifyOpen && business && (
@@ -477,10 +467,25 @@ export default function BusinessMiniAppPage() {
           <form onSubmit={submitBooking} className="space-y-3">
             <div className="rounded-2xl bg-slate-100 p-3 text-sm font-bold">{selectedService.name} · {rub(selectedService.price)}</div>
             {staff.length > 0 && (
-              <select value={selectedStaffId} onChange={(e) => setSelectedStaffId(e.target.value)} className="w-full rounded-2xl border px-4 py-3 text-sm">
-                <option value="">Любой мастер</option>
-                {staff.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
-              </select>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedStaffId("")}
+                  className={`rounded-2xl px-3 py-3 text-left text-sm font-bold ${selectedStaffId === "" ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-600"}`}
+                >
+                  Любой мастер
+                </button>
+                {staff.map((person) => (
+                  <button
+                    type="button"
+                    key={person.id}
+                    onClick={() => setSelectedStaffId(person.id)}
+                    className={`rounded-2xl px-3 py-3 text-left text-sm font-bold ${selectedStaffId === person.id ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-600"}`}
+                  >
+                    {person.name}
+                  </button>
+                ))}
+              </div>
             )}
             <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full rounded-2xl border px-4 py-3 text-sm" />
             <div className="grid grid-cols-4 gap-2">
@@ -490,7 +495,7 @@ export default function BusinessMiniAppPage() {
                 </button>
               ))}
             </div>
-            <CheckoutFields form={form} setForm={setForm} />
+            <ContactFields form={form} setForm={setForm} />
             <button disabled={!selectedTime} className="w-full rounded-2xl bg-slate-950 px-4 py-3 font-black text-white disabled:opacity-40">Подтвердить запись</button>
           </form>
         </Modal>
@@ -580,7 +585,7 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
   );
 }
 
-function CheckoutFields({
+function ContactFields({
   form,
   setForm,
   showAddress = false,

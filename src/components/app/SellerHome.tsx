@@ -149,11 +149,11 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
       const todayOrders = ords.filter((o: any) => new Date(o.createdAt) >= startOfDay);
       const revenue = todayOrders
-        .filter((o: any) => o.status === "COMPLETED" || o.status === "READY" || o.status === "ACCEPTED" || o.status === "PREPARING" || o.status === "DELIVERING")
+        .filter((o: any) => o.status === "COMPLETED")
         .reduce((sum: number, o: any) => sum + (o.totalPrice || 0), 0);
 
-      const activeOrds = ords.filter((o: any) => o.status === "NEW" || o.status === "ACCEPTED" || o.status === "PREPARING" || o.status === "DELIVERING").length;
-      const activeBks = bks.filter((b: any) => b.status === "NEW" || b.status === "CONFIRMED").length;
+      const activeOrds = ords.filter((o: any) => o.status === "NEW" || o.status === "ACCEPTED" || o.status === "PREPARING" || o.status === "READY" || o.status === "DELIVERING").length;
+      const activeBks = bks.filter((b: any) => b.status === "PENDING" || b.status === "NEW" || b.status === "CONFIRMED").length;
 
       setStats({
         todayRevenue: revenue,
@@ -196,6 +196,29 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       }
     } catch (err) {
       showError("Не удалось создать категорию. Проверьте соединение и попробуйте снова.");
+    }
+  };
+
+  const handleDeleteCategory = async (categoryId: string) => {
+    const category = categories.find((c: any) => c.id === categoryId);
+    if (!category) return;
+    if (!confirm(`Удалить категорию "${category.name}"? Товары останутся без категории.`)) return;
+
+    try {
+      const res = await miniAppFetch(`/api/categories?id=${categoryId}`, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+        showSuccess("Категория удалена!");
+        if (newItemCategory === categoryId) setNewItemCategory("");
+        fetchSellerData();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        showError(d.error || "Не удалось удалить категорию");
+      }
+    } catch (err) {
+      showError("Не удалось удалить категорию. Проверьте соединение и попробуйте снова.");
     }
   };
 
@@ -594,7 +617,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
               
               {/* Filter statuses */}
               <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-3">
-                {["ALL", "NEW", "ACCEPTED", "PREPARING", "READY", "DELIVERING", "COMPLETED", "CANCELLED"].map((status) => (
+                {["ALL", "NEW", "ACCEPTED", "PREPARING", "READY", "DELIVERING", "COMPLETED", "CANCELLED", "EXPIRED"].map((status) => (
                   <button
                     key={status}
                     onClick={() => setOrderFilter(status)}
@@ -632,9 +655,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           order.status === "READY" ? "bg-cyan-100 text-cyan-700" :
                           order.status === "DELIVERING" ? "bg-blue-100 text-blue-700" :
                           order.status === "COMPLETED" ? "bg-emerald-100 text-emerald-700" :
+                          order.status === "EXPIRED" ? "bg-slate-200 text-slate-700" :
                           "bg-slate-200 text-slate-500"
                         }`}>
-                          {order.status}
+                          {order.status === "EXPIRED" ? "Истёк" : order.status}
                         </span>
                       </div>
 
@@ -659,6 +683,11 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                         {order.comment && (
                           <div className="text-[10px] text-slate-500 italic mt-1 border-t pt-1">
                             💬 "{order.comment}"
+                          </div>
+                        )}
+                        {order.status === "EXPIRED" && (
+                          <div className="text-[10px] text-slate-600 mt-1 border-t pt-1">
+                            ⏱️ {order.expireReason || "Заказ самовывоза истёк."}
                           </div>
                         )}
                       </div>
@@ -779,7 +808,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
               <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3.5">График записей</h3>
 
               <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-3">
-                {["ALL", "NEW", "CONFIRMED", "COMPLETED", "CANCELLED"].map((status) => (
+                {["ALL", "PENDING", "NEW", "CONFIRMED", "COMPLETED", "CANCELLED", "EXPIRED", "NO_SHOW"].map((status) => (
                   <button
                     key={status}
                     onClick={() => setBookingFilter(status)}
@@ -809,11 +838,14 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                         </div>
                         <span className={`text-[9px] font-black rounded-full px-2 py-0.5 ${
                           bk.status === "NEW" ? "bg-amber-100 text-amber-700" :
+                          bk.status === "PENDING" ? "bg-slate-100 text-slate-700" :
                           bk.status === "CONFIRMED" ? "bg-indigo-100 text-indigo-700" :
                           bk.status === "COMPLETED" ? "bg-emerald-100 text-emerald-700" :
+                          bk.status === "EXPIRED" ? "bg-slate-200 text-slate-700" :
+                          bk.status === "NO_SHOW" ? "bg-rose-100 text-rose-700" :
                           "bg-slate-200 text-slate-500"
                         }`}>
-                          {bk.status}
+                          {bk.status === "NO_SHOW" ? "Клиент не пришёл" : bk.status === "EXPIRED" ? "Истекла" : bk.status}
                         </span>
                       </div>
 
@@ -835,6 +867,11 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           <div className="flex items-center gap-1.5">
                             <User size={12} className="text-slate-400" />
                             <span>Мастер: {bk.staff.name}</span>
+                          </div>
+                        )}
+                        {(bk.status === "NO_SHOW" || bk.status === "EXPIRED") && (
+                          <div className="text-[10px] text-slate-600 border-t pt-1">
+                            ⏱️ {bk.expireReason || "Запись автоматически снята."}
                           </div>
                         )}
                       </div>
@@ -1263,22 +1300,31 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                 </button>
               ) : (
                 categories.map((c: any) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => {
-                      setNewItemCategory(c.id);
-                      setShowCategoryBottomSheet(false);
-                    }}
-                    className={`w-full text-left p-3.5 rounded-2xl text-xs font-bold transition flex justify-between items-center ${
-                      newItemCategory === c.id
-                        ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10"
-                        : "bg-slate-50 hover:bg-slate-100 text-slate-805 border border-slate-100"
-                    }`}
-                  >
-                    <span>{c.name}</span>
-                    {newItemCategory === c.id && <span>✓</span>}
-                  </button>
+                  <div key={c.id} className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewItemCategory(c.id);
+                        setShowCategoryBottomSheet(false);
+                      }}
+                      className={`min-w-0 flex-1 text-left p-3.5 rounded-2xl text-xs font-bold transition flex justify-between items-center ${
+                        newItemCategory === c.id
+                          ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10"
+                          : "bg-slate-50 hover:bg-slate-100 text-slate-805 border border-slate-100"
+                      }`}
+                    >
+                      <span className="truncate">{c.name}</span>
+                      {newItemCategory === c.id && <span>✓</span>}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteCategory(c.id)}
+                      className="grid w-11 shrink-0 place-items-center rounded-2xl bg-rose-50 text-rose-600 border border-rose-100"
+                      title="Удалить категорию"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 ))
               )}
             </div>

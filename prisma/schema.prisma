@@ -51,6 +51,7 @@ enum OrderStatus {
   DELIVERING
   COMPLETED
   CANCELLED
+  EXPIRED
 }
 
 enum DeliveryType {
@@ -60,10 +61,12 @@ enum DeliveryType {
 }
 
 enum BookingStatus {
+  PENDING
   NEW
   CONFIRMED
   COMPLETED
   CANCELLED
+  EXPIRED
   NO_SHOW
 }
 
@@ -482,6 +485,8 @@ model Order {
   
   comment           String?   
   internalNotes     String?   
+  expiredAt         DateTime?
+  expireReason      String?
   
   payment           Payment?
   
@@ -491,6 +496,7 @@ model Order {
   @@index([businessId])
   @@index([customerId])
   @@index([status])
+  @@index([deliveryType, status, createdAt])
 }
 
 model OrderItem {
@@ -533,6 +539,8 @@ model Booking {
   status            BookingStatus @default(NEW)
   comment           String?   
   internalNotes     String?   
+  expiredAt         DateTime?
+  expireReason      String?
   
   reminderSent      Boolean   @default(false)
   reminderSentAt    DateTime?
@@ -544,6 +552,7 @@ model Booking {
   @@index([customerId])
   @@index([staffId])
   @@index([startTime])
+  @@index([status, startTime])
 }
 
 // ============= PAYMENTS =============

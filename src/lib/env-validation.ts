@@ -30,12 +30,12 @@ export function validateEnv() {
   const aiProvider = process.env.AI_PROVIDER || "mock";
   if (aiProvider === "openrouter" && !process.env.OPENROUTER_API_KEY) {
     console.warn(
-      `⚠️ [AI CONFIG WARNING] AI_PROVIDER is set to 'openrouter', but 'OPENROUTER_API_KEY' is missing. AI content generation will fall back to local 'mock' provider mode.`
+      `⚠️ [AI CONFIG WARNING] AI_PROVIDER is set to 'openrouter', but 'OPENROUTER_API_KEY' is missing. AI content generation will return an error until the key is configured.`
     );
   }
   if (aiProvider === "polza" && !process.env.POLZA_AI_API_KEY) {
     console.warn(
-      `⚠️ [AI CONFIG WARNING] AI_PROVIDER is set to 'polza', but 'POLZA_AI_API_KEY' is missing. AI content generation will fall back to local 'mock' provider mode.`
+      `⚠️ [AI CONFIG WARNING] AI_PROVIDER is set to 'polza', but 'POLZA_AI_API_KEY' is missing. AI content generation will return an error until the key is configured.`
     );
   }
 

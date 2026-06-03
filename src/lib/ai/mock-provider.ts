@@ -22,6 +22,21 @@ export class MockAIProvider implements AIProvider {
     businessPhone?: string;
     businessUsername?: string;
   }): Promise<string> {
+    if (input.contentType === "product_card") {
+      const raw = input.productOrService?.trim() || "Товар";
+      const nameMatch = raw.match(/Название:\s*([^,\n]+)/i);
+      const categoryMatch = raw.match(/Категория:\s*([^,\n]+)/i);
+      const name = nameMatch?.[1]?.trim() || raw.split(",")[0]?.trim() || "Товар";
+      const category = categoryMatch?.[1]?.trim() || "Основное";
+      return JSON.stringify({
+        name,
+        description: `${name} для витрины ${input.businessName}. Короткое описание можно уточнить перед публикацией.`,
+        category,
+        marketingText: `${name}: добавьте в заказ прямо в Mini App.`,
+        imagePrompt: `Предметная фотография товара "${name}" на чистом светлом фоне`,
+      });
+    }
+
     const subject = input.productOrService?.trim() || "наших услуг";
     const phoneText = input.businessPhone ? `\n📞 Телефон: ${input.businessPhone}` : "";
     const usernameText = input.businessUsername ? `\n✈️ Наш Telegram: @${input.businessUsername.replace("@", "")}` : "";

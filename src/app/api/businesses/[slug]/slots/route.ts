@@ -24,7 +24,7 @@ export async function GET(
       businessId: business.id,
       ...(staffId ? { staffId } : {}),
       startTime: { gte: start, lte: end },
-      status: { notIn: ["CANCELLED", "NO_SHOW"] },
+      status: { notIn: ["CANCELLED", "EXPIRED", "NO_SHOW"] },
     },
     select: { startTime: true },
   });

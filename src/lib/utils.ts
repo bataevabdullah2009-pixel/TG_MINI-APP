@@ -58,17 +58,20 @@ export function getOrderStatusLabel(status: string): string {
     DELIVERING: "🚚 В пути",
     COMPLETED: "✔️ Завершен",
     CANCELLED: "❌ Отменен",
+    EXPIRED: "⏱️ Истёк",
   };
   return labels[status] || status;
 }
 
 export function getBookingStatusLabel(status: string): string {
   const labels: Record<string, string> = {
+    PENDING: "🕓 Ожидает",
     NEW: "🆕 Новая",
     CONFIRMED: "✅ Подтверждена",
     COMPLETED: "✔️ Завершена",
     CANCELLED: "❌ Отменена",
-    NO_SHOW: "⏭️ Не явился",
+    EXPIRED: "⏱️ Истекла",
+    NO_SHOW: "⏭️ Клиент не пришёл",
   };
   return labels[status] || status;
 }

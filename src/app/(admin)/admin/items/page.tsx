@@ -4,7 +4,7 @@ import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ImagePlus, Pencil, Plus, RefreshCw, Save, X } from "lucide-react";
+import { AlertCircle, ImagePlus, Pencil, Plus, RefreshCw, Save, Sparkles, Trash2, X } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { formatPrice } from "@/lib/utils";
 import { AccessDeniedScreen } from "@/components/app/AccessDeniedScreen";
@@ -72,6 +72,7 @@ export default function AdminItemsPage() {
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [search, setSearch] = useState("");
@@ -153,6 +154,45 @@ export default function AdminItemsPage() {
     }
   }
 
+  async function deleteItem(item: Item) {
+    if (!confirm(`Удалить позицию "${item.name}"? Это действие нельзя отменить.`)) return;
+    setError("");
+    try {
+      await apiClient.delete(`/admin/items/${item.id}`);
+      setItems((current) => current.filter((entry) => entry.id !== item.id));
+      if (editingItem?.id === item.id) closeModal();
+      setToast("Позиция удалена");
+      setTimeout(() => setToast(""), 2500);
+    } catch (err) {
+      setError(apiError(err));
+    }
+  }
+
+  async function deleteCategory(categoryId: string) {
+    const category = categories.find((entry) => entry.id === categoryId);
+    if (!category) return;
+    if (!confirm(`Удалить категорию "${category.name}"? Товары останутся без категории.`)) return;
+    setError("");
+    try {
+      await apiClient.delete(`/categories?id=${categoryId}`);
+      setCategories((current) => current.filter((entry) => entry.id !== categoryId));
+      setItems((current) =>
+        current.map((entry) =>
+          entry.categoryId === categoryId || entry.category?.id === categoryId
+            ? { ...entry, categoryId: null, category: null }
+            : entry
+        )
+      );
+      if (form.categoryId === categoryId) {
+        setForm((current) => ({ ...current, categoryId: "" }));
+      }
+      setToast("Категория удалена");
+      setTimeout(() => setToast(""), 2500);
+    } catch (err) {
+      setError(apiError(err));
+    }
+  }
+
   function openCreateModal() {
     setEditingItem(null);
     setForm(initialForm);
@@ -193,6 +233,46 @@ export default function AdminItemsPage() {
     const data = await res.json();
     if (!res.ok || !data.ok) throw new Error(data.error || "Не удалось загрузить фото.");
     setForm((current) => ({ ...current, imageUrl: data.url || data.imageUrl || data.data?.url || "" }));
+  }
+
+  async function generateProductCard() {
+    if (!business) return;
+    if (!form.name.trim()) {
+      setError("Укажите название товара перед генерацией.");
+      return;
+    }
+
+    setAiLoading(true);
+    setError("");
+    try {
+      const currentCategory = categories.find((entry) => entry.id === form.categoryId)?.name || "Основное";
+      const res = await apiClient.post("/admin/ai/generate", {
+        businessId: business.id,
+        feature: "product_card",
+        contentType: "product_card",
+        tone: "дружелюбный",
+        prompt: [
+          `Название: ${form.name}`,
+          form.description ? `Описание: ${form.description}` : "",
+          form.price ? `Цена: ${form.price} ₽` : "",
+          `Категория: ${currentCategory}`,
+        ].filter(Boolean).join(", "),
+      });
+      const data = res.data;
+      const matchedCategory = categories.find((entry) => entry.name.toLowerCase() === String(data.category || "").toLowerCase());
+      setForm((current) => ({
+        ...current,
+        name: data.name || current.name,
+        description: data.description || data.marketingText || current.description,
+        categoryId: matchedCategory?.id || current.categoryId,
+      }));
+      setToast("Карточка заполнена ИИ");
+      setTimeout(() => setToast(""), 2500);
+    } catch (err) {
+      setError(apiError(err));
+    } finally {
+      setAiLoading(false);
+    }
   }
 
   async function saveItem(event: FormEvent) {
@@ -352,6 +432,10 @@ export default function AdminItemsPage() {
                     <button onClick={() => toggleItem(item, { isPopular: !item.isPopular })} className={`rounded-xl px-3 py-2 text-xs font-bold ${item.isPopular ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
                       {item.isPopular ? "Популярный" : "Обычный"}
                     </button>
+                    <button onClick={() => deleteItem(item)} className="inline-flex items-center gap-1 rounded-xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">
+                      <Trash2 size={13} />
+                      Удалить
+                    </button>
                   </div>
                 </div>
               </article>
@@ -378,21 +462,44 @@ export default function AdminItemsPage() {
               <button type="button" onClick={() => setForm({ ...form, type: "SERVICE" })} className={`rounded-xl px-3 py-3 text-sm font-black ${form.type === "SERVICE" ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700"}`}>Услуга</button>
             </div>
 
+            {form.type === "PRODUCT" && (
+              <button
+                type="button"
+                onClick={generateProductCard}
+                disabled={aiLoading}
+                className="mb-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-50 px-4 py-3 text-sm font-black text-indigo-700 disabled:opacity-50"
+              >
+                <Sparkles size={17} />
+                {aiLoading ? "Генерация..." : "Заполнить карточку с ИИ"}
+              </button>
+            )}
+
             <div className="grid gap-3 md:grid-cols-2">
               <Field label="Название"><input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="field" /></Field>
               <Field label="Цена, ₽"><input required type="number" min="0" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="field" /></Field>
               <Field label={form.type === "SERVICE" ? "Длительность, минут" : "Остаток"}><input type="number" min="0" value={form.type === "SERVICE" ? form.durationMinutes : form.stock} onChange={(e) => setForm({ ...form, [form.type === "SERVICE" ? "durationMinutes" : "stock"]: e.target.value })} className="field" /></Field>
               <Field label="Категория">
-                <select
-                  value={form.categoryId}
-                  onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
-                  className="field cursor-pointer"
-                >
-                  <option value="">Без категории</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                <div className="flex gap-2">
+                  <select
+                    value={form.categoryId}
+                    onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
+                    className="field cursor-pointer"
+                  >
+                    <option value="">Без категории</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => form.categoryId && deleteCategory(form.categoryId)}
+                    disabled={!form.categoryId}
+                    className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-rose-50 text-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    title="Удалить категорию"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </Field>
               <Field label="Описание"><textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="field min-h-28 md:col-span-2" /></Field>
             </div>

@@ -45,6 +45,11 @@ Do not commit real secrets. Use `.env.example` as a template and store productio
 - Long random server-only secret for encrypted data.
 - Source: password manager or generated random string.
 
+`CRON_SECRET`
+- Long random server-only secret for scheduled endpoints.
+- Required for `/api/cron/expire`.
+- Send as `Authorization: Bearer CRON_SECRET` or `?secret=CRON_SECRET`.
+
 `NEXT_PUBLIC_SUPABASE_URL`
 - Supabase project URL.
 - Source: Supabase Project Settings -> API.
@@ -77,7 +82,7 @@ Do not commit real secrets. Use `.env.example` as a template and store productio
 
 `AI_PROVIDER`
 - `mock`, `openrouter` or `polza`.
-- Use `mock` if no paid provider is configured.
+- Use `polza` for real Polza AI generation. Use `mock` only for explicit local/mock mode.
 
 `NEXT_PUBLIC_ENABLE_ADVANCED_AI`
 - Public feature flag for extra AI tabs.
@@ -104,10 +109,10 @@ Do not commit real secrets. Use `.env.example` as a template and store productio
 - Source: Polza AI dashboard.
 
 `POLZA_BASE_URL`
-- Optional Polza API base URL.
+- Optional Polza API base URL. Default: `https://polza.ai/api/v1`.
 
 `POLZA_TEXT_MODEL`
-- Optional Polza text model.
+- Optional Polza text model. Default: `z-ai/glm-4.7-flash`.
 
 `POLZA_IMAGE_MODEL`
 - Optional Polza image model.
@@ -171,6 +176,16 @@ The active bucket is `SUPABASE_STORAGE_BUSINESS_MEDIA_BUCKET`, defaulting to pub
 
 `NODE_ENV`
 - Managed by Vercel or local runtime.
+
+## Cron and Polza AI quick setup
+
+```env
+CRON_SECRET="change_me_long_random_string_for_cron"
+AI_PROVIDER="polza"
+POLZA_AI_API_KEY=""
+POLZA_BASE_URL="https://polza.ai/api/v1"
+POLZA_TEXT_MODEL="z-ai/glm-4.7-flash"
+```
 
 ## Production URL rules
 

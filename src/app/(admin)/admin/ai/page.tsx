@@ -8,7 +8,7 @@ import { AccessDeniedScreen } from "@/components/app/AccessDeniedScreen";
 
 const features = [
   ["post", "Telegram-пост"],
-  ["product_description", "Карточка товара"],
+  ["product_card", "Карточка товара"],
   ["improve", "Улучшить текст"],
 ] as const;
 
@@ -92,9 +92,9 @@ export default function AdminAIPage() {
             {
               title: data.title || data.name || "",
               description: data.description || "",
-              category: data.category || data.categorySuggestion || "",
-              priceSuggestion: data.priceSuggestion || "",
+              category: data.category || "",
               marketingText: data.marketingText || "",
+              imagePrompt: data.imagePrompt || "",
             },
             null,
             2

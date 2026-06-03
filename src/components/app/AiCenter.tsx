@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Sparkles, Copy, Save, Check, RefreshCw, AlertTriangle, Plus, ClipboardList, Tag, Send, Star, ShieldAlert } from "lucide-react";
+import { Sparkles, Copy, Save, Check, RefreshCw, AlertTriangle, Plus, ClipboardList, Send, Star, ShieldAlert } from "lucide-react";
 import { MediaUpload } from "./MediaUpload";
 
 interface AiCenterProps {
@@ -29,29 +29,6 @@ const AI_TABS =
   process.env.NEXT_PUBLIC_ENABLE_ADVANCED_AI === "true"
     ? [...CORE_AI_TABS, ...ADVANCED_AI_TABS]
     : CORE_AI_TABS;
-
-function buildMockAiResult(activeSubTab: string, input: { name: string; desc: string; price: string; businessType: string; prompt: string }) {
-  if (activeSubTab === "product_card") {
-    const name = input.name || "Товар";
-    const description = input.desc || `Свежая позиция для витрины ${input.businessType.toLowerCase()}. Подойдет для быстрого заказа в Mini App.`;
-    return {
-      name,
-      price: parseFloat(input.price || "0"),
-      description,
-      telegramPost: `✨ ${name}\n\n${description}\n\nЦена: ${input.price || "0"} ₽\nЗаказывайте прямо в Mini App.`,
-      shortCopy: `${name} за ${input.price || "0"} ₽`,
-      tags: ["новинка", "menu"],
-      hallucinationAlert: "ИИ-провайдер недоступен, использован локальный mock-результат.",
-    };
-  }
-
-  const base = input.prompt || "Текст для клиента";
-  if (activeSubTab === "improve") {
-    return `${base.trim()}\n\nУлучшенная версия: понятно, кратко и с акцентом на пользу для клиента.`;
-  }
-
-  return `✨ ${base.trim()}\n\nОткройте Mini App, выберите товары или услуги и оформите заказ в пару касаний.`;
-}
 
 export function AiCenter({ businessId, businessType, categories, onItemCreated }: AiCenterProps) {
   const [activeSubTab, setActiveSubTab] = useState("product_card");
@@ -102,7 +79,7 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
       ? `Создай карточку товара. Название: ${pcName}, Описание: ${pcDesc}, Цена: ${pcPrice} ₽. Категория: ${pcCategory}.`
       : prompt;
 
-    const targetFeature = activeSubTab === "product_card" ? "product_description" : activeSubTab;
+    const targetFeature = activeSubTab === "product_card" ? "product_card" : activeSubTab;
 
     try {
       const initData = typeof window !== "undefined" ? (window as any).Telegram?.WebApp?.initData : "";
@@ -116,6 +93,7 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
           businessId,
           prompt: targetPrompt,
           feature: targetFeature,
+          contentType: targetFeature,
           tone,
         }),
       });
@@ -131,31 +109,30 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
       }
 
       if (activeSubTab === "product_card") {
+        const categoryName = String(data.category || "");
+        const matchedCategory = categories.find((category: any) => category.name?.toLowerCase() === categoryName.toLowerCase());
         const parsed = {
           name: data.name || pcName,
           price: parseFloat(pcPrice),
-          category: pcCategory,
-          description: data.description || data.content || "",
-          telegramPost: data.marketingText || `✨ **${data.name || pcName}**\n\n${data.description || "Новинка!"}\n\n💳 Цена: ${pcPrice} ₽\n\nЗаказывайте прямо в нашем боте! 🚀`,
-          shortCopy: data.marketingText ? data.marketingText.slice(0, 80) : `Закажите ${data.name || pcName} всего за ${pcPrice} ₽!`,
-          tags: data.tags || ["новинка", businessType.toLowerCase()],
-          hallucinationAlert: pcPrice ? null : "ИИ не нашел точную цену товара, будьте аккуратны!",
+          category: matchedCategory?.id || pcCategory,
+          categoryName,
+          description: data.description || "",
+          marketingText: data.marketingText || "",
+          imagePrompt: data.imagePrompt || "",
+          telegramPost: data.marketingText || "",
+          shortCopy: data.marketingText ? data.marketingText.slice(0, 80) : "",
+          hallucinationAlert: null,
         };
+        setPcName(parsed.name);
+        setPcDesc(parsed.description || parsed.marketingText);
+        if (matchedCategory) setPcCategory(matchedCategory.id);
         setGeneratedResult(parsed);
       } else {
         setGeneratedResult(data.content || data.text || "");
       }
       showSuccess("Готово!");
     } catch (e: any) {
-      const fallback = buildMockAiResult(activeSubTab, {
-        name: pcName,
-        desc: pcDesc,
-        price: pcPrice,
-        businessType,
-        prompt,
-      });
-      setGeneratedResult(fallback);
-      showSuccess("Готово в mock-режиме");
+      setError(e.message || "Не удалось сгенерировать текст");
     } finally {
       setLoading(false);
     }
@@ -205,7 +182,7 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
         },
         body: JSON.stringify({
           businessId,
-          categoryId: pcCategory,
+          categoryId: generatedResult.category || pcCategory,
           name: generatedResult.name,
           price: generatedResult.price,
           description: generatedResult.description.slice(0, 500),
@@ -442,6 +419,11 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
                 </div>
 
                 <div>
+                  <span className="block text-[9px] font-black text-slate-400 uppercase">Категория</span>
+                  <p className="text-slate-600 font-semibold">{generatedResult.categoryName || categories.find((c: any) => c.id === generatedResult.category)?.name || "Основное"}</p>
+                </div>
+
+                <div>
                   <span className="block text-[9px] font-black text-slate-400 uppercase">Короткий промо-тизер</span>
                   <p className="text-indigo-600 font-semibold italic bg-indigo-50/50 p-2.5 rounded-xl border border-indigo-100/40">
                     "{generatedResult.shortCopy}"
@@ -455,12 +437,11 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
                   </pre>
                 </div>
 
-                <div className="flex flex-wrap gap-1 pt-1">
-                  {generatedResult.tags.map((t: string) => (
-                    <span key={t} className="flex items-center gap-0.5 text-[9px] font-black text-slate-500 bg-slate-150 px-2 py-0.5 rounded-full">
-                      <Tag size={8} /> #{t}
-                    </span>
-                  ))}
+                <div>
+                  <span className="block text-[9px] font-black text-slate-400 uppercase">Промпт для изображения</span>
+                  <p className="text-slate-600 font-medium leading-relaxed bg-white rounded-xl p-3 border border-slate-100">
+                    {generatedResult.imagePrompt}
+                  </p>
                 </div>
               </div>
 

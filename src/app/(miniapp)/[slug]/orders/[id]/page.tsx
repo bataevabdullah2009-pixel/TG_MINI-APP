@@ -37,9 +37,10 @@ const STATUS_STEPS = [
   { key: "READY", label: "📦 Готов", desc: "Можно забирать/ждите" },
   { key: "DELIVERING", label: "🚚 В пути", desc: "Курьер в дороге" },
   { key: "COMPLETED", label: "✔️ Завершён", desc: "Выполнен!" },
+  { key: "EXPIRED", label: "⏱️ Истёк", desc: "Срок истёк" },
 ];
 
-const STATUS_ORDER = ["NEW", "ACCEPTED", "PREPARING", "READY", "DELIVERING", "COMPLETED"];
+const STATUS_ORDER = ["NEW", "ACCEPTED", "PREPARING", "READY", "DELIVERING", "COMPLETED", "EXPIRED"];
 
 export default function OrderStatusPage() {
   const params = useParams();
@@ -104,7 +105,7 @@ export default function OrderStatusPage() {
     );
   }
 
-  const isCancelled = order.status === "CANCELLED";
+  const isCancelled = order.status === "CANCELLED" || order.status === "EXPIRED";
   const currentStepIdx = STATUS_ORDER.indexOf(order.status);
 
   const shortId = order.id.slice(-6).toUpperCase();
@@ -140,7 +141,7 @@ export default function OrderStatusPage() {
         )}
         {isCancelled && (
           <div className="mt-3 inline-flex items-center gap-2 bg-red-800/40 px-4 py-2 rounded-full">
-            <span className="text-sm font-medium">❌ Заказ отменён</span>
+            <span className="text-sm font-medium">{order.status === "EXPIRED" ? "⏱️ Заказ истёк" : "❌ Заказ отменён"}</span>
           </div>
         )}
       </div>

@@ -91,6 +91,7 @@ export default function ProfilePage() {
     COMPLETED: "#10B981",
     CANCELLED: "#EF4444",
     CONFIRMED: "#10B981",
+    EXPIRED: "#64748B",
     NO_SHOW: "#9CA3AF",
   };
 

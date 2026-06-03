@@ -11,7 +11,8 @@ const ALLOWED_STATUSES = new Set([
   "READY",
   "DELIVERING",
   "COMPLETED",
-  "CANCELLED"
+  "CANCELLED",
+  "EXPIRED"
 ]);
 
 export async function PATCH(
@@ -57,7 +58,7 @@ export async function PATCH(
 
     // Validate the target status
     if (!ALLOWED_STATUSES.has(status)) {
-      return jsonError(`Недопустимый статус заказа: ${status}. Разрешены только: NEW, ACCEPTED, PREPARING, READY, DELIVERING, COMPLETED, CANCELLED.`, 400);
+      return jsonError(`Недопустимый статус заказа: ${status}. Разрешены только: NEW, ACCEPTED, PREPARING, READY, DELIVERING, COMPLETED, CANCELLED, EXPIRED.`, 400);
     }
 
     // 4. Update order details

@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
     ]);
 
     const revenue = ordersByStatus
-      .filter((s) => s.status !== "CANCELLED")
+      .filter((s) => s.status === "COMPLETED")
       .reduce((sum, s) => sum + (s._sum.totalPrice || 0), 0);
 
     return NextResponse.json({

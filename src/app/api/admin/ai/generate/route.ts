@@ -9,6 +9,7 @@ const featureLabels: Record<string, string> = {
   post: "пост для Telegram",
   promo: "акция",
   product_description: "описание товара или услуги",
+  product_card: "product_card",
   review_reply: "ответ на отзыв",
   ideas: "идеи контента на 7 дней",
   broadcast: "текст рассылки",
@@ -26,6 +27,52 @@ const typeContext: Record<string, string> = {
   HARDWARE_STORE: "Хозмаг: инструменты, консультация, ремонт, крупные покупки. Не пиши про кафе.",
   CARWASH: "Автомойка: мойка, химчистка, сезонные акции, запись. Не пиши про стрижки или шаурму.",
 };
+
+const PRODUCT_CARD_FORMAT_ERROR = "ИИ вернул неверный формат. Попробуйте ещё раз.";
+
+type ProductCard = {
+  name: string;
+  description: string;
+  category: string;
+  marketingText: string;
+  imagePrompt: string;
+};
+
+function cleanJsonText(value: string) {
+  return value
+    .trim()
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+}
+
+function parseProductCardResponse(raw: string): ProductCard {
+  const cleaned = cleanJsonText(raw);
+  let parsed: any;
+
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    const objectMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!objectMatch) throw new Error("No JSON object in AI response.");
+    parsed = JSON.parse(objectMatch[0]);
+  }
+
+  const card = {
+    name: typeof parsed.name === "string" ? parsed.name.trim() : "",
+    description: typeof parsed.description === "string" ? parsed.description.trim() : "",
+    category: typeof parsed.category === "string" ? parsed.category.trim() : typeof parsed.categorySuggestion === "string" ? parsed.categorySuggestion.trim() : "",
+    marketingText: typeof parsed.marketingText === "string" ? parsed.marketingText.trim() : "",
+    imagePrompt: typeof parsed.imagePrompt === "string" ? parsed.imagePrompt.trim() : "",
+  };
+
+  if (!card.name || !card.description || !card.category || !card.marketingText || !card.imagePrompt) {
+    throw new Error("Product card JSON misses required fields.");
+  }
+
+  return card;
+}
 
 const aiGenerateBusinessSelect = {
   id: true,
@@ -55,11 +102,15 @@ export async function POST(request: NextRequest) {
 
     const routing = await getAiRouting(business.id);
     if (!routing) return jsonError("ИИ-провайдер не настроен. Проверьте OpenRouter или Polza AI в настройках.", 400);
+    if (!routing.providerConfigured) {
+      return jsonError(`ИИ-провайдер ${routing.provider} выбран, но не настроен. Проверьте переменные окружения.`, 400);
+    }
     if ((await getDailyUsage(business.id)) >= routing.dailyLimit) {
       return jsonError("Лимит ИИ-запросов на сегодня исчерпан. Попробуйте завтра или обновите тариф.", 429);
     }
 
     const feature = String(body.feature || "post");
+    const isProductCard = feature === "product_card" || feature === "product_description";
     const prompt = String(body.prompt || "").slice(0, 4000);
     const knownItems = business.items.map((item) => `${item.name}${item.price ? ` (${item.price} ₽)` : ""}`).join(", ") || "позиции пока не добавлены";
     
@@ -70,14 +121,14 @@ export async function POST(request: NextRequest) {
       `Ограничение: до ${routing.maxTokens} токенов.`,
     ].join(" ");
 
-    if (feature === "product_description" || feature === "product_card") {
+    if (isProductCard) {
       goal += ` ВНИМАНИЕ: Верни строго валидный JSON без какого-либо дополнительного текста, markdown разметки или бэкквотов (без \`\`\`json). JSON должен строго соответствовать следующей схеме:
       {
         "name": "Название товара",
         "description": "Продающее описание товара",
-        "categorySuggestion": "Рекомендация категории",
-        "marketingText": "Текст для рекламы/поста в Telegram",
-        "tags": ["тег1", "тег2", "тег3"]
+        "category": "Название категории",
+        "marketingText": "Короткий текст для рекламы/поста в Telegram",
+        "imagePrompt": "Промпт для генерации фото товара"
       }`;
     }
 
@@ -86,7 +137,7 @@ export async function POST(request: NextRequest) {
       businessType: business.type,
       businessPhone: business.phone || "",
       businessUsername: business.telegramUsername || business.telegramBotUsername || "",
-      contentType: featureLabels[feature] || feature,
+      contentType: isProductCard ? "product_card" : featureLabels[feature] || feature,
       productOrService: prompt || business.description || business.name,
       tone: body.tone || "дружелюбный",
       goal: goal,
@@ -97,20 +148,13 @@ export async function POST(request: NextRequest) {
     
     if (cached) {
       const responseText = cached.response;
-      if (feature === "product_description" || feature === "product_card") {
+      if (isProductCard) {
         try {
-          const parsed = JSON.parse(responseText.trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim());
+          const parsed = parseProductCardResponse(responseText);
           return NextResponse.json({ ok: true, ...parsed, provider: cached.provider, model: cached.model, cached: true });
-        } catch (e) {
-          // Cached item was not JSON, fallback gracefully
-          const fallbackJson = {
-            name: prompt.replace("Создай карточку товара. Название: ", "").split(",")[0].trim() || "Товар",
-            description: responseText,
-            categorySuggestion: "Основное",
-            marketingText: `✨ **Новинка!**\n\n${responseText}\n\nЗаказывайте прямо сейчас! 🚀`,
-            tags: ["новинка", "ии_генерация"]
-          };
-          return NextResponse.json({ ok: true, ...fallbackJson, provider: cached.provider, model: cached.model, cached: true });
+        } catch {
+          console.error("Cached product_card AI response has invalid JSON:", responseText);
+          return jsonError(PRODUCT_CARD_FORMAT_ERROR, 502);
         }
       }
       return NextResponse.json({ ok: true, content: cached.response, provider: cached.provider, model: cached.model, cached: true });
@@ -123,28 +167,23 @@ export async function POST(request: NextRequest) {
     try {
       content = await provider.generateContent(input);
     } catch (error) {
-      console.error("AI provider failed, fallback to mock:", error);
-      const fallback = getAIProviderConfig("mock", "mock");
-      content = await fallback.generateContent(input);
-      usedProvider = "mock";
+      console.error("AI provider failed:", error);
+      await incrementAiUsage(business.id, feature, usedProvider, routing.model, JSON.stringify(input).length, "FAILED");
+      return jsonError("ИИ временно недоступен. Попробуйте позже.", 502);
     }
 
     const estimatedCost = estimateAiCost(usedProvider, JSON.stringify(input).length, content.length);
-    await incrementAiUsage(business.id, feature, usedProvider, routing.model, JSON.stringify(input).length, "SUCCESS", content.length, estimatedCost);
-    await prisma.aICache.upsert({
-      where: { businessId_feature_promptHash: { businessId: business.id, feature, promptHash: hash } },
-      update: { response: content, provider: usedProvider, model: routing.model, createdAt: new Date() },
-      create: { businessId: business.id, feature, promptHash: hash, provider: usedProvider, model: routing.model, response: content },
-    });
 
-    if (feature === "product_description" || feature === "product_card") {
+    if (isProductCard) {
       try {
-        const parsed = JSON.parse(content.trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim());
-        parsed.name = parsed.name || prompt.replace("Создай карточку товара. Название: ", "").split(",")[0].trim() || "Товар";
-        parsed.description = parsed.description || content;
-        parsed.categorySuggestion = parsed.categorySuggestion || "Основное";
-        parsed.marketingText = parsed.marketingText || parsed.description;
-        parsed.tags = Array.isArray(parsed.tags) ? parsed.tags : ["новинка"];
+        const parsed = parseProductCardResponse(content);
+        const normalizedContent = JSON.stringify(parsed);
+        await incrementAiUsage(business.id, feature, usedProvider, routing.model, JSON.stringify(input).length, "SUCCESS", normalizedContent.length, estimatedCost);
+        await prisma.aICache.upsert({
+          where: { businessId_feature_promptHash: { businessId: business.id, feature, promptHash: hash } },
+          update: { response: normalizedContent, provider: usedProvider, model: routing.model, createdAt: new Date() },
+          create: { businessId: business.id, feature, promptHash: hash, provider: usedProvider, model: routing.model, response: normalizedContent },
+        });
         
         return NextResponse.json({
           ok: true,
@@ -154,22 +193,18 @@ export async function POST(request: NextRequest) {
           estimatedCost
         });
       } catch (e) {
-        const fallbackJson = {
-          name: prompt.replace("Создай карточку товара. Название: ", "").split(",")[0].trim() || "Товар",
-          description: content,
-          categorySuggestion: "Основное",
-          marketingText: `✨ **Новинка!**\n\n${content}\n\nЗаказывайте прямо сейчас! 🚀`,
-          tags: ["новинка", "ии_генерация"]
-        };
-        return NextResponse.json({
-          ok: true,
-          ...fallbackJson,
-          provider: usedProvider,
-          model: routing.model,
-          estimatedCost
-        });
+        console.error("Product_card AI response has invalid JSON:", content);
+        await incrementAiUsage(business.id, feature, usedProvider, routing.model, JSON.stringify(input).length, "FAILED", content.length, estimatedCost);
+        return jsonError(PRODUCT_CARD_FORMAT_ERROR, 502);
       }
     }
+
+    await incrementAiUsage(business.id, feature, usedProvider, routing.model, JSON.stringify(input).length, "SUCCESS", content.length, estimatedCost);
+    await prisma.aICache.upsert({
+      where: { businessId_feature_promptHash: { businessId: business.id, feature, promptHash: hash } },
+      update: { response: content, provider: usedProvider, model: routing.model, createdAt: new Date() },
+      create: { businessId: business.id, feature, promptHash: hash, provider: usedProvider, model: routing.model, response: content },
+    });
 
     return NextResponse.json({ ok: true, content, provider: usedProvider, model: routing.model, estimatedCost });
   } catch (error: any) {

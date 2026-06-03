@@ -69,6 +69,10 @@ body {
   @apply w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-slate-400;
 }
 
+.checkout-field {
+  @apply w-full bg-transparent text-sm font-bold text-slate-900 outline-none placeholder:text-slate-300;
+}
+
 /* Loading animation */
 @keyframes pulse {
   0%,
