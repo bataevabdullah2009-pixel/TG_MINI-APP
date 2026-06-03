@@ -21,8 +21,8 @@ export class PolzaMediaProvider {
     const resolution = input.resolution || "1K";
     const aspectRatio = input.aspectRatio || "1:1";
 
-    const baseUrl = process.env.POLZA_BASE_URL || "https://polza.ai/api/v1";
-    const endpoint = baseUrl.endsWith("/media") ? baseUrl : `${baseUrl}/media`;
+    const baseUrl = process.env.POLZA_MEDIA_BASE_URL || process.env.POLZA_BASE_URL || "https://polza.ai/api/v1";
+    const endpoint = baseUrl.includes("/media") ? baseUrl : `${baseUrl.replace(/\/$/, "")}/media`;
 
     try {
       const res = await fetch(endpoint, {

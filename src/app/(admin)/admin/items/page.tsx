@@ -78,6 +78,78 @@ export default function AdminItemsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<FormState>(initialForm);
 
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+
+  async function handleAiGenerate() {
+    if (!aiPrompt.trim() || !business) return;
+    setAiLoading(true);
+    setAiError("");
+    try {
+      const textRes = await fetch("/api/ai/generate-content", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          businessId: business.id,
+          prompt: aiPrompt,
+          type: "product_card",
+        }),
+      });
+
+      const textData = await textRes.json();
+      if (!textRes.ok || textData.error) {
+        throw new Error(textData.error || "Не удалось сгенерировать текст карточки.");
+      }
+
+      setForm((current) => ({
+        ...current,
+        name: textData.name || aiPrompt,
+        description: textData.description || "",
+      }));
+
+      if (textData.category && categories.length > 0) {
+        const foundCategory = categories.find(
+          (c) => c.name.toLowerCase().includes(textData.category.toLowerCase()) || 
+                 textData.category.toLowerCase().includes(c.name.toLowerCase())
+        );
+        if (foundCategory) {
+          setForm((current) => ({ ...current, categoryId: foundCategory.id }));
+        }
+      }
+
+      if (textData.imagePrompt) {
+        try {
+          const imgRes = await fetch("/api/admin/ai/generate-image", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              businessId: business.id,
+              prompt: textData.imagePrompt,
+            }),
+          });
+          const imgData = await imgRes.json();
+          if (imgRes.ok && imgData.ok && imgData.data?.url) {
+            setForm((current) => ({ ...current, imageUrl: imgData.data.url }));
+            setToast("Карточка и изображение успешно созданы!");
+            setTimeout(() => setToast(""), 2500);
+          } else {
+            setAiError(`Текст создан, но изображение не создано: ${imgData.error || "Ошибка генерации фото"}`);
+          }
+        } catch (imgErr: any) {
+          setAiError(`Текст создан, но изображение не создано: ${imgErr.message || "Ошибка сети при генерации фото"}`);
+        }
+      } else {
+        setToast("Карточка товара успешно сгенерирована!");
+        setTimeout(() => setToast(""), 2500);
+      }
+    } catch (err: any) {
+      setAiError(err.message || "Ошибка ИИ-генерации.");
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
   useEffect(() => {
     const userJson = localStorage.getItem("adminUser");
     if (!userJson) {
@@ -335,6 +407,40 @@ export default function AdminItemsPage() {
             <div className="mb-4 grid grid-cols-2 gap-2">
               <button type="button" onClick={() => setForm({ ...form, type: "PRODUCT" })} className={`rounded-xl px-3 py-3 text-sm font-black ${form.type === "PRODUCT" ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700"}`}>Товар</button>
               <button type="button" onClick={() => setForm({ ...form, type: "SERVICE" })} className={`rounded-xl px-3 py-3 text-sm font-black ${form.type === "SERVICE" ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700"}`}>Услуга</button>
+            </div>
+
+            {/* AI Generator Panel */}
+            <div className="mb-5 p-4 rounded-2xl border border-indigo-100 bg-indigo-50/30">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm">✨</span>
+                <h3 className="text-xs font-black text-indigo-950 uppercase tracking-wider">AI-генератор карточки товара</h3>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Например: Свежий круассан с миндалем"
+                  value={aiPrompt}
+                  onChange={(e) => setAiPrompt(e.target.value)}
+                  className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none focus:border-indigo-400"
+                />
+                <button
+                  type="button"
+                  disabled={aiLoading || !aiPrompt.trim()}
+                  onClick={handleAiGenerate}
+                  className="rounded-xl bg-indigo-600 hover:bg-indigo-750 disabled:bg-indigo-300 text-white font-black text-xs px-4 py-2 transition"
+                >
+                  {aiLoading ? "Генерация..." : "Создать с ИИ"}
+                </button>
+              </div>
+              {aiLoading && (
+                <div className="mt-3 flex items-center gap-2 text-xs font-bold text-indigo-600 animate-pulse">
+                  <div className="h-2 w-2 rounded-full bg-indigo-600 animate-bounce" />
+                  Генерируем текст и изображение...
+                </div>
+              )}
+              {aiError && (
+                <p className="text-rose-600 text-[10px] font-bold mt-2">⚠️ {aiError}</p>
+              )}
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
