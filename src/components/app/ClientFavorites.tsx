@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Star, Store, Heart, ShoppingBag, Eye } from "lucide-react";
 
 interface ClientFavoritesProps {
-  telegramUserId: string;
+  telegramUserId?: string;
 }
 
 export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
@@ -18,17 +18,31 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!telegramUserId) return;
+    if (!telegramUserId) {
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
-    fetch(`/api/customers/favorites?telegramUserId=${telegramUserId}`)
-      .then((res) => res.json())
-      .then((resData) => {
-        if (resData.ok) {
-          setData(resData.data);
-        } else {
-          setError(resData.error || "Не удалось загрузить избранное");
+    setError(null);
+    Promise.all([
+      fetch(`/api/favorites/business?telegramUserId=${encodeURIComponent(telegramUserId)}`).then((res) => res.json()),
+      fetch(`/api/favorites/product?telegramUserId=${encodeURIComponent(telegramUserId)}`).then((res) => res.json()),
+    ])
+      .then(([businessRes, productRes]) => {
+        if (!businessRes.ok) {
+          setError(businessRes.error || "Не удалось загрузить избранные заведения");
+          return;
         }
+        if (!productRes.ok) {
+          setError(productRes.error || "Не удалось загрузить избранные товары");
+          return;
+        }
+
+        setData({
+          favoriteBusinesses: businessRes.data?.favoriteBusinesses || [],
+          favoriteItems: productRes.data?.favoriteProducts || productRes.data?.favoriteItems || [],
+        });
       })
       .catch((e) => {
         console.error(e);
@@ -38,34 +52,40 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
   }, [telegramUserId]);
 
   const removeFavorite = async (businessId: string, itemId?: string) => {
+    if (!telegramUserId) return;
+
+    const previous = data;
+    if (itemId) {
+      setData((d) => ({
+        ...d,
+        favoriteItems: d.favoriteItems.filter((i) => i.itemId !== itemId),
+      }));
+    } else {
+      setData((d) => ({
+        ...d,
+        favoriteBusinesses: d.favoriteBusinesses.filter((b) => b.businessId !== businessId),
+      }));
+    }
+
     try {
-      const res = await fetch("/api/customers/favorites", {
-        method: "POST",
+      const res = await fetch(itemId ? "/api/favorites/product" : "/api/favorites/business", {
+        method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           telegramUserId,
-          businessId,
-          itemId,
-          action: "remove",
+          ...(itemId ? { productId: itemId } : { businessId }),
         }),
       });
+      const resData = await res.json().catch(() => ({}));
 
-      if (res.ok) {
-        // Refilter local state
-        if (itemId) {
-          setData((d) => ({
-            ...d,
-            favoriteItems: d.favoriteItems.filter((i) => i.itemId !== itemId),
-          }));
-        } else {
-          setData((d) => ({
-            ...d,
-            favoriteBusinesses: d.favoriteBusinesses.filter((b) => b.businessId !== businessId),
-          }));
-        }
+      if (!res.ok || resData.ok === false) {
+        throw new Error(resData.error || "Не удалось обновить избранное");
       }
     } catch (e) {
       console.error(e);
+      setData(previous);
+      setError("Не удалось обновить избранное. Попробуйте ещё раз.");
+      setTimeout(() => setError(null), 4000);
     }
   };
 

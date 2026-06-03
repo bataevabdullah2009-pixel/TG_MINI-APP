@@ -129,6 +129,26 @@ export default function MarketplacePage() {
       });
   }, []);
 
+  useEffect(() => {
+    if (!session?.telegramUserId) return undefined;
+
+    let cancelled = false;
+    fetch(`/api/favorites/business?telegramUserId=${encodeURIComponent(session.telegramUserId.toString())}`)
+      .then((res) => res.json())
+      .then((resData) => {
+        if (cancelled || !resData.ok) return;
+
+        const slugs = resData.data?.businessSlugs || [];
+        setFavorites(slugs);
+        localStorage.setItem("favoriteBusinesses", JSON.stringify(slugs));
+      })
+      .catch((err) => console.warn("[Favorites] Could not load business favorites:", err));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.telegramUserId]);
+
   const resolveUserSession = async (initData: string, modeOverride?: string) => {
     setLoading(true);
     setError(null);
@@ -212,21 +232,39 @@ export default function MarketplacePage() {
   };
 
   const toggleFavorite = async (slug: string) => {
-    const next = favorites.includes(slug) ? favorites.filter((item) => item !== slug) : [...favorites, slug];
+    const previous = favorites;
+    const isFavorite = favorites.includes(slug);
+    const next = isFavorite ? favorites.filter((item) => item !== slug) : [...favorites, slug];
     setFavorites(next);
     localStorage.setItem("favoriteBusinesses", JSON.stringify(next));
 
     if (session?.telegramUserId) {
       const biz = businesses.find((b) => b.slug === slug);
       if (biz) {
-        await fetch("/api/customers/favorites", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            telegramUserId: session.telegramUserId.toString(),
-            businessId: biz.id,
-          }),
-        });
+        try {
+          const res = await fetch("/api/favorites/business", {
+            method: isFavorite ? "DELETE" : "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              telegramUserId: session.telegramUserId.toString(),
+              businessId: biz.id,
+            }),
+          });
+          const resData = await res.json().catch(() => ({}));
+          if (!res.ok || resData.ok === false) {
+            throw new Error(resData.error || "Не удалось обновить избранное");
+          }
+        } catch (error) {
+          setFavorites(previous);
+          localStorage.setItem("favoriteBusinesses", JSON.stringify(previous));
+          setError("Не удалось обновить избранное. Попробуйте ещё раз.");
+          setTimeout(() => setError(null), 4000);
+        }
+      } else {
+        setFavorites(previous);
+        localStorage.setItem("favoriteBusinesses", JSON.stringify(previous));
+        setError("Бизнес не найден в каталоге.");
+        setTimeout(() => setError(null), 4000);
       }
     }
   };
