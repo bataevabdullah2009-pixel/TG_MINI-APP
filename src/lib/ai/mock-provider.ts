@@ -22,6 +22,15 @@ export class MockAIProvider implements AIProvider {
     businessPhone?: string;
     businessUsername?: string;
   }): Promise<string> {
+    if (input.contentType === "product_card" || input.contentType === "productCard") {
+      return JSON.stringify({
+        name: input.productOrService || "Капучино ИИ",
+        description: `Замечательный выбор для любителей качественных решений в ${input.businessName}. Обладает неповторимым вкусом и дарит заряд бодрости на весь день.`,
+        category: "Кофе",
+        marketingText: `Попробуйте нашу новинку — ${input.productOrService || "Капучино ИИ"} всего за 199 ₽! Заказывайте прямо в Telegram Mini App! ☕`,
+        imagePrompt: `professional photography of ${input.productOrService || "cappuccino cup"}, warm lighting, cozy cafe background, 8k, photorealistic`
+      });
+    }
     const subject = input.productOrService?.trim() || "наших услуг";
     const phoneText = input.businessPhone ? `\n📞 Телефон: ${input.businessPhone}` : "";
     const usernameText = input.businessUsername ? `\n✈️ Наш Telegram: @${input.businessUsername.replace("@", "")}` : "";

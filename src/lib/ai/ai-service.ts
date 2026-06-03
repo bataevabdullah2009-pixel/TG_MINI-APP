@@ -17,8 +17,10 @@ export function getAIProviderConfig(providerName?: string, modelName?: string): 
 
   if (provider === "polza") {
     const key = process.env.POLZA_AI_API_KEY;
-    if (key) return new PolzaAIProvider(key, modelName);
-    console.warn("⚠️ [AI Service] 'polza' was selected but POLZA_AI_API_KEY is not defined. Falling back to 'mock' provider.");
+    if (!key) {
+      throw new Error("API-ключ Polza AI (POLZA_AI_API_KEY) отсутствует в конфигурации сервера. Пожалуйста, настройте его в .env файле.");
+    }
+    return new PolzaAIProvider(key, modelName);
   }
 
   // Fallback to mock if keys are missing or provider is mock

@@ -14,7 +14,22 @@ import { formatPrice } from "@/lib/utils";
 import { useTelegram } from "@/hooks/useTelegram";
 import Link from "next/link";
 import { PhoneVerificationScreen } from "@/components/app/PhoneVerificationScreen";
-import { User, Phone, MapPin, CreditCard, MessageSquare, ShieldCheck, ShieldAlert } from "lucide-react";
+import { 
+  User, 
+  Phone, 
+  MapPin, 
+  MessageSquare, 
+  ShieldCheck, 
+  ShieldAlert, 
+  ArrowLeft, 
+  Store, 
+  Truck, 
+  Wallet, 
+  Smartphone, 
+  ShoppingBag,
+  CheckCircle2,
+  ChevronRight
+} from "lucide-react";
 
 const CheckoutSchema = z.object({
   customerName: z.string().min(2, "Введите имя (мин. 2 символа)"),
@@ -45,6 +60,9 @@ export default function CheckoutPage() {
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
 
+  // Success state
+  const [createdOrder, setCreatedOrder] = useState<any>(null);
+
   const {
     register,
     handleSubmit,
@@ -63,16 +81,15 @@ export default function CheckoutPage() {
 
   const deliveryType = watch("deliveryType");
   const customerName = watch("customerName");
+  const paymentMethod = watch("paymentMethod");
 
   const fetchProfileAndBusiness = async () => {
     try {
       setLoading(true);
-      // 1. Fetch business
       const bizRes = await apiClient.get(`/businesses/${slug}`);
       const biz = bizRes.data;
       setBusiness(biz);
 
-      // 2. Fetch customer profile
       const initData = typeof window !== "undefined" ? (window as any).Telegram?.WebApp?.initData : "";
       if (initData) {
         const profileRes = await fetch(`/api/customer/profile?businessSlug=${slug}`, {
@@ -94,6 +111,9 @@ export default function CheckoutPage() {
                 setPhoneVerified(true);
               }
             }
+            if (cust.address) {
+              setValue("customerAddress", cust.address);
+            }
           }
         }
       }
@@ -108,7 +128,6 @@ export default function CheckoutPage() {
     fetchProfileAndBusiness();
   }, [slug]);
 
-  // Prefill name from Telegram context if still blank
   useEffect(() => {
     if (user && !customerName) {
       const name = [user.first_name, user.last_name].filter(Boolean).join(" ");
@@ -116,16 +135,12 @@ export default function CheckoutPage() {
     }
   }, [user, setValue, customerName]);
 
-
-
   const total = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   const handleVerified = (verifiedPhone: string) => {
     setPhoneVerified(true);
     setValue("customerPhone", verifiedPhone);
     setShowVerifyModal(false);
-    
-    // Proactively save to customer profile
     saveProfile(verifiedPhone);
   };
 
@@ -144,6 +159,7 @@ export default function CheckoutPage() {
           businessSlug: slug,
           phone: verifiedPhone,
           name: watch("customerName"),
+          address: watch("customerAddress"),
         }),
       });
     } catch (e) {
@@ -187,13 +203,17 @@ export default function CheckoutPage() {
       const res = await apiClient.post("/orders", orderData);
       const order = res.data;
 
-      clearCart();
-
-      if (tg) {
-        tg.showAlert(`✅ Заказ #${order.id?.slice(-6).toUpperCase()} успешно оформлен!`);
+      // Save customer profile data with address updated
+      if (data.customerAddress) {
+        saveProfile(data.customerPhone);
       }
 
-      router.push(`/${slug}/orders/${order.id}`);
+      clearCart();
+      setCreatedOrder(order);
+
+      if (tg) {
+        tg.HapticFeedback.notificationOccurred("success");
+      }
     } catch (err: any) {
       setError(err?.response?.data?.error || "Не удалось оформить заказ. Проверьте данные и попробуйте снова.");
     } finally {
@@ -201,9 +221,10 @@ export default function CheckoutPage() {
     }
   };
 
-  // Manage Telegram native MainButton for smooth mobile keyboard interactions
+  // Sync with Telegram Native Main Button
   useEffect(() => {
-    if (!tg) {
+    if (!tg || createdOrder) {
+      if (tg) tg.MainButton.hide();
       return () => {};
     }
 
@@ -215,9 +236,9 @@ export default function CheckoutPage() {
       }
     };
 
-    tg.MainButton.setText(phoneVerified ? "✅ Подтвердить и заказать" : "🔗 Подтвердить номер для заказа");
+    tg.MainButton.setText(phoneVerified ? `Подтвердить заказ на ${formatPrice(total)}` : "🔗 Подтвердить номер для заказа");
     tg.MainButton.setParams({
-      color: business?.primaryColor || "#4F46E5",
+      color: business?.primaryColor || "#3B82F6",
       text_color: "#FFFFFF",
       is_active: !submitting,
       is_visible: true,
@@ -230,12 +251,15 @@ export default function CheckoutPage() {
       tg.MainButton.offClick(handleMainButtonClick);
       tg.MainButton.hide();
     };
-  }, [tg, phoneVerified, submitting, business, handleSubmit, onSubmit]);
+  }, [tg, phoneVerified, submitting, business, handleSubmit, onSubmit, createdOrder, total]);
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-indigo-600 border-t-transparent" />
+        <div className="flex flex-col items-center gap-3">
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-indigo-600 border-t-transparent" />
+          <p className="text-xs font-bold text-slate-400">Загрузка информации...</p>
+        </div>
       </div>
     );
   }
@@ -248,15 +272,101 @@ export default function CheckoutPage() {
     );
   }
 
+  // Beautiful Success Screen
+  if (createdOrder) {
+    return (
+      <div className="min-h-screen bg-white flex flex-col justify-between p-6 animate-fade-in">
+        <style dangerouslySetInnerHTML={{__html: `
+          @keyframes scaleIn {
+            0% { transform: scale(0.4); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+          }
+          @keyframes drawCheck {
+            0% { stroke-dashoffset: 48; }
+            100% { stroke-dashoffset: 0; }
+          }
+          .animate-scale-in {
+            animation: scaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+          }
+          .animate-draw-check {
+            stroke-dasharray: 48;
+            stroke-dashoffset: 48;
+            animation: drawCheck 0.6s 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+          }
+        `}} />
+
+        <div className="flex-1 flex flex-col items-center justify-center text-center my-auto">
+          {/* Animated Success Checkmark */}
+          <div className="w-24 h-24 bg-emerald-50 rounded-full flex items-center justify-center mb-6 animate-scale-in border border-emerald-100">
+            <svg className="w-12 h-12 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+              <path className="animate-draw-check" strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+
+          <h2 className="text-2xl font-black text-slate-900 mb-2">Заказ успешно оформлен!</h2>
+          <p className="text-sm text-slate-500 max-w-xs mx-auto leading-relaxed mb-6">
+            Спасибо за покупку! Мы уже передали заказ менеджеру на подтверждение.
+          </p>
+
+          {/* Info Card */}
+          <div className="bg-slate-50 rounded-2xl p-5 w-full max-w-sm border border-slate-100 space-y-3.5 text-left mb-6">
+            <div className="flex justify-between items-center text-xs font-bold text-slate-400">
+              <span>НОМЕР ЗАКАЗА</span>
+              <span className="text-slate-900 bg-white px-2 py-0.5 rounded-md border border-slate-100 font-mono text-sm">
+                #{createdOrder.id?.slice(-6).toUpperCase()}
+              </span>
+            </div>
+
+            <div className="border-t border-slate-100 pt-3 flex justify-between text-xs font-bold">
+              <span className="text-slate-400">СПОСОБ ПОЛУЧЕНИЯ</span>
+              <span className="text-slate-900">
+                {createdOrder.deliveryType === "DELIVERY" ? "🚚 Доставка" : "🏪 Самовывоз"}
+              </span>
+            </div>
+
+            {createdOrder.customerAddress && (
+              <div className="border-t border-slate-100 pt-3 flex flex-col gap-1 text-xs font-bold">
+                <span className="text-slate-400">АДРЕС</span>
+                <span className="text-slate-900 line-clamp-2">{createdOrder.customerAddress}</span>
+              </div>
+            )}
+
+            <div className="border-t border-slate-100 pt-3 flex justify-between text-xs font-bold">
+              <span className="text-slate-400">ИТОГО К ОПЛАТЕ</span>
+              <span className="text-slate-900 text-sm font-black" style={{ color: business.primaryColor }}>
+                {formatPrice(createdOrder.totalPrice)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="space-y-3 w-full max-w-sm mx-auto pb-safe">
+          <Link href={`/${slug}/orders/${createdOrder.id}`} className="block w-full">
+            <Button className="w-full py-6 font-black text-sm rounded-2xl text-white shadow-lg hover:brightness-110 active:scale-[0.98] transition" style={{ backgroundColor: business.primaryColor }}>
+              Статус заказа
+            </Button>
+          </Link>
+          <Link href={`/${slug}/catalog`} className="block w-full">
+            <Button variant="outline" className="w-full py-6 font-bold text-sm rounded-2xl border-slate-200 hover:bg-slate-50 transition">
+              Вернуться в каталог
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Cart Empty State fallback if somehow accessed directly
   if (cartItems.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50">
         <div className="text-center bg-white p-8 rounded-3xl shadow-sm ring-1 ring-slate-100 max-w-sm">
           <div className="text-5xl mb-4">🛒</div>
           <h2 className="text-lg font-black mb-1">Корзина пуста</h2>
-          <p className="text-xs text-slate-400 mb-6 leading-relaxed">Добавьте товары перед оформлением заказа.</p>
+          <p className="text-xs text-slate-400 mb-6 leading-relaxed">Добавьте товары в корзину перед оформлением заказа.</p>
           <Link href={`/${slug}/catalog`}>
-            <Button className="w-full font-black py-5 rounded-xl text-white" style={{ backgroundColor: business.primaryColor }}>
+            <Button className="w-full font-black py-5 rounded-2xl text-white" style={{ backgroundColor: business.primaryColor }}>
               Перейти в каталог
             </Button>
           </Link>
@@ -266,219 +376,235 @@ export default function CheckoutPage() {
   }
 
   return (
-    <div className="pb-40 bg-slate-50 min-h-screen">
-      {/* Dynamic Header */}
-      <div className="sticky top-0 z-10 bg-white border-b border-slate-100 shadow-xs">
-        <div className="flex items-center gap-3 p-4">
-          <button onClick={() => router.back()} className="text-lg font-black text-slate-800">
-            ←
+    <div className="pb-44 bg-slate-50 min-h-screen flex flex-col">
+      {/* Header */}
+      <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-slate-100">
+        <div className="flex items-center gap-3 px-4 py-4 max-w-md mx-auto">
+          <button onClick={() => router.back()} className="h-9 w-9 flex items-center justify-center rounded-xl bg-slate-55/10 hover:bg-slate-100 text-slate-800 transition">
+            <ArrowLeft size={18} />
           </button>
           <h1 className="text-base font-black flex-1 text-slate-900">Оформление заказа</h1>
+          <span className="text-xs font-black text-slate-400 bg-slate-100 px-2.5 py-1 rounded-full">
+            {cartItems.length} поз.
+          </span>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="p-4 space-y-4 max-w-md mx-auto">
-        {/* Order list summary */}
-        <div className="bg-white rounded-3xl p-4.5 shadow-sm ring-1 ring-slate-100">
-          <h2 className="text-xs font-black uppercase text-slate-400 mb-3 tracking-wide">🛒 Сводка заказа</h2>
-          <div className="space-y-2">
-            {cartItems.map((item) => (
-              <div key={item.itemId} className="flex justify-between items-center text-xs font-bold">
-                <span className="text-slate-650 line-clamp-1">
-                  {item.name} × {item.quantity}
-                </span>
-                <span className="text-slate-900 ml-2">
-                  {formatPrice(item.price * item.quantity)}
-                </span>
-              </div>
-            ))}
-            <div className="border-t border-dashed pt-2.5 mt-2 flex justify-between font-black text-sm">
-              <span className="text-slate-900">Итого к оплате:</span>
-              <span style={{ color: business.primaryColor }}>
+      <div className="flex-1 max-w-md w-full mx-auto p-4 space-y-4">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          
+          {/* Order Summary Box */}
+          <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
+            <div className="flex items-center gap-2">
+              <ShoppingBag size={16} className="text-slate-400" />
+              <h2 className="text-xs font-black uppercase text-slate-400 tracking-wider">Сводка заказа</h2>
+            </div>
+            
+            <div className="space-y-2.5 max-h-40 overflow-y-auto pr-1 no-scrollbar">
+              {cartItems.map((item) => (
+                <div key={item.itemId} className="flex justify-between items-center text-xs font-bold">
+                  <span className="text-slate-600 line-clamp-1 flex-1">
+                    {item.name} <span className="text-slate-400 font-normal">× {item.quantity}</span>
+                  </span>
+                  <span className="text-slate-950 font-mono ml-3 shrink-0">
+                    {formatPrice(item.price * item.quantity)}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="border-t border-dashed border-slate-200 pt-3.5 flex justify-between items-center">
+              <span className="text-xs font-black text-slate-900">Итого к оплате:</span>
+              <span className="text-base font-black" style={{ color: business.primaryColor }}>
                 {formatPrice(total)}
               </span>
             </div>
           </div>
-        </div>
 
-        {/* Dynamic Delivery Type */}
-        <div className="bg-white rounded-3xl p-4.5 shadow-sm ring-1 ring-slate-100">
-          <h2 className="text-xs font-black uppercase text-slate-400 mb-3 tracking-wide">🚚 Способ получения</h2>
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { value: "PICKUP" as const, label: "🏪 Самовывоз", desc: "Заберу сам" },
-              { value: "DELIVERY" as const, label: "🚚 Доставка", desc: "Привезем вам" },
-            ].map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setValue("deliveryType", option.value)}
-                className={`p-3 rounded-2xl border-2 text-left transition-all ${
-                  deliveryType === option.value
-                    ? "border-current"
-                    : "border-slate-100 bg-slate-50/50 hover:border-slate-200"
-                }`}
-                style={{
-                  borderColor: deliveryType === option.value ? business.primaryColor : undefined,
-                  backgroundColor:
-                    deliveryType === option.value
-                      ? `${business.primaryColor}08`
-                      : undefined,
-                }}
-              >
-                <div className="font-extrabold text-xs text-slate-900">{option.label}</div>
-                <div className="text-[10px] font-bold text-slate-400 mt-0.5">{option.desc}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Contact Input Form */}
-        <div className="bg-white rounded-3xl p-4.5 shadow-sm ring-1 ring-slate-100 space-y-3.5">
-          <div className="flex justify-between items-center">
-            <h2 className="text-xs font-black uppercase text-slate-400 tracking-wide">👤 Данные получателя</h2>
-            <span className={`flex items-center gap-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
-              phoneVerified ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
-            }`}>
-              {phoneVerified ? (
-                <><ShieldCheck size={10} /> Подтвержден</>
-              ) : (
-                <><ShieldAlert size={10} /> Нужен телефон</>
-              )}
-            </span>
+          {/* Delivery Type selectable cards */}
+          <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
+            <h2 className="text-xs font-black uppercase text-slate-400 tracking-wider">Способ получения</h2>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { value: "PICKUP" as const, label: "Самовывоз", desc: "Заберу сам", icon: Store },
+                { value: "DELIVERY" as const, label: "Доставка", desc: "Привезем вам", icon: Truck },
+              ].map((option) => {
+                const Icon = option.icon;
+                const isSelected = deliveryType === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setValue("deliveryType", option.value)}
+                    className={`p-4 rounded-2xl border-2 text-left transition-all relative ${
+                      isSelected
+                        ? "shadow-sm"
+                        : "border-slate-100 bg-slate-50/50 hover:border-slate-200"
+                    }`}
+                    style={{
+                      borderColor: isSelected ? business.primaryColor : undefined,
+                      backgroundColor: isSelected ? `${business.primaryColor}08` : undefined,
+                    }}
+                  >
+                    <Icon size={18} className="mb-2" style={{ color: isSelected ? business.primaryColor : "#94A3B8" }} />
+                    <div className="font-extrabold text-xs text-slate-900">{option.label}</div>
+                    <div className="text-[10px] font-bold text-slate-400 mt-0.5">{option.desc}</div>
+                    {isSelected && (
+                      <span className="absolute right-2 top-2 h-2 w-2 rounded-full" style={{ backgroundColor: business.primaryColor }} />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <div className="space-y-3">
-            <div>
-              <label className="text-[10px] font-black text-slate-450 uppercase mb-1 block">Имя получателя *</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-                  <User size={14} />
-                </span>
-                <Input
-                  {...register("customerName")}
-                  placeholder="Иван Иванов"
-                  className={`pl-9 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 py-3 ${errors.customerName ? "border-rose-500 bg-rose-50/20" : ""}`}
-                />
-              </div>
-              {errors.customerName && (
-                <p className="text-rose-600 text-[10px] font-black mt-1">⚠️ {errors.customerName.message}</p>
-              )}
+          {/* Customer Profile Inputs */}
+          <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xs font-black uppercase text-slate-400 tracking-wider">Данные получателя</h2>
+              <span className={`flex items-center gap-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
+                phoneVerified ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+              }`}>
+                {phoneVerified ? (
+                  <><ShieldCheck size={10} /> Подтвержден</>
+                ) : (
+                  <><ShieldAlert size={10} /> Нужен телефон</>
+                )}
+              </span>
             </div>
 
-            <div>
-              <label className="text-[10px] font-black text-slate-450 uppercase mb-1 block">Телефон *</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-                  <Phone size={14} />
-                </span>
-                <Input
-                  {...register("customerPhone")}
-                  type="tel"
-                  placeholder="+7 (999) 000-00-00"
-                  readOnly={phoneVerified}
-                  onClick={() => !phoneVerified && setShowVerifyModal(true)}
-                  className={`pl-9 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 py-3 ${errors.customerPhone ? "border-rose-500 bg-rose-50/20" : ""}`}
-                />
-              </div>
-              {errors.customerPhone && (
-                <p className="text-rose-600 text-[10px] font-black mt-1">⚠️ {errors.customerPhone.message}</p>
-              )}
-              {!phoneVerified && (
-                <button
-                  type="button"
-                  onClick={() => setShowVerifyModal(true)}
-                  className="text-[10px] font-black text-indigo-650 hover:underline mt-1.5 block"
-                >
-                  🔗 Подтвердить номер телефона
-                </button>
-              )}
-            </div>
-
-            {deliveryType === "DELIVERY" && (
-              <div className="animate-fade-in">
-                <label className="text-[10px] font-black text-slate-450 uppercase mb-1 block">Адрес доставки *</label>
+            <div className="space-y-3.5">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Имя получателя *</label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-                    <MapPin size={14} />
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-450">
+                    <User size={14} />
                   </span>
                   <Input
-                    {...register("customerAddress")}
-                    placeholder="ул. Примерная, д. 1, кв. 10"
-                    className="pl-9 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 py-3"
-                    required
+                    {...register("customerName")}
+                    placeholder="Имя Фамилия"
+                    className={`pl-10 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50/50 py-5 focus:bg-white transition ${errors.customerName ? "border-rose-500 bg-rose-50/20" : ""}`}
                   />
                 </div>
+                {errors.customerName && (
+                  <p className="text-rose-600 text-[10px] font-black mt-1">⚠️ {errors.customerName.message}</p>
+                )}
               </div>
-            )}
-          </div>
-        </div>
 
-        {/* Payment options */}
-        <div className="bg-white rounded-3xl p-4.5 shadow-sm ring-1 ring-slate-100">
-          <h2 className="text-xs font-black uppercase text-slate-400 mb-3 tracking-wide">💳 Способ оплаты</h2>
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { value: "CASH" as const, label: "💵 Наличные" },
-              { value: "TRANSFER" as const, label: "📱 Перевод" },
-            ].map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setValue("paymentMethod", option.value)}
-                className={`p-3 rounded-2xl border-2 text-center font-black text-xs transition-all ${
-                  watch("paymentMethod") === option.value
-                    ? "text-white shadow-md shadow-indigo-600/10"
-                    : "border-slate-105 bg-slate-50/50 hover:border-slate-200"
-                }`}
-                style={{
-                  backgroundColor:
-                    watch("paymentMethod") === option.value
-                      ? business.primaryColor
-                      : undefined,
-                  borderColor:
-                    watch("paymentMethod") === option.value
-                      ? business.primaryColor
-                      : undefined,
-                }}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Номер телефона *</label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-450">
+                    <Phone size={14} />
+                  </span>
+                  <Input
+                    {...register("customerPhone")}
+                    type="tel"
+                    placeholder="+7 (999) 000-00-00"
+                    readOnly={phoneVerified}
+                    onClick={() => !phoneVerified && setShowVerifyModal(true)}
+                    className={`pl-10 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50/50 py-5 focus:bg-white transition cursor-pointer ${errors.customerPhone ? "border-rose-500 bg-rose-50/20" : ""}`}
+                  />
+                </div>
+                {errors.customerPhone && (
+                  <p className="text-rose-600 text-[10px] font-black mt-1">⚠️ {errors.customerPhone.message}</p>
+                )}
+                {!phoneVerified && (
+                  <button
+                    type="button"
+                    onClick={() => setShowVerifyModal(true)}
+                    className="text-[10px] font-black hover:underline mt-1.5 flex items-center gap-1"
+                    style={{ color: business.accentColor || business.primaryColor }}
+                  >
+                    🔗 Подтвердить номер телефона через СМС/TG
+                  </button>
+                )}
+              </div>
 
-        {/* Optional Comments */}
-        <div className="bg-white rounded-3xl p-4.5 shadow-sm ring-1 ring-slate-100">
-          <h2 className="text-xs font-black uppercase text-slate-400 mb-2.5 tracking-wide">💬 Пожелания к заказу</h2>
-          <div className="relative">
-            <span className="absolute left-3 top-3 text-slate-400">
-              <MessageSquare size={14} />
-            </span>
-            <textarea
-              {...register("comment")}
-              placeholder="Код домофона, бесконтактная доставка..."
-              rows={2.5}
-              className="w-full pl-9 pr-3 py-2.5 text-xs font-bold border border-slate-200 rounded-xl bg-slate-50 resize-none focus:outline-none focus:ring-1 focus:ring-slate-400 transition"
-            />
+              {deliveryType === "DELIVERY" && (
+                <div className="animate-fade-in space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Адрес доставки *</label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-455">
+                      <MapPin size={14} />
+                    </span>
+                    <Input
+                      {...register("customerAddress")}
+                      placeholder="Город, улица, дом, квартира"
+                      className="pl-10 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50/50 py-5 focus:bg-white transition"
+                      required
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
 
-        {error && (
-          <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl">
-            <p className="text-rose-700 text-xs font-black">⚠️ {error}</p>
+          {/* Payment selectable options */}
+          <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
+            <h2 className="text-xs font-black uppercase text-slate-400 tracking-wider">Способ оплаты</h2>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { value: "CASH" as const, label: "Наличные", icon: Wallet },
+                { value: "TRANSFER" as const, label: "Перевод", icon: Smartphone },
+              ].map((option) => {
+                const Icon = option.icon;
+                const isSelected = paymentMethod === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setValue("paymentMethod", option.value)}
+                    className={`p-4 rounded-2xl border-2 flex items-center justify-center gap-2 font-black text-xs transition-all ${
+                      isSelected
+                        ? "text-white shadow-md"
+                        : "border-slate-100 bg-slate-50/50 hover:border-slate-200"
+                    }`}
+                    style={{
+                      backgroundColor: isSelected ? business.primaryColor : undefined,
+                      borderColor: isSelected ? business.primaryColor : undefined,
+                    }}
+                  >
+                    <Icon size={14} />
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        )}
-      </form>
 
-      {/* Fixed bottom checkout button */}
+          {/* Comments block */}
+          <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-3.5">
+            <h2 className="text-xs font-black uppercase text-slate-400 tracking-wider">Пожелания к заказу</h2>
+            <div className="relative">
+              <span className="absolute left-3.5 top-3.5 text-slate-450">
+                <MessageSquare size={14} />
+              </span>
+              <textarea
+                {...register("comment")}
+                placeholder="Напишите комментарий, если необходимо..."
+                rows={2}
+                className="w-full pl-10 pr-3.5 py-3 text-xs font-bold border border-slate-200 rounded-xl bg-slate-55/10 resize-none focus:outline-none focus:ring-1 focus:ring-slate-400 transition"
+              />
+            </div>
+          </div>
+
+          {error && (
+            <div className="p-4 bg-rose-50 border border-rose-100 rounded-2xl">
+              <p className="text-rose-700 text-xs font-bold">⚠️ {error}</p>
+            </div>
+          )}
+        </form>
+      </div>
+
+      {/* Sticky Bottom Actions Bar (Fallback for browser / non-Telegram environment) */}
       {!tg && (
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 p-4 max-w-md mx-auto z-40 shadow-lg">
+        <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-100 p-4 max-w-md mx-auto z-30 shadow-lg pb-safe">
           <div className="flex justify-between items-center mb-3">
-            <span className="text-[11px] font-black text-slate-400 uppercase tracking-tight">
-              {cartItems.length} поз. · {deliveryType === "DELIVERY" ? "Доставка" : "Самовывоз"}
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+              {cartItems.length} товаров · {deliveryType === "DELIVERY" ? "Доставка" : "Самовывоз"}
             </span>
-            <span className="font-black text-lg" style={{ color: business.primaryColor }}>
+            <span className="font-mono font-black text-base" style={{ color: business.primaryColor }}>
               {formatPrice(total)}
             </span>
           </div>
@@ -487,16 +613,17 @@ export default function CheckoutPage() {
             <Button
               onClick={handleSubmit(onSubmit)}
               disabled={submitting}
-              className="w-full py-6 text-sm font-black rounded-2xl text-white shadow-xl hover:brightness-110 transition active:scale-[0.97] disabled:opacity-50"
+              className="w-full py-6 text-sm font-black rounded-2xl text-white shadow-md hover:brightness-110 transition active:scale-[0.98] disabled:opacity-50"
               style={{ backgroundColor: business.primaryColor }}
             >
-              {submitting ? "⏳ Оформляем ваш заказ..." : "✅ Подтвердить и заказать"}
+              {submitting ? "⏳ Оформляем..." : `Подтвердить заказ на ${formatPrice(total)}`}
             </Button>
           ) : (
             <Button
               type="button"
               onClick={() => setShowVerifyModal(true)}
-              className="w-full py-6 text-sm font-black rounded-2xl bg-indigo-600 text-white shadow-xl hover:bg-indigo-700 transition active:scale-[0.97]"
+              className="w-full py-6 text-sm font-black rounded-2xl text-white shadow-md hover:brightness-110 transition active:scale-[0.98]"
+              style={{ backgroundColor: business.accentColor || business.primaryColor }}
             >
               🔗 Подтвердить номер для заказа
             </Button>
