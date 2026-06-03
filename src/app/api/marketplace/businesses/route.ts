@@ -21,6 +21,7 @@ const marketplaceBusinessSelect = {
   address: true,
   primaryColor: true,
   accentColor: true,
+  isOpen: true,
   _count: { select: { orders: true, bookings: true } },
 } as const;
 
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest) {
         ...business,
         typeLabel: typeLabels[business.type] || "Бизнес",
         rating: 4.8,
-        isOpen: true,
+        isOpen: business.isOpen,
       })),
       message: isDbEmpty ? "База подключена, но данные не загружены" : undefined,
     });

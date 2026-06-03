@@ -4,7 +4,14 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ImagePlus, Trash2, Upload } from "lucide-react";
 
-type Business = { id: string; name: string; slug: string };
+type Business = {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl?: string | null;
+  coverImageUrl?: string | null;
+  primaryColor?: string | null;
+};
 type Asset = { id: string; type: string; url: string; filename: string; mimeType: string; size: number; createdAt: string };
 
 const types = [
@@ -58,7 +65,19 @@ export default function MediaPage() {
       const res = await fetch("/api/admin/media/upload", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || "Не удалось загрузить файл.");
+      const uploadedUrl = data.data?.url || data.imageUrl || data.url;
       setAssets((current) => [data.data, ...current]);
+      if (uploadedUrl && (type === "logo" || type === "cover")) {
+        setBusiness((current) =>
+          current
+            ? {
+                ...current,
+                ...(type === "logo" ? { logoUrl: uploadedUrl } : { coverImageUrl: uploadedUrl }),
+              }
+            : current
+        );
+      }
+      await load();
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -90,6 +109,41 @@ export default function MediaPage() {
 
       <section className="mx-auto max-w-6xl px-5 py-6">
         {error && <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}</div>}
+
+        {business && (
+          <div className="mb-6 rounded-3xl border bg-white p-5 shadow-sm">
+            <h2 className="mb-4 text-sm font-black uppercase tracking-wider text-slate-400">Текущее оформление</h2>
+            <div className="grid gap-4 md:grid-cols-[140px_1fr_140px]">
+              <div>
+                <p className="mb-2 text-xs font-black text-slate-500">Логотип</p>
+                <div className="aspect-square overflow-hidden rounded-2xl border bg-slate-50">
+                  {business.logoUrl ? (
+                    <img src={business.logoUrl} alt={business.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="grid h-full place-items-center px-3 text-center text-xs font-bold text-slate-400">Не загружен</div>
+                  )}
+                </div>
+              </div>
+              <div>
+                <p className="mb-2 text-xs font-black text-slate-500">Обложка</p>
+                <div className="aspect-video overflow-hidden rounded-2xl border bg-slate-50">
+                  {business.coverImageUrl ? (
+                    <img src={business.coverImageUrl} alt={business.name} className="h-full w-full object-cover object-center" />
+                  ) : (
+                    <div className="grid h-full place-items-center px-3 text-center text-xs font-bold text-slate-400">Не загружена</div>
+                  )}
+                </div>
+              </div>
+              <div>
+                <p className="mb-2 text-xs font-black text-slate-500">Brand color</p>
+                <div className="flex h-full min-h-24 items-center gap-3 rounded-2xl border bg-slate-50 p-3">
+                  <span className="h-10 w-10 shrink-0 rounded-xl border" style={{ backgroundColor: business.primaryColor || "#3B82F6" }} />
+                  <span className="min-w-0 text-xs font-black uppercase text-slate-600">{business.primaryColor || "#3B82F6"}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="mb-6 rounded-3xl border bg-white p-5 shadow-sm">
           <div className="grid gap-4 md:grid-cols-[260px_1fr]">

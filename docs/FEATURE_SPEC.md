@@ -1,6 +1,6 @@
 # Feature Spec
 
-SmartBiz AI / Vitrina AI - Telegram Mini App SaaS для локального бизнеса. Цель MVP: дать клиенту удобный каталог и checkout в Telegram, а продавцу - простую панель для обработки заказов и управления витриной.
+Vitrina AI - Telegram Mini App SaaS для локального бизнеса. Цель MVP: дать клиенту удобный каталог и checkout в Telegram, а продавцу - простую панель для обработки заказов и управления витриной.
 
 ## Роли
 

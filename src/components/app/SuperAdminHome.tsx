@@ -63,7 +63,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
   const [createdSellerDeepLink, setCreatedSellerDeepLink] = useState<string | null>(null);
 
   // Platform White-Label Customization
-  const [platformTitle, setPlatformTitle] = useState("SmartBiz AI");
+  const [platformTitle, setPlatformTitle] = useState("Vitrina AI");
   const [defaultAiProvider, setDefaultAiProvider] = useState("mock");
   const [defaultAiLimit, setDefaultAiLimit] = useState(15);
   const [allowedModules, setAllowedModules] = useState("catalog,cart,profile,booking,staff,calendar,delivery,pickup");

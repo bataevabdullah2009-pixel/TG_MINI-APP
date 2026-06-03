@@ -72,8 +72,8 @@ export function ClientHome({
           <div className="mb-4 flex items-center gap-3">
             <img src="/logo.svg" alt="" className="h-12 w-12 rounded-2xl shadow-lg shadow-indigo-950/20" />
             <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">Платформа Mini App</p>
-            <h1 className="text-3xl font-black tracking-tight mt-0.5">SmartBiz AI</h1>
+              <p className="text-[10px] font-black tracking-[0.2em] text-indigo-400">умные витрины для Telegram</p>
+              <h1 className="text-3xl font-black tracking-tight mt-0.5">Vitrina AI</h1>
             </div>
           </div>
 
@@ -140,11 +140,11 @@ export function ClientHome({
                   }}
                 >
                   {business.logoUrl ? (
-                    <img
-                      src={business.logoUrl}
-                      alt=""
-                      className="h-full w-full rounded-xl bg-white/90 object-contain"
-                    />
+                      <img
+                        src={business.logoUrl}
+                        alt=""
+                        className="h-full w-full rounded-xl bg-white/90 object-cover"
+                      />
                   ) : (
                     business.name[0]
                   )}

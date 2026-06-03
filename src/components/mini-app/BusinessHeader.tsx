@@ -11,7 +11,7 @@ interface BusinessHeaderProps {
 export function BusinessHeader({ business }: BusinessHeaderProps) {
   return (
     <div
-      className="relative h-48 rounded-b-3xl overflow-hidden"
+      className="relative aspect-[16/9] max-h-56 min-h-40 rounded-b-3xl overflow-hidden"
       style={{ backgroundColor: business.backgroundColor }}
     >
       {/* Cover Image */}
@@ -35,7 +35,7 @@ export function BusinessHeader({ business }: BusinessHeaderProps) {
           <img
             src={business.logoUrl}
             alt={business.name}
-            className="w-16 h-16 rounded-xl border-4 border-white"
+            className="w-16 h-16 rounded-xl border-4 border-white object-cover"
           />
         )}
         <div>

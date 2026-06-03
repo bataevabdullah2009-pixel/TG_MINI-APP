@@ -235,7 +235,7 @@ export default function MarketplacePage() {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center text-slate-900">
         <div className="animate-spin rounded-full h-9 w-9 border-b-2 border-slate-950 mb-3" />
-        <h4 className="font-extrabold text-sm">SmartBiz AI</h4>
+        <h4 className="font-extrabold text-sm">Vitrina AI</h4>
         <p className="text-xs text-slate-400 mt-1">Авторизация...</p>
       </div>
     );
@@ -295,7 +295,7 @@ export default function MarketplacePage() {
         </div>
 
         <p className="text-center text-[10px] text-slate-600 font-medium">
-          SmartBiz Platform © 2026
+          Vitrina AI © 2026
         </p>
       </main>
     );

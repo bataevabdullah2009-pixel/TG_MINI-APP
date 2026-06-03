@@ -41,6 +41,7 @@ const businessDetailSelect = {
   aiDailyLimit: true,
   aiMonthlyLimit: true,
   isActive: true,
+  isOpen: true,
   ownerId: true,
   createdAt: true,
   updatedAt: true,
@@ -54,8 +55,8 @@ export async function GET(
 ) {
   try {
     const { slug } = await context.params;
-    const business = await prisma.business.findUnique({
-      where: { slug },
+    const business = await prisma.business.findFirst({
+      where: { OR: [{ id: slug }, { slug }] },
       select: businessDetailSelect,
     });
 
@@ -106,6 +107,7 @@ export async function PATCH(
         ...(body.subscriptionStatus !== undefined ? { subscriptionStatus: body.subscriptionStatus } : {}),
         ...(body.subscriptionPlanId !== undefined ? { subscriptionPlanId: body.subscriptionPlanId } : {}),
         ...(body.isActive !== undefined ? { isActive: Boolean(body.isActive) } : {}),
+        ...(body.isOpen !== undefined ? { isOpen: Boolean(body.isOpen) } : {}),
         ...(body.isDemo !== undefined ? { isDemo: Boolean(body.isDemo) } : {}),
         ...(body.ownerId !== undefined ? { ownerId: body.ownerId || null } : {}),
       },

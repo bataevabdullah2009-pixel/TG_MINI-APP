@@ -1,4 +1,4 @@
-# SmartBiz AI Engineering Rules
+# Vitrina AI Engineering Rules
 
 - Do not hardcode production URLs.
 - Do not use ngrok in production.

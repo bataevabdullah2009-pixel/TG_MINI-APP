@@ -216,8 +216,8 @@ export async function POST(request: NextRequest) {
       // Determine target URL for the Mini App
       let targetUrl = miniAppUrl;
 
-      let buttonText = "Открыть SmartBiz";
-      let message = "Добро пожаловать в SmartBiz AI! 🚀\n\nНажмите на кнопку ниже, чтобы открыть наш Mini App...";
+      let buttonText = "Открыть Vitrina AI";
+      let message = "Добро пожаловать в Vitrina AI! 🚀\n\nНажмите на кнопку ниже, чтобы открыть наш Mini App...";
 
       const superAdminIds = (process.env.TELEGRAM_SUPER_ADMIN_IDS || "")
         .split(",")
@@ -299,7 +299,7 @@ export async function POST(request: NextRequest) {
       }
 
       if (targetUrl === miniAppUrl) {
-        buttonText = "Открыть SmartBiz";
+        buttonText = "Открыть Vitrina AI";
       }
 
       // Upsert Customer to ensure they exist in relation to this business

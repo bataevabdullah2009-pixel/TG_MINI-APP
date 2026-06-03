@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { ArrowLeft, CalendarDays, Heart, Minus, Plus, Search, ShoppingBag, Star } from "lucide-react";
+import { ArrowLeft, CalendarDays, Heart, LayoutGrid, List, Minus, Package, Plus, Search, ShoppingBag, Star, X } from "lucide-react";
 import { PhoneVerificationScreen } from "@/components/app/PhoneVerificationScreen";
 
 type Item = {
@@ -35,6 +35,7 @@ type Business = {
   coverImageUrl?: string | null;
   primaryColor: string;
   accentColor: string;
+  isOpen?: boolean;
 };
 
 type CartItem = { item: Item; quantity: number };
@@ -71,12 +72,15 @@ export default function BusinessMiniAppPage() {
   const [staff, setStaff] = useState<Staff[]>([]);
   const [category, setCategory] = useState("Все");
   const [query, setQuery] = useState("");
+  const [viewMode, setViewMode] = useState<"feed" | "grid">("feed");
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [cartPulse, setCartPulse] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<Item | null>(null);
+  const [selectedPreviewItem, setSelectedPreviewItem] = useState<Item | null>(null);
   const [selectedStaffId, setSelectedStaffId] = useState("");
   const [selectedDate, setSelectedDate] = useState(isoDate());
   const [slots, setSlots] = useState<string[]>([]);
@@ -110,6 +114,11 @@ export default function BusinessMiniAppPage() {
   }, [slug]);
 
   useEffect(() => {
+    const saved = localStorage.getItem(`vitrina:${slug}:catalog-view`);
+    if (saved === "feed" || saved === "grid") setViewMode(saved);
+  }, [slug]);
+
+  useEffect(() => {
     if (!business || templateUi[business.templateKey]?.mode !== "booking") return;
     fetch(`/api/businesses/${slug}/slots?date=${selectedDate}${selectedStaffId ? `&staffId=${selectedStaffId}` : ""}`)
       .then((res) => res.json())
@@ -131,7 +140,14 @@ export default function BusinessMiniAppPage() {
   const cartTotal = cart.reduce((sum, line) => sum + line.item.price * line.quantity, 0);
   const cartCount = cart.reduce((sum, line) => sum + line.quantity, 0);
 
+  function changeViewMode(mode: "feed" | "grid") {
+    setViewMode(mode);
+    localStorage.setItem(`vitrina:${slug}:catalog-view`, mode);
+  }
+
   function addToCart(item: Item) {
+    setCartPulse(true);
+    window.setTimeout(() => setCartPulse(false), 420);
     setCart((prev) => {
       const existing = prev.find((line) => line.item.id === item.id);
       if (existing) return prev.map((line) => line.item.id === item.id ? { ...line, quantity: line.quantity + 1 } : line);
@@ -219,7 +235,7 @@ export default function BusinessMiniAppPage() {
         <div>
           <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-3xl bg-white/10 text-3xl">?</div>
           <h1 className="text-2xl font-black">Бизнес не найден</h1>
-          <p className="mt-2 text-sm text-white/60">Проверьте ссылку или вернитесь в общий каталог SmartBiz AI.</p>
+          <p className="mt-2 text-sm text-white/60">Проверьте ссылку или вернитесь в общий каталог Vitrina AI.</p>
           <Link href="/app" className="mt-6 inline-flex rounded-full bg-white px-5 py-3 text-sm font-bold text-slate-950">
             Вернуться в каталог
           </Link>
@@ -249,7 +265,7 @@ export default function BusinessMiniAppPage() {
           <div className="rounded-[28px] bg-black/20 p-5 backdrop-blur">
             {business.logoUrl && (
               <div className="mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-white/90 p-1.5 ring-2 ring-white/70">
-                <img src={business.logoUrl} alt={business.name} className="h-full w-full object-contain" />
+                <img src={business.logoUrl} alt={business.name} className="h-full w-full object-cover" />
               </div>
             )}
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/65">{ui.title}</p>
@@ -257,7 +273,9 @@ export default function BusinessMiniAppPage() {
             <p className="mt-2 line-clamp-3 text-sm leading-6 text-white/75">{business.description}</p>
             <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold">
               <span className="rounded-full bg-white/15 px-3 py-1">★ 4.8</span>
-              <span className="rounded-full bg-emerald-400 px-3 py-1 text-emerald-950">Открыт</span>
+              <span className={`rounded-full px-3 py-1 ${business.isOpen !== false ? "bg-emerald-400 text-emerald-950" : "bg-white/15 text-white"}`}>
+                {business.isOpen !== false ? "Открыт" : "Закрыт"}
+              </span>
               {business.address && <span className="rounded-full bg-white/15 px-3 py-1">{business.address}</span>}
             </div>
           </div>
@@ -269,6 +287,28 @@ export default function BusinessMiniAppPage() {
           <Search size={18} className="text-slate-400" />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по товарам и услугам" className="w-full bg-transparent text-sm outline-none" />
         </label>
+
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <span className="text-xs font-black uppercase tracking-wider text-slate-400">Вид товаров</span>
+          <div className="grid grid-cols-2 rounded-2xl bg-white p-1 shadow-sm ring-1 ring-slate-200/70">
+            <button
+              type="button"
+              onClick={() => changeViewMode("feed")}
+              className={`flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-black transition ${viewMode === "feed" ? "bg-slate-950 text-white" : "text-slate-500"}`}
+            >
+              <List size={14} />
+              Лента
+            </button>
+            <button
+              type="button"
+              onClick={() => changeViewMode("grid")}
+              className={`flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-black transition ${viewMode === "grid" ? "bg-slate-950 text-white" : "text-slate-500"}`}
+            >
+              <LayoutGrid size={14} />
+              Плитка
+            </button>
+          </div>
+        </div>
 
         <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1">
           {categories.map((name) => (
@@ -294,32 +334,42 @@ export default function BusinessMiniAppPage() {
           </div>
         )}
 
-        <div className="grid gap-3">
+        <div className={viewMode === "grid" ? "grid grid-cols-2 gap-3" : "grid gap-3"}>
           {filtered.map((item) => (
-            <article key={item.id} className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200/70">
-              <div className="h-40 bg-slate-200">
+            <article key={item.id} className="h-full overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200/70">
+              <div className={`${viewMode === "grid" ? "aspect-square" : "aspect-[4/3]"} bg-slate-100`}>
                 {item.imageUrl ? (
-                  <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPreviewItem(item)}
+                    className="block h-full w-full"
+                    aria-label={item.name}
+                  >
+                    <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
+                  </button>
                 ) : (
-                  <div className="grid h-full place-items-center bg-gradient-to-br from-slate-100 to-slate-200 text-sm font-black text-slate-400">
-                    {item.type === "SERVICE" ? "Фото услуги скоро появится" : "Фото товара скоро появится"}
+                  <div className="grid h-full place-items-center bg-slate-50 text-slate-400">
+                    <div className="flex flex-col items-center gap-1 text-[10px] font-black uppercase tracking-wider">
+                      <Package size={viewMode === "grid" ? 26 : 34} strokeWidth={1.8} />
+                      {item.type === "SERVICE" ? "Услуга" : "Товар"}
+                    </div>
                   </div>
                 )}
               </div>
-              <div className="flex items-start justify-between gap-4 p-4">
-                <div>
+              <div className={viewMode === "grid" ? "p-3" : "flex items-start justify-between gap-4 p-4"}>
+                <div className="min-w-0">
                   <div className="mb-1 flex items-center gap-2">
-                    <h3 className="font-black">{item.name}</h3>
+                    <h3 className="font-black line-clamp-2">{item.name}</h3>
                     {item.isPopular && <Star size={14} className="text-amber-500" fill="currentColor" />}
                   </div>
                   <p className="line-clamp-2 text-sm text-slate-500">{item.description}</p>
                   {item.durationMinutes && <p className="mt-1 text-xs font-bold text-slate-400">{item.durationMinutes} мин.</p>}
                 </div>
-                <div className="text-right">
+                <div className={viewMode === "grid" ? "mt-2" : "text-right"}>
                   <p className="whitespace-nowrap font-black">{rub(item.price)}</p>
                 </div>
               </div>
-              <div className="flex items-center justify-between px-4 pb-4">
+              <div className="flex items-center justify-between gap-2 px-4 pb-4">
                 <button
                   onClick={() => {
                     if (mode === "cart") addToCart(item);
@@ -328,12 +378,14 @@ export default function BusinessMiniAppPage() {
                       setBookingOpen(true);
                     }
                   }}
-                  className="rounded-full px-4 py-2 text-sm font-bold text-white"
+                  className="min-w-0 flex-1 rounded-full px-4 py-2 text-sm font-bold text-white"
                   style={{ backgroundColor: business.primaryColor }}
                 >
                   {ui.cta}
                 </button>
-                <button className="rounded-full border border-slate-200 px-3 py-2 text-xs font-bold">★ Избранное</button>
+                <button className="shrink-0 rounded-full border border-slate-200 px-3 py-2 text-xs font-bold">
+                  {viewMode === "grid" ? "★" : "★ Избранное"}
+                </button>
               </div>
             </article>
           ))}
@@ -341,7 +393,7 @@ export default function BusinessMiniAppPage() {
       </section>
 
       {mode === "cart" && cartCount > 0 && (
-        <div className="fixed inset-x-0 bottom-0 mx-auto max-w-3xl bg-white/95 p-4 shadow-2xl backdrop-blur">
+        <div className={`fixed inset-x-0 bottom-0 mx-auto max-w-3xl bg-white/95 p-4 shadow-2xl backdrop-blur ${cartPulse ? "animate-cart-bump" : ""}`}>
           <div className="mb-3 space-y-2">
             {cart.map((line) => (
               <div key={line.item.id} className="flex items-center justify-between text-sm">
@@ -355,10 +407,28 @@ export default function BusinessMiniAppPage() {
             ))}
           </div>
           <button onClick={() => setCheckoutOpen(true)} className="flex w-full items-center justify-between rounded-2xl bg-slate-950 px-4 py-4 text-sm font-black text-white">
-            <span className="flex items-center gap-2"><ShoppingBag size={18} /> Открыть корзину</span>
+            <span className="flex min-w-0 items-center gap-2"><ShoppingBag size={18} /> Корзина · {cartCount} товаров</span>
             <span>{rub(cartTotal)}</span>
           </button>
         </div>
+      )}
+
+      {selectedPreviewItem && (
+        <ProductPreviewModal
+          item={selectedPreviewItem}
+          cta={ui.cta}
+          onClose={() => setSelectedPreviewItem(null)}
+          onAction={() => {
+            if (mode === "cart") {
+              addToCart(selectedPreviewItem);
+            } else {
+              setSelectedService(selectedPreviewItem);
+              setBookingOpen(true);
+            }
+            setSelectedPreviewItem(null);
+          }}
+          primaryColor={business.primaryColor}
+        />
       )}
 
       {checkoutOpen && (
@@ -433,6 +503,66 @@ export default function BusinessMiniAppPage() {
         </Modal>
       )}
     </main>
+  );
+}
+
+function ProductPreviewModal({
+  item,
+  cta,
+  primaryColor,
+  onAction,
+  onClose,
+}: {
+  item: Item;
+  cta: string;
+  primaryColor: string;
+  onAction: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 backdrop-blur-sm animate-fade-in sm:items-center sm:p-4">
+      <button type="button" className="absolute inset-0 cursor-default" onClick={onClose} aria-label="Закрыть" />
+      <div className="relative w-full max-w-md overflow-hidden rounded-t-[28px] bg-white shadow-2xl animate-slide-up sm:rounded-[28px]">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-white/95 text-slate-700 shadow-sm"
+          aria-label="Закрыть"
+        >
+          <X size={18} />
+        </button>
+
+        <div className="aspect-square bg-slate-100">
+          {item.imageUrl ? (
+            <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
+          ) : (
+            <div className="grid h-full place-items-center text-slate-400">
+              <Package size={42} strokeWidth={1.7} />
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-3 p-5">
+          <div className="flex items-start justify-between gap-4">
+            <h2 className="min-w-0 text-lg font-black leading-tight text-slate-950">{item.name}</h2>
+            <p className="shrink-0 whitespace-nowrap text-base font-black" style={{ color: primaryColor }}>
+              {rub(item.price)}
+            </p>
+          </div>
+          {item.description && (
+            <p className="text-sm leading-6 text-slate-500">{item.description}</p>
+          )}
+          <button
+            type="button"
+            onClick={onAction}
+            className="w-full rounded-2xl px-4 py-4 text-sm font-black text-white active:scale-[0.98] transition"
+            style={{ backgroundColor: primaryColor }}
+          >
+            {cta}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

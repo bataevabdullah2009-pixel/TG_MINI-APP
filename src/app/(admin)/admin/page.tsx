@@ -131,7 +131,7 @@ export default function AdminDashboard() {
         {/* Logo */}
         <div className="p-5 border-b border-white/10">
           <h1 className="text-xl font-black tracking-tight text-white flex items-center gap-2">
-            <img src="/logo.svg" alt="" className="h-6 w-6 rounded-lg" /> SmartBiz AI
+            <img src="/logo.svg" alt="" className="h-6 w-6 rounded-lg" /> Vitrina AI
           </h1>
           <p className="text-[10px] text-white/50 font-bold uppercase tracking-wider mt-0.5">Control Center</p>
         </div>

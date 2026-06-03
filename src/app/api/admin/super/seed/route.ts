@@ -78,7 +78,7 @@ async function runSeedProcess() {
     create: {
       email: "admin@example.com",
       password: await bcrypt.hash("admin123", 10),
-      name: "SmartBiz Super Admin",
+      name: "Vitrina AI Super Admin",
       username: "superadmin",
       role: "SUPER_ADMIN",
       isActive: true,

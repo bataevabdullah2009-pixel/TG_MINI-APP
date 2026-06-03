@@ -182,6 +182,7 @@ model Business {
   aiMonthlyLimit    Int?          @default(300)
   
   isActive          Boolean       @default(true)
+  isOpen            Boolean       @default(true)
   isDemo            Boolean       @default(false)
   
   // Relations

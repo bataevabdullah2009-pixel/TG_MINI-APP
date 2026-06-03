@@ -1,4 +1,4 @@
-# SmartBiz AI Tech Spec
+# Vitrina AI Tech Spec
 
 ## Stack
 

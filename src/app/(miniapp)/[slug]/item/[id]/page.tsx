@@ -77,7 +77,7 @@ export default function ItemDetailPage() {
       name: item.name,
       price: item.price,
       quantity: quantity,
-      image: item.image || undefined,
+      image: item.imageUrl || item.image || undefined,
       type: item.type,
     });
 
@@ -142,9 +142,9 @@ export default function ItemDetailPage() {
         className="relative w-full aspect-square bg-gray-200"
         style={{ backgroundColor: business.backgroundColor || "#f5f5f5" }}
       >
-        {item.image ? (
+        {item.imageUrl || item.image ? (
           <Image
-            src={item.image}
+            src={(item.imageUrl || item.image) as string}
             alt={item.name}
             fill
             className="object-cover"

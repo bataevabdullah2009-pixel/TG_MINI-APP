@@ -141,7 +141,7 @@ export default function SuperAdminDashboard() {
           <img src="/logo.svg" alt="" className="w-10 h-10 rounded-xl shadow-md shadow-indigo-500/20" />
           <div>
             <span className="text-base font-black tracking-tight block">
-              SmartBiz SaaS
+              Vitrina AI SaaS
             </span>
             <span className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider">Super Admin Console</span>
           </div>

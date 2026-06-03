@@ -50,6 +50,7 @@ export async function GET(
       aiDailyLimit: true,
       aiMonthlyLimit: true,
       isActive: true,
+      isOpen: true,
       ownerId: true,
       createdAt: true,
       updatedAt: true,

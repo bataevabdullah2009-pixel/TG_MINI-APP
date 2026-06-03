@@ -86,6 +86,18 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const [orderFilter, setOrderFilter] = useState<string>("ALL");
   const [bookingFilter, setBookingFilter] = useState<string>("ALL");
 
+  const syncBusinessState = (bData: any) => {
+    setBusinessData(bData);
+    setBizName(bData.name || "");
+    setBizDesc(bData.description || "");
+    setBizAddress(bData.address || "");
+    setBizPhone(bData.phone || "");
+    setBizIsOpen(bData.isOpen === undefined ? true : bData.isOpen);
+    setBizLogoUrl(bData.logoUrl || "");
+    setBizCoverUrl(bData.coverImageUrl || "");
+    setBizColor(bData.primaryColor || "#3B82F6");
+  };
+
   useEffect(() => {
     fetchSellerData();
   }, [businessId]);
@@ -94,18 +106,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     setLoading(true);
     try {
       // 1. Fetch Business Profile
-      const bizRes = await miniAppFetch(`/api/businesses/${businessId}`);
+      const bizRes = await miniAppFetch(`/api/admin/current-business?businessId=${encodeURIComponent(businessId)}`);
       if (bizRes.ok) {
         const bData = await bizRes.json();
-        setBusinessData(bData);
-        setBizName(bData.name || "");
-        setBizDesc(bData.description || "");
-        setBizAddress(bData.address || "");
-        setBizPhone(bData.phone || "");
-        setBizIsOpen(bData.isOpen === undefined ? true : bData.isOpen);
-        setBizLogoUrl(bData.logoUrl || "");
-        setBizCoverUrl(bData.coverImageUrl || "");
-        setBizColor(bData.primaryColor || "#3B82F6");
+        syncBusinessState(bData.data || bData);
       }
 
       let fetchedItemsCount = 0;
@@ -328,8 +332,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       });
 
       if (res.ok) {
+        const data = await res.json();
+        if (data?.data) syncBusinessState(data.data);
         showSuccess("Настройки сохранены!");
-        fetchSellerData();
+        await fetchSellerData();
       } else {
         const d = await res.json();
         showError(d.error || "Не удалось обновить настройки");
@@ -353,8 +359,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       });
 
       if (res.ok) {
+        const data = await res.json();
+        if (data?.data) syncBusinessState(data.data);
         showSuccess("Оформление обновлено!");
-        fetchSellerData();
+        await fetchSellerData();
       } else {
         const d = await res.json();
         showError(d.error || "Не удалось сохранить оформление");

@@ -34,6 +34,7 @@ const currentBusinessSelect = {
   aiDailyLimit: true,
   aiMonthlyLimit: true,
   isActive: true,
+  isOpen: true,
   ownerId: true,
   settings: true,
 } as const;
@@ -97,6 +98,7 @@ export async function PATCH(request: NextRequest) {
         ...(body.primaryColor !== undefined ? { primaryColor: body.primaryColor } : {}),
         ...(body.logoUrl !== undefined ? { logoUrl: body.logoUrl } : {}),
         ...(body.coverImageUrl !== undefined ? { coverImageUrl: body.coverImageUrl } : {}),
+        ...(body.isOpen !== undefined ? { isOpen: Boolean(body.isOpen) } : {}),
         ...(body.telegramBotToken !== undefined ? { telegramBotToken: body.telegramBotToken } : {}),
         ...(body.telegramBotUsername !== undefined ? { telegramBotUsername: body.telegramBotUsername } : {}),
         ...(body.telegramUsername !== undefined ? { telegramUsername: body.telegramUsername } : {}),

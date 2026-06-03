@@ -39,6 +39,7 @@ const businessListSelect = {
   aiDailyLimit: true,
   aiMonthlyLimit: true,
   isActive: true,
+  isOpen: true,
   ownerId: true,
   createdAt: true,
   updatedAt: true,
@@ -171,6 +172,7 @@ export async function PATCH(request: NextRequest) {
       telegramUsername,
       telegramAdminChatId,
       isActive,
+      isOpen,
       deliveryFee,
       minOrderAmount,
     } = body;
@@ -187,6 +189,7 @@ export async function PATCH(request: NextRequest) {
         ...(telegramUsername !== undefined ? { telegramUsername } : {}),
         ...(telegramAdminChatId !== undefined ? { telegramAdminChatId } : {}),
         ...(isActive !== undefined ? { isActive } : {}),
+        ...(isOpen !== undefined ? { isOpen: Boolean(isOpen) } : {}),
         ...(deliveryFee !== undefined || minOrderAmount !== undefined
           ? {
               settings: {

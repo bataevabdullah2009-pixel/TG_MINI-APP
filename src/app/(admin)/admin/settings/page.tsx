@@ -11,6 +11,7 @@ type Business = {
   description?: string | null;
   phone?: string | null;
   address?: string | null;
+  isOpen?: boolean;
   primaryColor: string;
   logoUrl?: string | null;
   coverImageUrl?: string | null;
@@ -28,6 +29,7 @@ export default function AdminSettingsPage() {
     description: "",
     phone: "",
     address: "",
+    isOpen: true,
     primaryColor: "#111827",
     logoUrl: "",
     coverImageUrl: "",
@@ -46,6 +48,24 @@ export default function AdminSettingsPage() {
     load();
   }, []);
 
+  function syncForm(current: Business) {
+    setBusiness(current);
+    setForm({
+      name: current.name || "",
+      description: current.description || "",
+      phone: current.phone || "",
+      address: current.address || "",
+      isOpen: current.isOpen === undefined ? true : current.isOpen,
+      primaryColor: current.primaryColor || "#111827",
+      logoUrl: current.logoUrl || "",
+      coverImageUrl: current.coverImageUrl || "",
+      telegramBotToken: current.telegramBotToken || "",
+      telegramBotUsername: current.telegramBotUsername || "",
+      telegramUsername: current.telegramUsername || "",
+      telegramAdminChatId: current.telegramAdminChatId || "",
+    });
+  }
+
   async function load() {
     try {
       const userJson = localStorage.getItem("adminUser");
@@ -61,20 +81,7 @@ export default function AdminSettingsPage() {
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || "Не удалось загрузить настройки.");
       const current = data.data;
-      setBusiness(current);
-      setForm({
-        name: current.name || "",
-        description: current.description || "",
-        phone: current.phone || "",
-        address: current.address || "",
-        primaryColor: current.primaryColor || "#111827",
-        logoUrl: current.logoUrl || "",
-        coverImageUrl: current.coverImageUrl || "",
-        telegramBotToken: current.telegramBotToken || "",
-        telegramBotUsername: current.telegramBotUsername || "",
-        telegramUsername: current.telegramUsername || "",
-        telegramAdminChatId: current.telegramAdminChatId || "",
-      });
+      syncForm(current);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -107,6 +114,8 @@ export default function AdminSettingsPage() {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || "Не удалось сохранить настройки.");
+      if (data.data) syncForm(data.data);
+      await load();
       setSuccess("Настройки сохранены");
       setTimeout(() => setSuccess(""), 2500);
     } catch (err: any) {
@@ -204,6 +213,15 @@ export default function AdminSettingsPage() {
                         <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className="field mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400" placeholder="Город, улица, дом..." />
                       </label>
                     </div>
+                    <label className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">
+                      <span>Заведение открыто</span>
+                      <input
+                        type="checkbox"
+                        checked={form.isOpen}
+                        onChange={(e) => setForm({ ...form, isOpen: e.target.checked })}
+                        className="h-5 w-5 rounded border-slate-300"
+                      />
+                    </label>
                     <label className="text-sm font-bold text-slate-700">
                       Основной цвет оформления Mini App витрины
                       <div className="flex items-center gap-3 mt-1">

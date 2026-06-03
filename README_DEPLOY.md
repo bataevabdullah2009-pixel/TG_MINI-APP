@@ -1,6 +1,6 @@
-# 🚀 Инструкция по развертыванию SmartBiz AI на Vercel & Supabase
+# 🚀 Инструкция по развертыванию Vitrina AI на Vercel & Supabase
 
-Этот документ содержит пошаговую инструкцию по деплою Telegram Mini App SaaS-платформы **SmartBiz AI** на хостинг **Vercel** с использованием СУБД **Supabase PostgreSQL** в качестве основной базы данных для продакшена.
+Этот документ содержит пошаговую инструкцию по деплою Telegram Mini App SaaS-платформы **Vitrina AI** на хостинг **Vercel** с использованием СУБД **Supabase PostgreSQL** в качестве основной базы данных для продакшена.
 
 ---
 
@@ -87,7 +87,7 @@ Prisma в serverless-среде (Vercel) требует настройки дв�
    ```
 3. Откройте `@BotFather`, выберите вашего бота, перейдите в **Bot Settings** -> **Menu Button** -> **Configure Menu Button**.
 4. Укажите тип кнопки: **WebApp**.
-5. Напишите текст (например, `🏪 Открыть SmartBiz`) и укажите ссылку на ваш Mini App:
+5. Напишите текст (например, `🏪 Открыть Vitrina AI`) и укажите ссылку на ваш Mini App:
    ```
    https://tg-mini-app-two-ruby.vercel.app/app
    ```
@@ -107,7 +107,7 @@ Prisma в serverless-среде (Vercel) требует настройки дв�
 | **NEXT_PUBLIC_WEBAPP_URL** | URL Mini App клиента (с `/app`) | `https://tg-mini-app-two-ruby.vercel.app/app` |
 | **TELEGRAM_WEBHOOK_URL** | Вебхук URL | `https://tg-mini-app-two-ruby.vercel.app/api/telegram/webhook` |
 | **TELEGRAM_BOT_TOKEN** | API токен бота от BotFather | `1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ` |
-| **TELEGRAM_BOT_USERNAME** | Username бота без символа `@` | `SmartBizAI_bot` |
+| **TELEGRAM_BOT_USERNAME** | Username бота без символа `@` | `VitrinaAI_bot` |
 | **TELEGRAM_SUPER_ADMIN_IDS** | Telegram ID суперадминов (через запятую) | `8229830002,123456789` |
 | **JWT_SECRET** | Секретный ключ авторизации JWT (мин. 32 симв.) | `a_very_long_random_string_for_jwt_security` |
 | **ENCRYPTION_SECRET** | Секретный ключ шифрования токенов | `another_secure_random_hash_code` |

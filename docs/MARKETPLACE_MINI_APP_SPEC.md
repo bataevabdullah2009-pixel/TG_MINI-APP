@@ -1,6 +1,6 @@
 # MARKETPLACE MINI APP SPEC
 
-`/app` открывает каталог SmartBiz AI.
+`/app` открывает каталог Vitrina AI.
 
 Функции:
 - загрузка активных бизнесов из `/api/marketplace/businesses`;

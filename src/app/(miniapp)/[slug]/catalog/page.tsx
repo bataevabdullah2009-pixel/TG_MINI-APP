@@ -11,6 +11,7 @@ import { apiClient } from "@/lib/api-client";
 import { useCartStore } from "@/store/cartStore";
 import { formatPrice } from "@/lib/utils";
 import Link from "next/link";
+import { LayoutGrid, List, Package, ShoppingCart, X } from "lucide-react";
 
 export default function CatalogPage() {
   const params = useParams();
@@ -24,6 +25,9 @@ export default function CatalogPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"default" | "price_asc" | "price_desc" | "popular">("default");
+  const [viewMode, setViewMode] = useState<"feed" | "grid">("feed");
+  const [previewItem, setPreviewItem] = useState<Item | null>(null);
+  const [cartPulse, setCartPulse] = useState(false);
 
   const addToCart = useCartStore((state) => state.addItem);
   const cartItems = useCartStore((state) => state.items);
@@ -56,6 +60,16 @@ export default function CatalogPage() {
 
     fetchData();
   }, [slug]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(`vitrina:${slug}:catalog-view`);
+    if (saved === "feed" || saved === "grid") setViewMode(saved);
+  }, [slug]);
+
+  const changeViewMode = (mode: "feed" | "grid") => {
+    setViewMode(mode);
+    localStorage.setItem(`vitrina:${slug}:catalog-view`, mode);
+  };
 
   const filteredItems = useMemo(() => {
     let result = [...items];
@@ -94,6 +108,8 @@ export default function CatalogPage() {
   }, [items, searchQuery, selectedCategory, sortBy]);
 
   const handleAddToCart = (item: Item) => {
+    setCartPulse(true);
+    window.setTimeout(() => setCartPulse(false), 420);
     addToCart({
       itemId: item.id,
       name: item.name,
@@ -108,6 +124,7 @@ export default function CatalogPage() {
   };
 
   const cartCount = cartItems.reduce((sum, i) => sum + i.quantity, 0);
+  const cartTotal = cartItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
   if (loading) {
     return (
@@ -139,7 +156,7 @@ export default function CatalogPage() {
   }
 
   return (
-    <div className="pb-20">
+    <div className="pb-36">
       {/* Header */}
       <div className="bg-white border-b sticky top-0 z-10">
         <div className="p-4">
@@ -175,6 +192,32 @@ export default function CatalogPage() {
                 ✕
               </button>
             )}
+          </div>
+
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <span className="text-xs font-black uppercase tracking-wider text-slate-400">Вид</span>
+            <div className="grid grid-cols-2 rounded-2xl bg-slate-100 p-1">
+              <button
+                type="button"
+                onClick={() => changeViewMode("feed")}
+                className={`flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-black transition ${
+                  viewMode === "feed" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"
+                }`}
+              >
+                <List size={14} />
+                Лента
+              </button>
+              <button
+                type="button"
+                onClick={() => changeViewMode("grid")}
+                className={`flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-black transition ${
+                  viewMode === "grid" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"
+                }`}
+              >
+                <LayoutGrid size={14} />
+                Плитка
+              </button>
+            </div>
           </div>
 
           {/* Categories Scroll */}
@@ -270,22 +313,108 @@ export default function CatalogPage() {
             </Button>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
+          <div className={viewMode === "grid" ? "grid grid-cols-2 gap-3" : "grid gap-3"}>
             {filteredItems.map((item) => (
               <ItemCard
                 key={item.id}
                 item={item}
+                layout={viewMode}
                 primaryColor={business.primaryColor}
                 accentColor={business.accentColor}
                 onAddToCart={() => handleAddToCart(item)}
                 onViewDetails={() => handleViewDetails(item)}
+                onImageClick={setPreviewItem}
               />
             ))}
           </div>
         )}
       </div>
 
+      {cartCount > 0 && (
+        <button
+          type="button"
+          onClick={() => router.push(`/${slug}/cart`)}
+          className={`fixed inset-x-4 bottom-20 z-30 mx-auto flex max-w-md items-center justify-between rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white shadow-2xl ${cartPulse ? "animate-cart-bump" : ""}`}
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <ShoppingCart size={18} />
+            Корзина · {cartCount} товаров
+          </span>
+          <span className="shrink-0">{formatPrice(cartTotal, business.currency)}</span>
+        </button>
+      )}
+
+      {previewItem && (
+        <ProductPreviewModal
+          item={previewItem}
+          business={business}
+          onClose={() => setPreviewItem(null)}
+          onAdd={() => {
+            handleAddToCart(previewItem);
+            setPreviewItem(null);
+          }}
+        />
+      )}
+
       <BottomNavigation businessSlug={slug} primaryColor={business.primaryColor} />
+    </div>
+  );
+}
+
+function ProductPreviewModal({
+  item,
+  business,
+  onClose,
+  onAdd,
+}: {
+  item: Item;
+  business: Business;
+  onClose: () => void;
+  onAdd: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 backdrop-blur-sm animate-fade-in sm:items-center sm:p-4">
+      <button type="button" className="absolute inset-0 cursor-default" onClick={onClose} aria-label="Закрыть" />
+      <div className="relative w-full max-w-md overflow-hidden rounded-t-[28px] bg-white shadow-2xl animate-slide-up sm:rounded-[28px]">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-white/95 text-slate-700 shadow-sm"
+          aria-label="Закрыть"
+        >
+          <X size={18} />
+        </button>
+
+        <div className="aspect-square bg-slate-100">
+          {item.imageUrl ? (
+            <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
+          ) : (
+            <div className="grid h-full place-items-center text-slate-400">
+              <Package size={42} strokeWidth={1.7} />
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-3 p-5">
+          <div className="flex items-start justify-between gap-4">
+            <h2 className="min-w-0 text-lg font-black leading-tight text-slate-950">{item.name}</h2>
+            <p className="shrink-0 whitespace-nowrap text-base font-black" style={{ color: business.primaryColor }}>
+              {formatPrice(item.price, business.currency)}
+            </p>
+          </div>
+          {item.description && (
+            <p className="text-sm leading-6 text-slate-500">{item.description}</p>
+          )}
+          <Button
+            type="button"
+            onClick={onAdd}
+            className="w-full rounded-2xl px-4 py-6 text-sm font-black text-white active:scale-[0.98] transition"
+            style={{ backgroundColor: business.primaryColor }}
+          >
+            Добавить в корзину
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

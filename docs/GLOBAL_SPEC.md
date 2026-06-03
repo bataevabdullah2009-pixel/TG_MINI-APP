@@ -1,6 +1,6 @@
-# SmartBiz AI Global Spec
+# Vitrina AI Global Spec
 
-SmartBiz AI is a multi-business Telegram Mini App platform for catalog browsing, orders, bookings, seller operations, and SaaS administration.
+Vitrina AI is a multi-business Telegram Mini App platform for catalog browsing, orders, bookings, seller operations, and SaaS administration.
 
 ## Roles
 
@@ -11,7 +11,7 @@ SmartBiz AI is a multi-business Telegram Mini App platform for catalog browsing,
 
 ## Core Scenarios
 
-- Telegram `/start` opens the global SmartBiz AI catalog at `/app`.
+- Telegram `/start` opens the global Vitrina AI catalog at `/app`.
 - Buyers choose a business from the catalog and then navigate to `/app/[slug]`.
 - Sellers and managers use authenticated admin and Mini App workspaces.
 - Super admins manage businesses and templates through `/admin/super`.

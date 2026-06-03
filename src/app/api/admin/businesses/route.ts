@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
         accentColor: true,
         phone: true,
         address: true,
+        isOpen: true,
         subscriptionPlan: { select: { name: true } },
         _count: { select: { orders: true, bookings: true, customers: true, items: true } },
       },

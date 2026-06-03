@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { Upload, X, ImageIcon, Loader2 } from "lucide-react";
 
 interface MediaUploadProps {
@@ -23,6 +23,11 @@ export function MediaUpload({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewAspectClass = type === "logo" ? "aspect-square" : "aspect-video";
+
+  useEffect(() => {
+    setPreviewUrl(initialUrl || "");
+  }, [initialUrl]);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -109,7 +114,7 @@ export function MediaUpload({
       />
 
       {previewUrl ? (
-        <div className="relative group rounded-2xl overflow-hidden border border-slate-100 bg-slate-50 aspect-video flex items-center justify-center shadow-sm">
+        <div className={`relative group rounded-2xl overflow-hidden border border-slate-100 bg-slate-50 ${previewAspectClass} flex items-center justify-center shadow-sm`}>
           <img
             src={previewUrl}
             alt="Preview"

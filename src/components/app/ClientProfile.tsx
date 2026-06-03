@@ -68,7 +68,7 @@ export function ClientProfile({ session, onRefreshSession, onSwitchMode }: Clien
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-black tracking-tight">Профиль</h1>
-          <p className="text-xs font-semibold text-slate-400 mt-0.5">Ваш аккаунт в SmartBiz AI</p>
+          <p className="text-xs font-semibold text-slate-400 mt-0.5">Ваш аккаунт в Vitrina AI</p>
         </div>
       </div>
 

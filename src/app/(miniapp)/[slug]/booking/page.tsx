@@ -163,11 +163,11 @@ export default function BookingPage() {
           <div className="text-5xl mb-4">🔍</div>
           <h2 className="text-lg font-black mb-1 text-slate-900">Бизнес не найден</h2>
           <p className="text-xs text-slate-400 mb-6 leading-relaxed">
-            Указанный бизнес не зарегистрирован на платформе SmartBiz AI. Проверьте правильность адреса.
+            Указанный бизнес не зарегистрирован на платформе Vitrina AI. Проверьте правильность адреса.
           </p>
           <Link href="/app">
             <Button className="w-full font-black py-4 rounded-xl text-white bg-indigo-600 hover:bg-indigo-700 transition">
-              В каталог SmartBiz AI
+              В каталог Vitrina AI
             </Button>
           </Link>
         </div>
