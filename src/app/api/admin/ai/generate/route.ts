@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { getAIProviderConfig } from "@/lib/ai/ai-service";
 import { estimateAiCost, getAiRouting, getDailyUsage, incrementAiUsage } from "@/lib/ai/ai-cost-control";
+import { aiRawPreview, safeParseAiJson, validateProductCardJson } from "@/lib/ai/safe-ai-json";
 
 const featureLabels: Record<string, string> = {
   post: "пост для Telegram",
@@ -48,30 +49,7 @@ function cleanJsonText(value: string) {
 }
 
 function parseProductCardResponse(raw: string): ProductCard {
-  const cleaned = cleanJsonText(raw);
-  let parsed: any;
-
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    const objectMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!objectMatch) throw new Error("No JSON object in AI response.");
-    parsed = JSON.parse(objectMatch[0]);
-  }
-
-  const card = {
-    name: typeof parsed.name === "string" ? parsed.name.trim() : "",
-    description: typeof parsed.description === "string" ? parsed.description.trim() : "",
-    category: typeof parsed.category === "string" ? parsed.category.trim() : typeof parsed.categorySuggestion === "string" ? parsed.categorySuggestion.trim() : "",
-    marketingText: typeof parsed.marketingText === "string" ? parsed.marketingText.trim() : "",
-    imagePrompt: typeof parsed.imagePrompt === "string" ? parsed.imagePrompt.trim() : "",
-  };
-
-  if (!card.name || !card.description || !card.category || !card.marketingText || !card.imagePrompt) {
-    throw new Error("Product card JSON misses required fields.");
-  }
-
-  return card;
+  return safeParseAiJson(raw, validateProductCardJson);
 }
 
 const aiGenerateBusinessSelect = {
@@ -154,14 +132,15 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ ok: true, ...parsed, provider: cached.provider, model: cached.model, cached: true });
         } catch {
           console.error("Cached product_card AI response has invalid JSON:", responseText);
-          return jsonError(PRODUCT_CARD_FORMAT_ERROR, 502);
         }
+      } else {
+        return NextResponse.json({ ok: true, content: cached.response, provider: cached.provider, model: cached.model, cached: true });
       }
-      return NextResponse.json({ ok: true, content: cached.response, provider: cached.provider, model: cached.model, cached: true });
     }
 
     const provider = getAIProviderConfig(routing.provider, routing.model);
     let content = "";
+    let repairedContent = "";
     let usedProvider = provider.name;
 
     try {
@@ -192,10 +171,54 @@ export async function POST(request: NextRequest) {
           model: routing.model,
           estimatedCost
         });
-      } catch (e) {
-        console.error("Product_card AI response has invalid JSON:", content);
-        await incrementAiUsage(business.id, feature, usedProvider, routing.model, JSON.stringify(input).length, "FAILED", content.length, estimatedCost);
-        return jsonError(PRODUCT_CARD_FORMAT_ERROR, 502);
+      } catch (firstParseError) {
+        console.error("Product_card AI response has invalid JSON:", {
+          error: firstParseError,
+          raw: content,
+        });
+
+        try {
+          repairedContent = await provider.generateContent({
+            ...input,
+            productOrService: [
+              "Исправь этот ответ в валидный JSON строго по схеме:",
+              "{\"name\":\"string\",\"description\":\"string\",\"category\":\"string\",\"marketingText\":\"string\",\"imagePrompt\":\"string\"}",
+              "Верни только JSON без markdown и пояснений.",
+              "",
+              "Исходный ответ:",
+              content,
+            ].join("\n"),
+          });
+
+          const parsed = parseProductCardResponse(repairedContent);
+          const normalizedContent = JSON.stringify(parsed);
+          await incrementAiUsage(business.id, feature, usedProvider, routing.model, JSON.stringify(input).length, "SUCCESS", normalizedContent.length, estimatedCost);
+          await prisma.aICache.upsert({
+            where: { businessId_feature_promptHash: { businessId: business.id, feature, promptHash: hash } },
+            update: { response: normalizedContent, provider: usedProvider, model: routing.model, createdAt: new Date() },
+            create: { businessId: business.id, feature, promptHash: hash, provider: usedProvider, model: routing.model, response: normalizedContent },
+          });
+
+          return NextResponse.json({
+            ok: true,
+            ...parsed,
+            provider: usedProvider,
+            model: routing.model,
+            estimatedCost,
+            repaired: true,
+          });
+        } catch (repairError) {
+          console.error("Product_card AI repair failed:", {
+            error: repairError,
+            raw: repairedContent || content,
+          });
+          await incrementAiUsage(business.id, feature, usedProvider, routing.model, JSON.stringify(input).length, "FAILED", (repairedContent || content).length, estimatedCost);
+          return NextResponse.json({
+            ok: false,
+            error: PRODUCT_CARD_FORMAT_ERROR,
+            rawPreview: aiRawPreview(repairedContent || content),
+          }, { status: 500 });
+        }
       }
     }
 

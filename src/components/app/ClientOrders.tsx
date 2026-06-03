@@ -18,11 +18,17 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
     if (!telegramUserId) return;
 
     setLoading(true);
-    fetch(`/api/customers/history?telegramUserId=${telegramUserId}`)
+    const initData = typeof window !== "undefined"
+      ? ((window as any).Telegram?.WebApp?.initData || sessionStorage.getItem("tgInitData") || "")
+      : "";
+
+    fetch("/api/customer/orders", {
+      headers: initData ? { "x-telegram-init-data": initData } : undefined,
+    })
       .then((res) => res.json())
       .then((resData) => {
         if (resData.ok) {
-          setData(resData.data);
+          setData({ orders: resData.orders || [], bookings: [] });
         } else {
           setError(resData.error || "Не удалось загрузить историю заказов");
         }

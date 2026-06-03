@@ -25,6 +25,12 @@ export type StorefrontBusiness = {
   primaryColor: string;
   accentColor: string;
   isOpen?: boolean;
+  transferPaymentEnabled?: boolean;
+  transferBankName?: string | null;
+  transferPaymentPhone?: string | null;
+  transferRecipientName?: string | null;
+  transferPaymentCommentRequired?: boolean;
+  transferPaymentInstructions?: string | null;
 };
 
 export type StorefrontMode = "cart" | "booking";

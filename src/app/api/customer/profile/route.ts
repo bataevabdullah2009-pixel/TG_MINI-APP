@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTelegramSessionUser } from "@/lib/auth-telegram";
 import { prisma } from "@/lib/prisma";
+import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 
 export async function GET(request: NextRequest) {
   try {
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { businessSlug, phone, name } = body;
+    const { businessSlug, phone, name, address } = body;
 
     let businessId = undefined;
     if (businessSlug) {
@@ -59,14 +60,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: "Not authorized" }, { status: 401 });
     }
 
-    const isNewPhone = phone && phone !== session.customer.phone;
+    const normalizedPhone = phone ? normalizeRuPhone(phone) : null;
+    if (phone && !normalizedPhone) {
+      return NextResponse.json({ ok: false, error: "Введите корректный номер телефона." }, { status: 400 });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { telegramId: BigInt(session.telegramUserId) },
+      select: { phone: true, phoneVerified: true },
+    });
+    const verifiedUserPhone = user?.phoneVerified ? normalizeRuPhone(user.phone) : null;
+    const phoneToSave = verifiedUserPhone || normalizedPhone || session.customer.phone;
+    const isNewPhone = Boolean(phoneToSave && phoneToSave !== session.customer.phone);
+    const keepVerified = Boolean(
+      (session.customer.phoneVerified && phoneToSave === session.customer.phone) ||
+      (verifiedUserPhone && phoneToSave === verifiedUserPhone)
+    );
 
     const updatedCustomer = await prisma.customer.update({
       where: { id: session.customer.id },
       data: {
-        phone: phone || session.customer.phone,
+        phone: phoneToSave,
         name: name || session.customer.name,
-        ...(isNewPhone ? { phoneVerified: false, verificationMethod: "none" } : {}),
+        ...(address !== undefined ? { address } : {}),
+        ...(keepVerified
+          ? { phoneVerified: true, verificationMethod: verifiedUserPhone ? "global_user_phone" : session.customer.verificationMethod }
+          : isNewPhone
+            ? { phoneVerified: false, verificationMethod: "none" }
+            : {}),
       },
     });
 

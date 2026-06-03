@@ -1,13 +1,30 @@
+import crypto from "crypto";
+import { prisma } from "@/lib/prisma";
 import { AIProvider } from "./provider";
 import { MockAIProvider } from "./mock-provider";
 import { OpenRouterProvider } from "./openrouter-provider";
 import { PolzaAIProvider } from "./polza-provider";
 import { checkBusinessAiLimit, incrementAiUsage } from "./ai-cost-control";
-import crypto from "crypto";
-import { prisma } from "@/lib/prisma";
 
-export function getAIProviderConfig(providerName?: string, modelName?: string): AIProvider {
-  const provider = (process.env.AI_PROVIDER || providerName || "mock").toLowerCase();
+export class AIConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AIConfigurationError";
+  }
+}
+
+export function resolveAIProviderName(providerName?: string | null) {
+  const envProvider = process.env.AI_PROVIDER?.trim().toLowerCase();
+  if (envProvider) return envProvider;
+
+  const businessProvider = providerName?.trim().toLowerCase();
+  if (businessProvider && businessProvider !== "mock") return businessProvider;
+
+  return businessProvider || "mock";
+}
+
+export function getAIProviderConfig(providerName?: string | null, modelName?: string | null): AIProvider {
+  const provider = resolveAIProviderName(providerName);
 
   if (provider === "mock") {
     return new MockAIProvider();
@@ -15,18 +32,18 @@ export function getAIProviderConfig(providerName?: string, modelName?: string): 
 
   if (provider === "openrouter") {
     const key = process.env.OPENROUTER_API_KEY;
-    if (key) return new OpenRouterProvider(key, modelName);
-    console.error("[AI Service] 'openrouter' was selected but OPENROUTER_API_KEY is not defined.");
-    throw new Error("OpenRouter API key is not configured.");
+    if (key) return new OpenRouterProvider(key, modelName || undefined);
+    console.error("[AI CONFIG ERROR] OPENROUTER_API_KEY missing");
+    throw new AIConfigurationError("OPENROUTER_API_KEY missing");
   }
 
   if (provider === "polza") {
     const key = process.env.POLZA_AI_API_KEY;
     if (!key) {
-      console.error("[AI Service] 'polza' was selected but POLZA_AI_API_KEY is not defined.");
-      throw new Error("Polza AI API key is not configured.");
+      console.error("[AI CONFIG ERROR] POLZA_AI_API_KEY missing");
+      throw new AIConfigurationError("POLZA_AI_API_KEY missing");
     }
-    return new PolzaAIProvider(key, modelName);
+    return new PolzaAIProvider(key, modelName || undefined);
   }
 
   throw new Error(`Unsupported AI provider: ${provider}`);
@@ -44,9 +61,8 @@ async function checkCache(businessId: string, feature: string, promptHash: strin
         },
       },
     });
-    
+
     if (cached) {
-      // Return cached only if it's not too old (e.g., 24 hours)
       const isFresh = Date.now() - cached.createdAt.getTime() < 24 * 60 * 60 * 1000;
       if (isFresh) return cached.response;
     }
@@ -56,7 +72,14 @@ async function checkCache(businessId: string, feature: string, promptHash: strin
   return null;
 }
 
-async function saveCache(businessId: string, feature: string, promptHash: string, provider: string, model: string, response: string) {
+async function saveCache(
+  businessId: string,
+  feature: string,
+  promptHash: string,
+  provider: string,
+  model: string,
+  response: string
+) {
   if (process.env.AI_CACHE_ENABLED !== "true") return;
   try {
     await prisma.aICache.upsert({
@@ -85,12 +108,11 @@ export class AIService {
   static async generateFAQAnswer(businessId: string, providerConfig: string, modelConfig: string, input: any): Promise<string> {
     const isAllowed = await checkBusinessAiLimit(businessId);
     if (!isAllowed) {
-      return "Лимит ИИ-запросов на сегодня исчерпан. Передайте вопрос менеджеру или попробуйте завтра.";
+      return "Лимит AI-запросов на сегодня исчерпан. Передайте вопрос менеджеру или попробуйте завтра.";
     }
 
     const provider = getAIProviderConfig(providerConfig, modelConfig);
     const hash = crypto.createHash("md5").update(JSON.stringify(input)).digest("hex");
-
     const cached = await checkCache(businessId, "faq", hash);
     if (cached) return cached;
 
@@ -102,14 +124,17 @@ export class AIService {
     } catch (error) {
       console.error("AI Error:", error);
       await incrementAiUsage(businessId, "faq", provider.name, modelConfig, JSON.stringify(input).length, "FAILED");
-      return "Сейчас ИИ временно недоступен. Я передам ваш вопрос менеджеру.";
+      if (error instanceof AIConfigurationError || String((error as Error)?.message || "").includes("POLZA_AI_API_KEY missing")) {
+        return "AI-помощник требует настройки Polza AI. Напишите продавцу напрямую или откройте Mini App.";
+      }
+      return "Не получилось получить ответ от AI-помощника. Я передам вопрос продавцу.";
     }
   }
 
   static async generateContent(businessId: string, providerConfig: string, modelConfig: string, input: any): Promise<string> {
     const isAllowed = await checkBusinessAiLimit(businessId);
     if (!isAllowed) {
-      throw new Error("Лимит ИИ-запросов на сегодня исчерпан.");
+      throw new Error("Лимит AI-запросов на сегодня исчерпан.");
     }
 
     const provider = getAIProviderConfig(providerConfig, modelConfig);

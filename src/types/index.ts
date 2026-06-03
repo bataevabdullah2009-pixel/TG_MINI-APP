@@ -49,6 +49,12 @@ export interface Business {
   timezone?: string;
   modulesEnabled: string;
   subscriptionStatus?: string;
+  transferPaymentEnabled?: boolean;
+  transferBankName?: string | null;
+  transferPaymentPhone?: string | null;
+  transferRecipientName?: string | null;
+  transferPaymentCommentRequired?: boolean;
+  transferPaymentInstructions?: string | null;
   isActive: boolean;
   isOpen: boolean;
   createdAt: Date;
@@ -163,6 +169,15 @@ export interface Order {
   totalPrice: number;
   status: OrderStatus;
   deliveryType: "DELIVERY" | "PICKUP" | "NONE";
+  paymentMethod?: "CASH" | "TRANSFER" | "TELEGRAM_STARS" | "YOOKASSA" | "MANUAL";
+  paymentStatus?: "PENDING" | "AWAITING_REVIEW" | "PAID" | "REJECTED" | "FAILED" | "REFUNDED";
+  paymentProofUrl?: string | null;
+  paymentProofAiStatus?: string | null;
+  paymentProofAiSummary?: string | null;
+  paymentProofAiConfidence?: number | null;
+  paymentReviewedAt?: Date | null;
+  paymentReviewedBy?: string | null;
+  paymentRejectReason?: string | null;
   comment: string | null;
   internalNotes?: string | null;
   expiredAt?: Date | null;

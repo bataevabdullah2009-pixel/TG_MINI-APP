@@ -111,8 +111,20 @@ Do not commit real secrets. Use `.env.example` as a template and store productio
 `POLZA_BASE_URL`
 - Optional Polza API base URL. Default: `https://polza.ai/api/v1`.
 
+`POLZA_CHAT_BASE_URL`
+- Optional exact Polza chat completions endpoint.
+- Recommended value: `https://polza.ai/api/v1/chat/completions`.
+
+`POLZA_MEDIA_BASE_URL`
+- Optional Polza media endpoint for vision/payment-proof analysis.
+- Recommended value: `https://polza.ai/api/v1/media`.
+
 `POLZA_TEXT_MODEL`
 - Optional Polza text model. Default: `z-ai/glm-4.7-flash`.
+
+`POLZA_VISION_MODEL`
+- Optional Polza vision model for payment-proof analysis.
+- Recommended value: `google/gemini-3.1-flash-image-preview`.
 
 `POLZA_IMAGE_MODEL`
 - Optional Polza image model.
@@ -157,7 +169,12 @@ The active bucket is `SUPABASE_STORAGE_BUSINESS_MEDIA_BUCKET`, defaulting to pub
 - Development bypass for phone verification. Do not enable in production.
 
 `SMS_PROVIDER`
-- Optional SMS provider switch. Current production phone confirmation is Telegram contact based.
+- Optional SMS provider switch.
+- Set to `mock` for the demo flow.
+
+`PHONE_TEST_CODE_ENABLED`
+- Set to `true` with `SMS_PROVIDER=mock` when demo users should confirm phone by code `1111`.
+- Set to `false` with `SMS_PROVIDER=mock` to hide SMS request and require Telegram contact confirmation.
 
 `ADMIN_EMAIL`
 - Optional seed/default admin email.
@@ -183,8 +200,15 @@ The active bucket is `SUPABASE_STORAGE_BUSINESS_MEDIA_BUCKET`, defaulting to pub
 CRON_SECRET="change_me_long_random_string_for_cron"
 AI_PROVIDER="polza"
 POLZA_AI_API_KEY=""
+POLZA_CHAT_BASE_URL="https://polza.ai/api/v1/chat/completions"
+POLZA_MEDIA_BASE_URL="https://polza.ai/api/v1/media"
 POLZA_BASE_URL="https://polza.ai/api/v1"
 POLZA_TEXT_MODEL="z-ai/glm-4.7-flash"
+POLZA_VISION_MODEL="google/gemini-3.1-flash-image-preview"
+AI_MAX_OUTPUT_TOKENS="1200"
+AI_TEMPERATURE="0.3"
+SMS_PROVIDER="mock"
+PHONE_TEST_CODE_ENABLED="true"
 ```
 
 ## Production URL rules

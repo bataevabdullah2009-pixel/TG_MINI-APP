@@ -4,6 +4,10 @@ import { PhoneVerificationService } from "@/lib/phone/phone-verification-service
 
 const PHONE_VERIFICATION_UNAVAILABLE = "Подтверждение телефона временно недоступно.";
 
+export async function GET() {
+  return NextResponse.json({ ok: true, ...PhoneVerificationService.getPublicConfig() });
+}
+
 export async function POST(req: Request) {
   try {
     const { phone, initData, businessId } = await req.json();
@@ -20,10 +24,10 @@ export async function POST(req: Request) {
     const res = await PhoneVerificationService.sendCode(session.customer.id, phone, "mock_sms");
 
     if (!res.success) {
-      return NextResponse.json({ ok: false, error: PHONE_VERIFICATION_UNAVAILABLE }, { status: 503 });
+      return NextResponse.json({ ok: false, code: res.code, error: res.error || PHONE_VERIFICATION_UNAVAILABLE }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true, verificationId: res.verificationId });
+    return NextResponse.json({ ok: true, verificationId: res.verificationId, ...PhoneVerificationService.getPublicConfig() });
   } catch (e) {
     console.error("[send-code api error]", e);
     return NextResponse.json({ ok: false, error: PHONE_VERIFICATION_UNAVAILABLE }, { status: 503 });

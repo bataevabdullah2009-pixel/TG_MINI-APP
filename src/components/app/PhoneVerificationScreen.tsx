@@ -22,6 +22,12 @@ export function PhoneVerificationScreen({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [timer, setTimer] = useState(0);
+  const [verificationConfig, setVerificationConfig] = useState({
+    canRequestCode: true,
+    mockMode: true,
+    testCodeEnabled: false,
+    message: "",
+  });
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -30,6 +36,22 @@ export function PhoneVerificationScreen({
     }
     return () => clearInterval(interval);
   }, [timer]);
+
+  useEffect(() => {
+    fetch("/api/auth/phone/send-code")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.ok) {
+          setVerificationConfig({
+            canRequestCode: Boolean(data.canRequestCode),
+            mockMode: Boolean(data.mockMode),
+            testCodeEnabled: Boolean(data.testCodeEnabled),
+            message: data.message || "",
+          });
+        }
+      })
+      .catch((e) => console.warn("[PhoneVerificationScreen] config load failed:", e));
+  }, []);
 
   // Try to use Telegram Contact Share
   const handleTelegramContactShare = () => {
@@ -60,6 +82,11 @@ export function PhoneVerificationScreen({
   };
 
   const verifyTelegramContact = async (contactPayload: any) => {
+    if (!verificationConfig.canRequestCode) {
+      setError(verificationConfig.message || "Подтвердите номер через Telegram contact в боте.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -78,7 +105,7 @@ export function PhoneVerificationScreen({
         throw new Error(data.error || "Не удалось сохранить контакт");
       }
 
-      onVerified(contactPayload.phone_number || contactPayload.phone);
+      onVerified(data.phone || contactPayload.phone_number || contactPayload.phone);
     } catch (e: any) {
       setError(e.message || "Ошибка верификации контакта");
     } finally {
@@ -110,6 +137,10 @@ export function PhoneVerificationScreen({
       const data = await res.json();
       if (!res.ok || !data.ok) {
         throw new Error(data.error || "Не удалось отправить код");
+      }
+
+      if (data.message) {
+        setVerificationConfig((current) => ({ ...current, message: data.message }));
       }
 
       setStep("OTP_INPUT");
@@ -148,7 +179,7 @@ export function PhoneVerificationScreen({
         throw new Error(data.error || "Неверный код верификации");
       }
 
-      onVerified(phone);
+      onVerified(data.phone || phone);
     } catch (e: any) {
       setError(e.message || "Ошибка верификации кода");
     } finally {
@@ -210,12 +241,18 @@ export function PhoneVerificationScreen({
               Поделиться через Telegram
             </button>
 
-            <button
-              onClick={() => setStep("MANUAL_INPUT")}
-              className="w-full rounded-2xl bg-slate-100 py-3.5 text-sm font-bold text-slate-800 active:scale-95 transition-all"
-            >
-              Ввести номер вручную
-            </button>
+            {verificationConfig.canRequestCode ? (
+              <button
+                onClick={() => setStep("MANUAL_INPUT")}
+                className="w-full rounded-2xl bg-slate-100 py-3.5 text-sm font-bold text-slate-800 active:scale-95 transition-all"
+              >
+                Ввести номер вручную
+              </button>
+            ) : (
+              <div className="rounded-2xl bg-slate-100 p-3.5 text-center text-xs font-bold text-slate-600">
+                {verificationConfig.message || "Подтвердите номер через Telegram contact в боте"}
+              </div>
+            )}
           </div>
         )}
 
@@ -246,7 +283,7 @@ export function PhoneVerificationScreen({
               disabled={loading}
               className="w-full rounded-2xl bg-slate-900 py-4 text-sm font-black text-white active:scale-95 transition-all disabled:opacity-50"
             >
-              {loading ? "Отправка кода..." : "Получить код по SMS"}
+              {loading ? "Отправка кода..." : verificationConfig.mockMode ? "Получить тестовый код" : "Получить код"}
             </button>
 
             <button
@@ -264,7 +301,8 @@ export function PhoneVerificationScreen({
           <form onSubmit={handleVerifyOTP} className="space-y-4">
             <div className="text-center mb-2">
               <span className="text-xs font-bold text-slate-500">
-                Код отправлен на номер <strong className="text-slate-800">{phone}</strong>
+                {verificationConfig.testCodeEnabled ? "Тестовый режим: код 1111 для номера " : "Код отправлен на номер "}
+                <strong className="text-slate-800">{phone}</strong>
               </span>
             </div>
 
@@ -281,9 +319,11 @@ export function PhoneVerificationScreen({
                 onChange={(e) => setCode(e.target.value)}
                 className="w-full text-center tracking-[0.6em] rounded-2xl border border-slate-200 bg-slate-50 py-3.5 text-lg font-black text-slate-900 outline-none focus:border-blue-500 focus:bg-white transition-all"
               />
-              <p className="mt-1.5 text-center text-[11px] font-medium text-blue-600">
-                Для тестирования введите <span className="font-extrabold">1111</span>
-              </p>
+              {verificationConfig.testCodeEnabled && (
+                <p className="mt-1.5 text-center text-[11px] font-medium text-blue-600">
+                  Тестовый режим: введите <span className="font-extrabold">1111</span>
+                </p>
+              )}
             </div>
 
             <button

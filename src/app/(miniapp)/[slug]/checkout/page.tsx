@@ -55,6 +55,8 @@ export default function CheckoutPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [paymentProofUrl, setPaymentProofUrl] = useState("");
+  const [paymentProofUploading, setPaymentProofUploading] = useState(false);
 
   // Verification states
   const [phoneVerified, setPhoneVerified] = useState(false);
@@ -89,6 +91,9 @@ export default function CheckoutPage() {
       const bizRes = await apiClient.get(`/businesses/${slug}`);
       const biz = bizRes.data;
       setBusiness(biz);
+      if (!biz.transferPaymentEnabled) {
+        setValue("paymentMethod", "CASH");
+      }
 
       const initData = typeof window !== "undefined" ? (window as any).Telegram?.WebApp?.initData : "";
       if (initData) {
@@ -141,7 +146,7 @@ export default function CheckoutPage() {
     setPhoneVerified(true);
     setValue("customerPhone", verifiedPhone);
     setShowVerifyModal(false);
-    saveProfile(verifiedPhone);
+    saveProfile(verifiedPhone).finally(() => fetchProfileAndBusiness());
   };
 
   const saveProfile = async (verifiedPhone: string) => {
@@ -167,6 +172,34 @@ export default function CheckoutPage() {
     }
   };
 
+  const handlePaymentProofUpload = async (file?: File | null) => {
+    if (!file || !business) return;
+    setPaymentProofUploading(true);
+    setError(null);
+    try {
+      const initData = typeof window !== "undefined" ? (window as any).Telegram?.WebApp?.initData : "";
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("businessId", business.id);
+
+      const res = await fetch("/api/orders/payment-proof", {
+        method: "POST",
+        headers: initData ? { "x-telegram-init-data": initData } : undefined,
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Не удалось загрузить чек.");
+      }
+      setPaymentProofUrl(data.url);
+    } catch (e: any) {
+      setPaymentProofUrl("");
+      setError(e.message || "Не удалось загрузить чек перевода.");
+    } finally {
+      setPaymentProofUploading(false);
+    }
+  };
+
   const onSubmit = async (data: CheckoutInput) => {
     if (!business) return;
     if (cartItems.length === 0) {
@@ -176,6 +209,16 @@ export default function CheckoutPage() {
 
     if (!phoneVerified) {
       setShowVerifyModal(true);
+      return;
+    }
+
+    if (data.deliveryType === "DELIVERY" && !data.customerAddress?.trim()) {
+      setError("Укажите адрес доставки.");
+      return;
+    }
+
+    if (data.paymentMethod === "TRANSFER" && !paymentProofUrl) {
+      setError("Загрузите чек перевода.");
       return;
     }
 
@@ -195,6 +238,8 @@ export default function CheckoutPage() {
           name: item.name,
         })),
         deliveryType: data.deliveryType,
+        paymentMethod: data.paymentMethod,
+        paymentProofUrl: data.paymentMethod === "TRANSFER" ? paymentProofUrl : undefined,
         comment: data.comment,
         telegramUserId: user?.id?.toString(),
         username: user?.username,
@@ -215,7 +260,13 @@ export default function CheckoutPage() {
         tg.HapticFeedback.notificationOccurred("success");
       }
     } catch (err: any) {
-      setError(err?.response?.data?.error || "Не удалось оформить заказ. Проверьте данные и попробуйте снова.");
+      const code = err?.response?.data?.code;
+      const message = err?.response?.data?.error || "Не удалось оформить заказ. Проверьте данные и попробуйте снова.";
+      setError(message);
+      if (code === "PHONE_NOT_VERIFIED") {
+        setPhoneVerified(false);
+        setShowVerifyModal(true);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -547,7 +598,7 @@ export default function CheckoutPage() {
               {[
                 { value: "CASH" as const, label: "Наличные", icon: Wallet },
                 { value: "TRANSFER" as const, label: "Перевод", icon: Smartphone },
-              ].map((option) => {
+              ].filter((option) => option.value !== "TRANSFER" || business.transferPaymentEnabled).map((option) => {
                 const Icon = option.icon;
                 const isSelected = paymentMethod === option.value;
                 return (
@@ -571,6 +622,33 @@ export default function CheckoutPage() {
                 );
               })}
             </div>
+            {paymentMethod === "TRANSFER" && business.transferPaymentEnabled && (
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3 text-xs font-bold text-slate-700 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <span className="text-slate-400">Банк</span>
+                  <span className="text-right">{business.transferBankName || "не указан"}</span>
+                  <span className="text-slate-400">Телефон/SBP</span>
+                  <span className="text-right">{business.transferPaymentPhone || "не указан"}</span>
+                  <span className="text-slate-400">Получатель</span>
+                  <span className="text-right">{business.transferRecipientName || "не указан"}</span>
+                  <span className="text-slate-400">Сумма</span>
+                  <span className="text-right">{formatPrice(total)}</span>
+                </div>
+                <p className="rounded-xl bg-white/80 p-2 text-[11px] leading-relaxed">
+                  {business.transferPaymentInstructions || "После перевода загрузите чек."}
+                </p>
+                <label className="block rounded-xl bg-white p-3 text-center text-[11px] font-black text-emerald-700 ring-1 ring-emerald-100">
+                  {paymentProofUploading ? "Загружаем чек..." : paymentProofUrl ? "Чек загружен" : "Загрузить чек перевода"}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    disabled={paymentProofUploading}
+                    onChange={(event) => handlePaymentProofUpload(event.target.files?.[0])}
+                  />
+                </label>
+              </div>
+            )}
           </div>
 
           {/* Comments block */}
@@ -612,7 +690,7 @@ export default function CheckoutPage() {
           {phoneVerified ? (
             <Button
               onClick={handleSubmit(onSubmit)}
-              disabled={submitting}
+              disabled={submitting || (paymentMethod === "TRANSFER" && (!paymentProofUrl || paymentProofUploading))}
               className="w-full py-6 text-sm font-black rounded-2xl text-white shadow-md hover:brightness-110 transition active:scale-[0.98] disabled:opacity-50"
               style={{ backgroundColor: business.primaryColor }}
             >

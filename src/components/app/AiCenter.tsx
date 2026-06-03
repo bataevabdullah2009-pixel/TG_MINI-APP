@@ -91,6 +91,7 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
         },
         body: JSON.stringify({
           businessId,
+          type: targetFeature,
           prompt: targetPrompt,
           feature: targetFeature,
           contentType: targetFeature,
@@ -121,7 +122,9 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
           imagePrompt: data.imagePrompt || "",
           telegramPost: data.marketingText || "",
           shortCopy: data.marketingText ? data.marketingText.slice(0, 80) : "",
-          hallucinationAlert: null,
+          hallucinationAlert: categoryName && !matchedCategory
+            ? `AI предложил категорию "${categoryName}", но такой категории нет. Текущая категория оставлена без изменений.`
+            : null,
         };
         setPcName(parsed.name);
         setPcDesc(parsed.description || parsed.marketingText);

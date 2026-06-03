@@ -1,6 +1,18 @@
 import { AIProvider } from "./provider";
 import { enforcePromptLength } from "./ai-cost-control";
 
+type PolzaMessage =
+  | { role: "system" | "user"; content: string }
+  | { role: "user"; content: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> };
+
+export function getPolzaChatEndpoint() {
+  const chatUrl = process.env.POLZA_CHAT_BASE_URL?.trim();
+  if (chatUrl) return chatUrl;
+
+  const baseUrl = (process.env.POLZA_BASE_URL || "https://polza.ai/api/v1").trim().replace(/\/$/, "");
+  return baseUrl.endsWith("/chat/completions") ? baseUrl : `${baseUrl}/chat/completions`;
+}
+
 export class PolzaAIProvider implements AIProvider {
   name = "polza";
   private apiKey: string;
@@ -8,39 +20,61 @@ export class PolzaAIProvider implements AIProvider {
 
   constructor(apiKey: string, model: string = process.env.POLZA_TEXT_MODEL || "z-ai/glm-4.7-flash") {
     this.apiKey = apiKey;
-    this.model = model;
+    this.model = model || process.env.POLZA_TEXT_MODEL || "z-ai/glm-4.7-flash";
   }
 
-  private async callAPI(system: string, user: string): Promise<string> {
-    if (!this.apiKey) throw new Error("Missing Polza AI API Key");
+  getDebugInfo() {
+    return {
+      provider: this.name,
+      model: this.model,
+      hasPolzaKey: Boolean(this.apiKey),
+      endpoint: getPolzaChatEndpoint(),
+    };
+  }
 
-    const maxTokens = parseInt(process.env.AI_MAX_OUTPUT_TOKENS || "500");
-    const temperature = parseFloat(process.env.AI_TEMPERATURE || "0.7");
-    const baseUrl = process.env.POLZA_CHAT_BASE_URL || process.env.POLZA_BASE_URL || "https://polza.ai/api/v1/chat/completions";
+  private async callAPI(
+    system: string,
+    user: string,
+    options: { maxTokens?: number; temperature?: number; model?: string; messages?: PolzaMessage[] } = {}
+  ): Promise<string> {
+    if (!this.apiKey) {
+      console.error("[AI CONFIG ERROR] POLZA_AI_API_KEY missing");
+      throw new Error("POLZA_AI_API_KEY missing");
+    }
 
-    const endpoint = baseUrl.endsWith("/chat/completions") ? baseUrl : `${baseUrl}/chat/completions`;
+    const envMaxTokens = parseInt(process.env.AI_MAX_OUTPUT_TOKENS || "500", 10);
+    const maxTokens = options.maxTokens ? Math.max(envMaxTokens, options.maxTokens) : envMaxTokens;
+    const temperature = options.temperature ?? parseFloat(process.env.AI_TEMPERATURE || "0.7");
+    const endpoint = getPolzaChatEndpoint();
+    const model = options.model || this.model;
+    const messages = options.messages || [
+      { role: "system" as const, content: system },
+      { role: "user" as const, content: enforcePromptLength(user) },
+    ];
 
     const res = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify({
-        model: this.model,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: enforcePromptLength(user) },
-        ],
+        model,
+        messages,
         max_tokens: maxTokens,
-        temperature: temperature,
+        temperature,
       }),
     });
 
     if (!res.ok) {
       const errorText = await res.text();
-      console.error(`Polza AI API Error: ${errorText}`);
-      throw new Error("Ошибка при обращении к Polza AI API");
+      console.error("[POLZA AI ERROR]", {
+        status: res.status,
+        responseText: errorText,
+        model,
+        endpoint,
+      });
+      throw new Error("Polza AI API request failed");
     }
 
     const data = await res.json();
@@ -48,18 +82,26 @@ export class PolzaAIProvider implements AIProvider {
   }
 
   async generateFAQAnswer(input: any): Promise<string> {
-    const system = `Ты — вежливый помощник бизнеса (${input.businessName}, ${input.businessType}). Отвечай на основе базы знаний коротко и по делу. Не придумывай того, чего нет. База знаний: ${input.knowledgeBase}`;
-    return this.callAPI(system, input.customerQuestion);
+    const system = [
+      `Ты вежливый помощник бизнеса "${input.businessName}" (${input.businessType}).`,
+      "Отвечай коротко, по делу и только на основе базы знаний.",
+      "Если данных нет, спокойно предложи открыть раздел Мои заказы или связаться с продавцом.",
+      `База знаний: ${input.knowledgeBase}`,
+    ].join(" ");
+
+    return this.callAPI(system, input.customerQuestion, { temperature: 0.3 });
   }
 
   async generateContent(input: any): Promise<string> {
     if (input.contentType === "product_card" || input.contentType === "productCard") {
       const system = [
         "Ты помогаешь продавцу заполнить карточку товара в Telegram Mini App.",
-        "Верни только валидный JSON без markdown, без пояснений и без code fence.",
-        "Схема строго такая: {\"name\":string,\"description\":string,\"category\":string,\"marketingText\":string,\"imagePrompt\":string}.",
-        "Поле imagePrompt пиши на английском языке для генерации предметного фото.",
-        "Пиши по-русски. Не выдумывай цену и факты, которых нет во входных данных.",
+        "Верни ТОЛЬКО валидный JSON. Без markdown, без ```json, без code fence, без пояснений и без текста вокруг JSON.",
+        "Схема строго такая: {\"name\":\"string\",\"description\":\"string\",\"category\":\"string\",\"marketingText\":\"string\",\"imagePrompt\":\"string\"}.",
+        "Все поля обязательны и должны быть непустыми строками.",
+        "Поля name, description, category и marketingText пиши на русском языке.",
+        "Поле imagePrompt пиши на английском языке для генерации предметного фото товара.",
+        "Не выдумывай цену и факты, которых нет во входных данных.",
       ].join(" ");
       const user = [
         `Бизнес: ${input.businessName}. Тип бизнеса: ${input.businessType}.`,
@@ -67,10 +109,10 @@ export class PolzaAIProvider implements AIProvider {
         `Тон: ${input.tone || "дружелюбный"}.`,
         `Категории и ограничения: ${input.goal || "используй только факты из данных"}.`,
       ].join("\n");
-      return this.callAPI(system, user);
+      return this.callAPI(system, user, { maxTokens: 1200, temperature: 0.3 });
     }
 
-    const system = `Ты — профессиональный SMM и маркетолог. Напиши контент формата "${input.contentType}" для бизнеса ${input.businessName}. Тон: ${input.tone || "продающий"}.`;
+    const system = `Ты профессиональный SMM и маркетолог. Напиши контент формата "${input.contentType}" для бизнеса ${input.businessName}. Тон: ${input.tone || "продающий"}.`;
     const user = `Тема: ${input.productOrService || "Общее продвижение"}. Цель: ${input.goal || "Привлечь клиентов"}. Ограничься 700 символами.`;
     return this.callAPI(system, user);
   }
@@ -92,11 +134,44 @@ export class PolzaAIProvider implements AIProvider {
       `Факты от сервера: ${input.facts}.`,
       `Базовый смысл: ${input.fallback}`,
     ].join("\n");
-    return this.callAPI(system, user);
+    return this.callAPI(system, user, { temperature: 0.2 });
+  }
+
+  async analyzeImageJson(input: {
+    imageUrl: string;
+    system: string;
+    user: string;
+    model?: string;
+  }): Promise<string> {
+    const messages: PolzaMessage[] = [
+      { role: "system", content: input.system },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: enforcePromptLength(input.user) },
+          { type: "image_url", image_url: { url: input.imageUrl } },
+        ],
+      },
+    ];
+
+    return this.callAPI(input.system, input.user, {
+      model: input.model || process.env.POLZA_VISION_MODEL || process.env.POLZA_IMAGE_MODEL || this.model,
+      maxTokens: 1200,
+      temperature: 0.1,
+      messages,
+    });
+  }
+
+  async generateStrictJson(input: { system: string; user: string; model?: string }): Promise<string> {
+    return this.callAPI(input.system, input.user, {
+      model: input.model || this.model,
+      maxTokens: 1200,
+      temperature: 0.1,
+    });
   }
 
   async generateProductDescription(input: any): Promise<string> {
-    const system = `Ты — копирайтер. Напиши описание товара/услуги для ${input.businessName}. Тон: ${input.tone || "нейтральный"}. Сделай 3-5 коротких предложений.`;
+    const system = `Ты копирайтер. Напиши описание товара/услуги для ${input.businessName}. Тон: ${input.tone || "нейтральный"}. Сделай 3-5 коротких предложений.`;
     const user = `Название: ${input.productName}. Категория: ${input.productCategory || "Разное"}. Характеристики: ${input.productFeatures || "Нет дополнительных данных"}.`;
     return this.callAPI(system, user);
   }

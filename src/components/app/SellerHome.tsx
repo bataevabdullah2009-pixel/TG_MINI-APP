@@ -78,6 +78,12 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const [bizAddress, setBizAddress] = useState("");
   const [bizPhone, setBizPhone] = useState("");
   const [bizIsOpen, setBizIsOpen] = useState(true);
+  const [transferPaymentEnabled, setTransferPaymentEnabled] = useState(false);
+  const [transferBankName, setTransferBankName] = useState("");
+  const [transferPaymentPhone, setTransferPaymentPhone] = useState("");
+  const [transferRecipientName, setTransferRecipientName] = useState("");
+  const [transferPaymentCommentRequired, setTransferPaymentCommentRequired] = useState(false);
+  const [transferPaymentInstructions, setTransferPaymentInstructions] = useState("");
 
   // Media state
   const [bizLogoUrl, setBizLogoUrl] = useState("");
@@ -95,6 +101,12 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     setBizAddress(bData.address || "");
     setBizPhone(bData.phone || "");
     setBizIsOpen(bData.isOpen === undefined ? true : bData.isOpen);
+    setTransferPaymentEnabled(Boolean(bData.transferPaymentEnabled));
+    setTransferBankName(bData.transferBankName || "");
+    setTransferPaymentPhone(bData.transferPaymentPhone || "");
+    setTransferRecipientName(bData.transferRecipientName || "");
+    setTransferPaymentCommentRequired(Boolean(bData.transferPaymentCommentRequired));
+    setTransferPaymentInstructions(bData.transferPaymentInstructions || "");
     setBizLogoUrl(bData.logoUrl || "");
     setBizCoverUrl(bData.coverImageUrl || "");
     setBizColor(bData.primaryColor || "#3B82F6");
@@ -322,6 +334,42 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     }
   };
 
+  const handleConfirmPayment = async (orderId: string) => {
+    try {
+      const res = await miniAppFetch(`/api/seller/orders/${orderId}/confirm-payment`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        showSuccess("Оплата подтверждена.");
+        fetchSellerData();
+      } else {
+        showError(data.error || "Не удалось подтвердить оплату.");
+      }
+    } catch (error) {
+      showError("Не удалось подтвердить оплату. Проверьте соединение и попробуйте снова.");
+    }
+  };
+
+  const handleRejectPayment = async (orderId: string) => {
+    const reason = window.prompt("Причина отклонения оплаты", "Оплата не подтверждена продавцом.") || "";
+    try {
+      const res = await miniAppFetch(`/api/seller/orders/${orderId}/reject-payment`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        showSuccess("Оплата отклонена.");
+        fetchSellerData();
+      } else {
+        showError(data.error || "Не удалось отклонить оплату.");
+      }
+    } catch (error) {
+      showError("Не удалось отклонить оплату. Проверьте соединение и попробуйте снова.");
+    }
+  };
+
   const handleUpdateBookingStatus = async (bookingId: string, newStatus: string) => {
     try {
       const res = await miniAppFetch(`/api/bookings/${bookingId}`, {
@@ -353,6 +401,12 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
           address: bizAddress,
           phone: bizPhone,
           isOpen: bizIsOpen,
+          transferPaymentEnabled,
+          transferBankName,
+          transferPaymentPhone,
+          transferRecipientName,
+          transferPaymentCommentRequired,
+          transferPaymentInstructions,
         }),
       });
 
@@ -692,6 +746,40 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                             ⏱️ {order.expireReason || "Заказ самовывоза истёк."}
                           </div>
                         )}
+                        {order.paymentMethod === "TRANSFER" && (
+                          <div className="mt-2 space-y-1 rounded-xl border border-amber-100 bg-amber-50 p-2 text-[10px] font-bold text-amber-900">
+                            <div className="flex items-center justify-between gap-2">
+                              <span>Оплата переводом</span>
+                              <span className="rounded-full bg-white px-2 py-0.5 text-[9px] font-black text-amber-700">
+                                {order.paymentStatus === "AWAITING_REVIEW" ? "Ожидает проверки" : order.paymentStatus}
+                              </span>
+                            </div>
+                            {order.paymentProofUrl && (
+                              <a href={order.paymentProofUrl} target="_blank" rel="noreferrer" className="inline-flex text-indigo-600 underline">
+                                Открыть чек
+                              </a>
+                            )}
+                            {order.paymentProofAiStatus && (
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span>ИИ:</span>
+                                <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${
+                                  order.paymentProofAiStatus === "LIKELY_VALID" ? "bg-emerald-100 text-emerald-700" :
+                                  order.paymentProofAiStatus === "SUSPICIOUS" ? "bg-amber-100 text-amber-700" :
+                                  order.paymentProofAiStatus === "INVALID" ? "bg-rose-100 text-rose-700" :
+                                  "bg-slate-100 text-slate-600"
+                                }`}>
+                                  {order.paymentProofAiStatus}
+                                </span>
+                                {typeof order.paymentProofAiConfidence === "number" && (
+                                  <span>{order.paymentProofAiConfidence}%</span>
+                                )}
+                              </div>
+                            )}
+                            {order.paymentProofAiSummary && (
+                              <div className="text-[10px] leading-relaxed text-slate-600">{order.paymentProofAiSummary}</div>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {/* Items Ordered */}
@@ -710,6 +798,23 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
                       {/* Actions */}
                       <div className="flex gap-2 pt-1 border-t border-slate-200/50">
+                        {order.paymentMethod === "TRANSFER" && order.paymentStatus === "AWAITING_REVIEW" ? (
+                          <>
+                            <button
+                              onClick={() => handleConfirmPayment(order.id)}
+                              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-2 rounded-xl transition"
+                            >
+                              Подтвердить оплату
+                            </button>
+                            <button
+                              onClick={() => handleRejectPayment(order.id)}
+                              className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs px-3.5 py-2 rounded-xl transition"
+                            >
+                              Отклонить оплату
+                            </button>
+                          </>
+                        ) : (
+                          <>
                         {order.status === "NEW" && (
                           <>
                             <button
@@ -793,6 +898,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           >
                             <CheckCircle size={14} /> Доставлен и завершен
                           </button>
+                        )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -1258,6 +1365,60 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                   onChange={(e) => setBizIsOpen(e.target.checked)}
                   className="h-5 w-5 rounded border-slate-350 text-indigo-600 outline-none cursor-pointer"
                 />
+              </div>
+
+              <div className="space-y-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-xs font-black text-slate-800">Оплата переводом</h4>
+                    <p className="text-[10px] font-bold text-slate-400">Банк, СБП/телефон и инструкция для клиента</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={transferPaymentEnabled}
+                    onChange={(e) => setTransferPaymentEnabled(e.target.checked)}
+                    className="h-5 w-5 rounded border-slate-350 text-indigo-600 outline-none cursor-pointer"
+                  />
+                </div>
+
+                {transferPaymentEnabled && (
+                  <div className="space-y-2">
+                    <input
+                      value={transferBankName}
+                      onChange={(e) => setTransferBankName(e.target.value)}
+                      placeholder="Банк, например Сбербанк"
+                      className="w-full text-xs font-bold rounded-xl border border-slate-200 bg-white p-3 outline-none"
+                    />
+                    <input
+                      value={transferPaymentPhone}
+                      onChange={(e) => setTransferPaymentPhone(e.target.value)}
+                      placeholder="Телефон/SBP для перевода"
+                      className="w-full text-xs font-bold rounded-xl border border-slate-200 bg-white p-3 outline-none"
+                    />
+                    <input
+                      value={transferRecipientName}
+                      onChange={(e) => setTransferRecipientName(e.target.value)}
+                      placeholder="Получатель, например Андрей Е."
+                      className="w-full text-xs font-bold rounded-xl border border-slate-200 bg-white p-3 outline-none"
+                    />
+                    <label className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2 text-xs font-bold text-slate-700">
+                      <span>Комментарий к платежу обязателен</span>
+                      <input
+                        type="checkbox"
+                        checked={transferPaymentCommentRequired}
+                        onChange={(e) => setTransferPaymentCommentRequired(e.target.checked)}
+                        className="h-4 w-4"
+                      />
+                    </label>
+                    <textarea
+                      value={transferPaymentInstructions}
+                      onChange={(e) => setTransferPaymentInstructions(e.target.value)}
+                      placeholder="Инструкция для клиента: переведите точную сумму и загрузите чек."
+                      rows={3}
+                      className="w-full text-xs font-bold rounded-xl border border-slate-200 bg-white p-3 outline-none resize-none"
+                    />
+                  </div>
+                )}
               </div>
 
               <button
