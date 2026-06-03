@@ -89,7 +89,7 @@ export default function DemoPage() {
         </Link>
 
         <span className="bg-slate-900 border border-slate-800 text-indigo-400 text-[10px] font-black tracking-widest uppercase px-3 py-1.5 rounded-full">
-          SmartBiz AI Demo
+          Vitrina AI Demo
         </span>
       </header>
 

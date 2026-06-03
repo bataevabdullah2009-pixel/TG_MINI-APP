@@ -23,19 +23,35 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const rawCategoryId = body.categoryId;
       categoryId = (rawCategoryId === "" || rawCategoryId === "none" || rawCategoryId === "null" || !rawCategoryId) ? null : rawCategoryId;
     }
+    const nextName = body.name !== undefined || body.title !== undefined ? String(body.name || body.title || "").trim() : undefined;
+    if (nextName !== undefined && !nextName) {
+      return jsonError("Укажите название.", 400);
+    }
+
+    const nextPrice = body.price !== undefined ? Number(body.price) : undefined;
+    if (nextPrice !== undefined && (!Number.isFinite(nextPrice) || nextPrice < 0)) {
+      return jsonError("Укажите корректную цену.", 400);
+    }
+
+    const nextAvailability =
+      body.isAvailable !== undefined
+        ? Boolean(body.isAvailable)
+        : body.status !== undefined
+          ? body.status !== "HIDDEN" && body.status !== "INACTIVE"
+          : undefined;
 
     const item = await prisma.item.update({
       where: { id },
       data: {
         ...(body.type !== undefined ? { type: body.type === "SERVICE" ? "SERVICE" : "PRODUCT" } : {}),
-        ...(body.name !== undefined ? { name: String(body.name).trim() } : {}),
+        ...(nextName !== undefined ? { name: nextName } : {}),
         ...(body.description !== undefined ? { description: body.description || "" } : {}),
-        ...(body.price !== undefined ? { price: Number(body.price || 0) } : {}),
+        ...(nextPrice !== undefined ? { price: nextPrice } : {}),
         ...(categoryId !== undefined ? { categoryId } : {}),
         ...(body.imageUrl !== undefined ? { imageUrl: body.imageUrl || null } : {}),
         ...(body.durationMinutes !== undefined ? { durationMinutes: body.durationMinutes ? Number(body.durationMinutes) : null } : {}),
         ...(body.stock !== undefined ? { stock: body.stock !== "" && body.stock !== null ? Number(body.stock) : null } : {}),
-        ...(body.isAvailable !== undefined ? { isAvailable: Boolean(body.isAvailable) } : {}),
+        ...(nextAvailability !== undefined ? { isAvailable: nextAvailability } : {}),
         ...(body.isPopular !== undefined ? { isPopular: Boolean(body.isPopular) } : {}),
       },
       include: { category: true, business: { select: { id: true, name: true, slug: true } } },

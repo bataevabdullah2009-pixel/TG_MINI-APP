@@ -2,10 +2,106 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { telegramBot } from "@/lib/telegram-bot-service";
 import { AIService } from "@/lib/ai/ai-service";
-import { ensureTelegramUser } from "@/lib/auth/telegram-user-service";
+import { ensureTelegramUser, trySyncUserPhone } from "@/lib/auth/telegram-user-service";
 import { ensureCustomerForTelegramUser } from "@/lib/customer/customer-service";
+import { getMiniAppUrl } from "@/lib/production-url";
+import { looksLikeSellerLinkAttempt, parseSellerLinkText } from "@/lib/seller-link";
+
+function withTelegramWebAppCacheBust(url: string) {
+  const parsed = new URL(url);
+  parsed.searchParams.set("v", Date.now().toString());
+  return parsed.toString();
+}
+
+type TelegramMessageFrom = {
+  id: number | string;
+  username?: string;
+  first_name?: string;
+  last_name?: string;
+};
+
+function sellerPanelUrl() {
+  return withTelegramWebAppCacheBust(`${getMiniAppUrl()}?mode=seller`);
+}
+
+async function handleSellerLinkCode(text: string, chatId: string | number, from?: TelegramMessageFrom | null) {
+  const parsed = parseSellerLinkText(text);
+  if (!parsed.attempt) return false;
+
+  if (!from?.id || !parsed.code) {
+    await telegramBot.sendNotification(
+      chatId,
+      "❌ Код не найден или истёк. Попросите Super Admin создать новый код."
+    );
+    return true;
+  }
+
+  const ownerUser = await prisma.user.findFirst({
+    where: {
+      telegramLinkCode: parsed.code,
+      telegramLinkExpiresAt: { gt: new Date() },
+    },
+    select: { id: true, email: true, username: true },
+  });
+
+  if (!ownerUser) {
+    await telegramBot.sendNotification(
+      chatId,
+      "❌ Код не найден или истёк. Попросите Super Admin создать новый код."
+    );
+    return true;
+  }
+
+  const telegramId = BigInt(from.id);
+
+  await prisma.$transaction(async (tx) => {
+    const linkedTelegramUser = await tx.user.findUnique({
+      where: { telegramId },
+      select: { id: true, role: true, businessId: true },
+    });
+
+    if (linkedTelegramUser && linkedTelegramUser.id !== ownerUser.id) {
+      if (linkedTelegramUser.role !== "CUSTOMER" || linkedTelegramUser.businessId) {
+        throw new Error("Telegram account is already linked to another seller/admin user.");
+      }
+
+      await tx.user.update({
+        where: { id: linkedTelegramUser.id },
+        data: { telegramId: null },
+        select: { id: true },
+      });
+    }
+
+    await tx.user.update({
+      where: { id: ownerUser.id },
+      data: {
+        telegramId,
+        username: from.username || ownerUser.username,
+        telegramLinkCode: null,
+        telegramLinkExpiresAt: null,
+        isActive: true,
+      },
+      select: { id: true },
+    });
+  });
+
+  await telegramBot.sendNotification(
+    chatId,
+    "✅ Продавец привязан. Теперь откройте панель управления."
+  );
+  await telegramBot.sendNotification(chatId, "Панель продавца", {
+    reply_markup: {
+      inline_keyboard: [[{ text: "Панель продавца", web_app: { url: sellerPanelUrl() } }]],
+    },
+  });
+
+  return true;
+}
 
 export async function POST(request: NextRequest) {
+  let webhookChatId: string | number | null = null;
+  let webhookText = "";
+
   try {
     const { searchParams } = new URL(request.url);
     const queryBusinessId = searchParams.get("businessId");
@@ -20,6 +116,8 @@ export async function POST(request: NextRequest) {
     const chatId = body.message.chat.id;
     const text = body.message.text || "";
     const from = body.message.from;
+    webhookChatId = chatId;
+    webhookText = text;
 
     // Add dynamic and safe logging for debugging in Vercel Logs
     console.log("====== [TELEGRAM WEBHOOK ENTRY] ======");
@@ -49,6 +147,7 @@ export async function POST(request: NextRequest) {
         username: from.username,
         firstName: from.first_name,
         lastName: from.last_name,
+        phone,
       });
 
       // 2. Ensure Customer exists
@@ -71,6 +170,10 @@ export async function POST(request: NextRequest) {
           verificationMethod: "telegram_contact",
         },
       });
+      await trySyncUserPhone(user.id, phone, {
+        verified: true,
+        context: "telegram webhook contact user phone sync",
+      });
 
       await telegramBot.sendNotification(chatId, "✅ Номер подтверждён. Теперь можно оформлять заказы и записи.");
       return NextResponse.json({ ok: true });
@@ -83,25 +186,38 @@ export async function POST(request: NextRequest) {
     console.log("Message Text:", text);
     console.log("Command:", command);
 
+    if (await handleSellerLinkCode(text, chatId, from)) {
+      return NextResponse.json({ ok: true });
+    }
+
     // 1. Resolve Business
     let business = null;
     if (queryBusinessId) {
       business = await prisma.business.findUnique({
-        where: { id: queryBusinessId }
+        where: { id: queryBusinessId },
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          type: true,
+          description: true,
+          phone: true,
+          address: true,
+          aiProvider: true,
+          aiModel: true,
+        },
       });
     }
 
     if (command === "/start") {
       const payload = text.split(" ")[1]?.trim();
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://tg-mini-app-two-ruby.vercel.app";
-      const webappBaseUrl = process.env.NEXT_PUBLIC_WEBAPP_URL 
-        ? process.env.NEXT_PUBLIC_WEBAPP_URL.replace(/\/$/, "")
-        : `${appUrl.replace(/\/$/, "")}/app`;
+      const miniAppUrl = getMiniAppUrl();
       
       // Determine target URL for the Mini App
-      let targetUrl = webappBaseUrl;
-      let buttonText = "Открыть SmartBiz";
-      let message = "Добро пожаловать в SmartBiz AI! 🚀\n\nНажмите на кнопку ниже, чтобы открыть наш Mini App...";
+      let targetUrl = miniAppUrl;
+
+      let buttonText = "Открыть Vitrina AI";
+      let message = "Добро пожаловать в Vitrina AI! 🚀\n\nНажмите на кнопку ниже, чтобы открыть наш Mini App...";
 
       const superAdminIds = (process.env.TELEGRAM_SUPER_ADMIN_IDS || "")
         .split(",")
@@ -109,15 +225,16 @@ export async function POST(request: NextRequest) {
         .filter(Boolean);
 
       if (payload === "seller") {
-        targetUrl = `${webappBaseUrl}?mode=seller`;
+        targetUrl = `${miniAppUrl}?mode=seller`;
         buttonText = "Панель продавца";
         message = "Добро пожаловать в Панель управления продавца! 💼\n\nНажмите на кнопку ниже, чтобы открыть ваш кабинет...";
       } else if (payload === "admin" && superAdminIds.includes(from.id.toString())) {
-        targetUrl = `${webappBaseUrl}?mode=super`;
+        targetUrl = `${miniAppUrl}?mode=super`;
         buttonText = "SaaS Панель";
         message = "Добро пожаловать в SaaS Панель управления! 👑\n\nНажмите на кнопку ниже, чтобы открыть кабинет...";
       } else if (payload === "demo-cafe" || payload === "cafe") {
-        targetUrl = `${webappBaseUrl}/demo-cafe`;
+        targetUrl = miniAppUrl;
+
         buttonText = "Открыть Demo Cafe";
         message = "Добро пожаловать в <b>Demo Cafe</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.";
       } else if (payload) {
@@ -129,6 +246,7 @@ export async function POST(request: NextRequest) {
               telegramLinkCode: cleanCode,
               telegramLinkExpiresAt: { gt: new Date() },
             },
+            select: { id: true, email: true, username: true },
           });
           if (ownerUser) {
             await prisma.user.update({
@@ -139,30 +257,49 @@ export async function POST(request: NextRequest) {
                 telegramLinkCode: null,
                 telegramLinkExpiresAt: null,
               },
+              select: { id: true },
             });
-            targetUrl = `${webappBaseUrl}?mode=seller`;
+            targetUrl = `${miniAppUrl}?mode=seller`;
+
             buttonText = "💼 Панель продавца";
             message = `✅ <b>Успешно привязано!</b>\n\nВы привязали аккаунт продавца <b>${ownerUser.email}</b>.\nТеперь вы можете управлять вашим бизнесом прямо внутри Telegram Mini App!`;
           }
         } else {
           const targetBusiness = await prisma.business.findFirst({
-            where: { OR: [{ slug: payload }, { id: payload }] }
+            where: { OR: [{ slug: payload }, { id: payload }] },
+            select: {
+              id: true,
+              slug: true,
+              name: true,
+              type: true,
+              description: true,
+              phone: true,
+              address: true,
+              aiProvider: true,
+              aiModel: true,
+            },
           });
           if (targetBusiness) {
             business = targetBusiness;
-            targetUrl = `${webappBaseUrl}/${targetBusiness.slug}`;
+            targetUrl = miniAppUrl;
             buttonText = `Открыть ${targetBusiness.name}`;
             message = `Добро пожаловать в <b>${targetBusiness.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
           } else {
-            targetUrl = `${webappBaseUrl}/${payload}`;
+            targetUrl = miniAppUrl;
+
             buttonText = "Открыть Mini App";
             message = "Добро пожаловать! Откройте заведение в Mini App.";
           }
         }
       } else if (business) {
-        targetUrl = `${webappBaseUrl}/${business.slug}`;
+        targetUrl = miniAppUrl;
+
         buttonText = `Открыть ${business.name}`;
         message = `Добро пожаловать в <b>${business.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
+      }
+
+      if (targetUrl === miniAppUrl) {
+        buttonText = "Открыть Vitrina AI";
       }
 
       // Upsert Customer to ensure they exist in relation to this business
@@ -204,7 +341,7 @@ export async function POST(request: NextRequest) {
       await telegramBot.sendNotification(chatId, message, {
         parse_mode: "HTML",
         reply_markup: {
-          inline_keyboard: [[{ text: buttonText, web_app: { url: targetUrl } }]],
+          inline_keyboard: [[{ text: buttonText, web_app: { url: withTelegramWebAppCacheBust(targetUrl) } }]],
         },
       });
 
@@ -229,6 +366,7 @@ export async function POST(request: NextRequest) {
           telegramLinkCode: code,
           telegramLinkExpiresAt: { gt: new Date() },
         },
+        select: { id: true, email: true, username: true },
       });
 
       if (!ownerUser) {
@@ -247,12 +385,11 @@ export async function POST(request: NextRequest) {
           telegramLinkCode: null,
           telegramLinkExpiresAt: null,
         },
+        select: { id: true },
       });
 
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://tg-mini-app-two-ruby.vercel.app";
-      const webappBaseUrl = process.env.NEXT_PUBLIC_WEBAPP_URL 
-        ? process.env.NEXT_PUBLIC_WEBAPP_URL.replace(/\/$/, "")
-        : `${appUrl.replace(/\/$/, "")}/app`;
+      const miniAppUrl = getMiniAppUrl();
+
 
       await telegramBot.sendNotification(
         chatId,
@@ -260,7 +397,8 @@ export async function POST(request: NextRequest) {
         {
           parse_mode: "HTML",
           reply_markup: {
-            inline_keyboard: [[{ text: "💼 Панель продавца", web_app: { url: `${webappBaseUrl}?mode=seller` } }]],
+            inline_keyboard: [[{ text: "💼 Панель продавца", web_app: { url: withTelegramWebAppCacheBust(`${miniAppUrl}?mode=seller`) } }]],
+
           },
         }
       );
@@ -274,7 +412,21 @@ export async function POST(request: NextRequest) {
         telegramUserId: BigInt(from.id),
         ...(business ? { businessId: business.id } : {})
       },
-      include: { business: true },
+      include: {
+        business: {
+          select: {
+            id: true,
+            slug: true,
+            name: true,
+            type: true,
+            description: true,
+            phone: true,
+            address: true,
+            aiProvider: true,
+            aiModel: true,
+          },
+        },
+      },
       orderBy: { createdAt: "desc" },
     });
 
@@ -310,6 +462,17 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (looksLikeSellerLinkAttempt(webhookText)) {
+      console.error("[SELLER_LINK_ERROR]", error);
+      if (webhookChatId) {
+        await telegramBot.sendNotification(
+          webhookChatId,
+          "❌ Ошибка привязки. Админ уже увидит детали в логах Vercel."
+        );
+      }
+      return NextResponse.json({ ok: true });
+    }
+
     console.error("Error details in telegram webhook:", error);
     return NextResponse.json({ ok: true });
   }

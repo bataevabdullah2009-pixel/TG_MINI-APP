@@ -18,7 +18,8 @@ import {
   Calendar,
   Layers,
   ArrowRight,
-  Database
+  Database,
+  ExternalLink
 } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
 
@@ -59,9 +60,10 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
   const [ownerPassword, setOwnerPassword] = useState("");
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [createdLinkCode, setCreatedLinkCode] = useState<string | null>(null);
+  const [createdSellerDeepLink, setCreatedSellerDeepLink] = useState<string | null>(null);
 
   // Platform White-Label Customization
-  const [platformTitle, setPlatformTitle] = useState("SmartBiz AI");
+  const [platformTitle, setPlatformTitle] = useState("Vitrina AI");
   const [defaultAiProvider, setDefaultAiProvider] = useState("mock");
   const [defaultAiLimit, setDefaultAiLimit] = useState(15);
   const [allowedModules, setAllowedModules] = useState("catalog,cart,profile,booking,staff,calendar,delivery,pickup");
@@ -171,6 +173,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
 
     setFormSubmitting(true);
     setCreatedLinkCode(null);
+    setCreatedSellerDeepLink(null);
     setError(null);
 
     // Resolve templates key based on BusinessType selection
@@ -185,11 +188,11 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
     else if (typeUpper === "COURSES") templateKey = "courses";
 
     try {
-      const res = await miniAppFetch("/api/admin/super/onboard", {
+      const res = await miniAppFetch("/api/admin/super/businesses", {
         method: "POST",
         body: JSON.stringify({
           name: bizName,
-          slug: bizSlug.toLowerCase().trim().replace(/[^a-z0-9-_]/g, ""),
+          slug: bizSlug,
           type: bizType,
           templateKey,
           ownerEmail,
@@ -199,7 +202,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
         showSuccess("Бизнес успешно создан!");
         setBizName("");
@@ -207,8 +210,12 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
         setOwnerEmail("");
         setOwnerPassword("");
         
-        if (data.owner?.telegramLinkCode) {
-          setCreatedLinkCode(data.owner.telegramLinkCode);
+        const linkCode = data.sellerLinkCode || data.owner?.telegramLinkCode;
+        if (linkCode) {
+          setCreatedLinkCode(linkCode);
+          setCreatedSellerDeepLink(data.sellerDeepLink || null);
+        } else {
+          showError("Код продавца не создан сервером");
         }
         
         setActiveTab("OVERVIEW");
@@ -216,7 +223,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
         showError(data.error || "Ошибка создания бизнеса");
       }
     } catch (err) {
-      showError("Ошибка связи с сервером");
+      showError("Не удалось связаться с сервером создания бизнеса. Проверьте соединение и попробуйте снова.");
     } finally {
       setFormSubmitting(false);
     }
@@ -355,6 +362,17 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
                   <p className="text-[10px] font-bold text-amber-700 leading-relaxed">
                     Передайте этот код владельцу бизнеса. Он должен отправить его боту в Telegram: <code className="bg-amber-100 px-1.5 py-0.5 rounded font-black text-[11px]">/link {createdLinkCode}</code> для завершения привязки и входа.
                   </p>
+                  {createdSellerDeepLink && (
+                    <a
+                      href={createdSellerDeepLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-600 px-3 py-2 text-[10px] font-black text-white shadow-sm active:scale-95 transition"
+                    >
+                      <ExternalLink size={12} />
+                      Открыть привязку продавца
+                    </a>
+                  )}
                 </div>
               )}
 

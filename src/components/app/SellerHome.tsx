@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { 
   TrendingUp, 
   ShoppingBag, 
@@ -16,7 +17,7 @@ import {
   ClipboardList,
   Calendar,
   Users,
-  ExternalLink,
+  Eye,
   Phone,
   Trash2,
   AlertTriangle,
@@ -24,7 +25,8 @@ import {
   MapPin,
   Check,
   User,
-  Clock
+  Clock,
+  Pencil
 } from "lucide-react";
 import { MediaUpload } from "./MediaUpload";
 import { AiCenter } from "./AiCenter";
@@ -36,6 +38,7 @@ interface SellerHomeProps {
 }
 
 export function SellerHome({ session, businessId }: SellerHomeProps) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<
     "DASHBOARD" | "ORDERS" | "BOOKINGS" | "ITEMS" | "AI" | "CLIENTS" | "MEDIA" | "SETTINGS"
   >("DASHBOARD");
@@ -62,6 +65,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const [newItemDesc, setNewItemDesc] = useState("");
   const [newItemType, setNewItemType] = useState<"PRODUCT" | "SERVICE">("PRODUCT");
   const [newItemImage, setNewItemImage] = useState("");
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
   
   // Category management inside catalog
   const [newCatName, setNewCatName] = useState("");
@@ -84,6 +88,18 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const [orderFilter, setOrderFilter] = useState<string>("ALL");
   const [bookingFilter, setBookingFilter] = useState<string>("ALL");
 
+  const syncBusinessState = (bData: any) => {
+    setBusinessData(bData);
+    setBizName(bData.name || "");
+    setBizDesc(bData.description || "");
+    setBizAddress(bData.address || "");
+    setBizPhone(bData.phone || "");
+    setBizIsOpen(bData.isOpen === undefined ? true : bData.isOpen);
+    setBizLogoUrl(bData.logoUrl || "");
+    setBizCoverUrl(bData.coverImageUrl || "");
+    setBizColor(bData.primaryColor || "#3B82F6");
+  };
+
   useEffect(() => {
     fetchSellerData();
   }, [businessId]);
@@ -92,18 +108,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     setLoading(true);
     try {
       // 1. Fetch Business Profile
-      const bizRes = await miniAppFetch(`/api/businesses/${businessId}`);
+      const bizRes = await miniAppFetch(`/api/admin/current-business?businessId=${encodeURIComponent(businessId)}`);
       if (bizRes.ok) {
         const bData = await bizRes.json();
-        setBusinessData(bData);
-        setBizName(bData.name || "");
-        setBizDesc(bData.description || "");
-        setBizAddress(bData.address || "");
-        setBizPhone(bData.phone || "");
-        setBizIsOpen(bData.isOpen === undefined ? true : bData.isOpen);
-        setBizLogoUrl(bData.logoUrl || "");
-        setBizCoverUrl(bData.coverImageUrl || "");
-        setBizColor(bData.primaryColor || "#3B82F6");
+        syncBusinessState(bData.data || bData);
       }
 
       let fetchedItemsCount = 0;
@@ -170,9 +178,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     if (!newCatName) return;
 
     try {
-      const res = await miniAppFetch(`/api/businesses/${businessId}/categories`, {
+      const res = await miniAppFetch("/api/categories", {
         method: "POST",
         body: JSON.stringify({
+          businessId,
           name: newCatName,
           isActive: true,
         }),
@@ -188,8 +197,29 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         showError(d.error || "Не удалось создать категорию");
       }
     } catch (err) {
-      showError("Ошибка сети");
+      showError("Не удалось создать категорию. Проверьте соединение и попробуйте снова.");
     }
+  };
+
+  const resetItemForm = () => {
+    setEditingItemId(null);
+    setNewItemName("");
+    setNewItemPrice("");
+    setNewItemCategory(categories[0]?.id || "");
+    setNewItemDesc("");
+    setNewItemType("PRODUCT");
+    setNewItemImage("");
+  };
+
+  const startEditItem = (item: any) => {
+    setEditingItemId(item.id);
+    setNewItemName(item.name || "");
+    setNewItemPrice(item.price === undefined || item.price === null ? "" : String(item.price));
+    setNewItemCategory(item.categoryId || item.category?.id || "");
+    setNewItemDesc(item.description || "");
+    setNewItemType(item.type === "SERVICE" ? "SERVICE" : "PRODUCT");
+    setNewItemImage(item.imageUrl || "");
+    setActiveTab("ITEMS");
   };
 
   const handleAddItem = async (e: React.FormEvent) => {
@@ -200,11 +230,11 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     }
 
     try {
-      const res = await miniAppFetch("/api/admin/items", {
-        method: "POST",
+      const res = await miniAppFetch(editingItemId ? `/api/admin/items/${editingItemId}` : "/api/admin/items", {
+        method: editingItemId ? "PATCH" : "POST",
         body: JSON.stringify({
           businessId,
-          categoryId: newItemCategory || undefined,
+          categoryId: newItemCategory || null,
           name: newItemName,
           price: parseFloat(newItemPrice),
           description: newItemDesc,
@@ -215,18 +245,15 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       });
 
       if (res.ok) {
-        showSuccess("Позиция успешно добавлена!");
-        setNewItemName("");
-        setNewItemPrice("");
-        setNewItemDesc("");
-        setNewItemImage("");
+        showSuccess(editingItemId ? "Позиция обновлена!" : "Позиция успешно добавлена!");
+        resetItemForm();
         fetchSellerData();
       } else {
         const rData = await res.json();
-        showError(rData.error || "Не удалось добавить товар");
+        showError(rData.error || (editingItemId ? "Не удалось изменить товар" : "Не удалось добавить товар"));
       }
     } catch (e) {
-      showError("Ошибка соединения с сервером");
+      showError(editingItemId ? "Не удалось изменить товар" : "Ошибка соединения с сервером");
     }
   };
 
@@ -245,7 +272,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         showError("Не удалось удалить товар");
       }
     } catch (err) {
-      showError("Ошибка сети");
+      showError("Не удалось удалить товар. Проверьте соединение и попробуйте снова.");
     }
   };
 
@@ -268,7 +295,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         showError(d.error || "Не удалось обновить статус заказа");
       }
     } catch (err) {
-      showError("Ошибка сети");
+      showError("Не удалось обновить статус заказа. Проверьте соединение и попробуйте снова.");
     }
   };
 
@@ -283,10 +310,11 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         showSuccess("Статус записи изменен!");
         fetchSellerData();
       } else {
-        showError("Не удалось обновить запись");
+        const d = await res.json().catch(() => ({}));
+        showError(d.error || "Не удалось обновить запись");
       }
     } catch (err) {
-      showError("Ошибка сети");
+      showError("Не удалось обновить запись. Проверьте соединение и попробуйте снова.");
     }
   };
 
@@ -306,8 +334,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       });
 
       if (res.ok) {
+        const data = await res.json();
+        if (data?.data) syncBusinessState(data.data);
         showSuccess("Настройки сохранены!");
-        fetchSellerData();
+        await fetchSellerData();
       } else {
         const d = await res.json();
         showError(d.error || "Не удалось обновить настройки");
@@ -331,8 +361,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       });
 
       if (res.ok) {
+        const data = await res.json();
+        if (data?.data) syncBusinessState(data.data);
         showSuccess("Оформление обновлено!");
-        fetchSellerData();
+        await fetchSellerData();
       } else {
         const d = await res.json();
         showError(d.error || "Не удалось сохранить оформление");
@@ -354,7 +386,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
   const openStorefront = () => {
     if (businessData?.slug) {
-      window.open(`/${businessData.slug}/catalog`, "_blank");
+      router.push(`/app/${businessData.slug}`);
     }
   };
 
@@ -386,9 +418,9 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
             <button 
               onClick={openStorefront}
               className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition text-white"
-              title="Открыть витрину"
+              title="Предпросмотр витрины"
             >
-              <ExternalLink size={12} />
+              <Eye size={12} />
             </button>
           </div>
         </div>
@@ -487,7 +519,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                   onClick={openStorefront}
                   className="p-2.5 bg-slate-950 text-white rounded-xl hover:bg-slate-900 transition active:scale-95 flex items-center justify-center gap-1"
                 >
-                  Витрина <ExternalLink size={10} />
+                  Предпросмотр витрины <Eye size={10} />
                 </button>
               </div>
             </div>
@@ -878,12 +910,26 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
             {/* Item add form */}
             <form onSubmit={handleAddItem} className="bg-white rounded-3xl p-5 shadow-sm ring-1 ring-slate-100/80 space-y-3.5">
-              <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">Быстрое добавление</h3>
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">
+                  {editingItemId ? "Редактирование позиции" : "Быстрое добавление"}
+                </h3>
+                {editingItemId && (
+                  <button
+                    type="button"
+                    onClick={resetItemForm}
+                    className="text-[10px] font-black text-slate-400 hover:text-slate-900"
+                  >
+                    Отмена
+                  </button>
+                )}
+              </div>
               
               <div className="space-y-3">
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">ФОТО ТОВАРА</label>
                   <MediaUpload
+                    key={editingItemId || "new-item"}
                     businessId={businessId}
                     type="gallery"
                     initialUrl={newItemImage}
@@ -956,7 +1002,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                   type="submit"
                   className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-950 py-3 text-xs font-black text-white hover:bg-indigo-650 transition"
                 >
-                  <Plus size={14} /> Добавить на витрину
+                  {editingItemId ? <Save size={14} /> : <Plus size={14} />}
+                  {editingItemId ? "Сохранить изменения" : "Добавить на витрину"}
                 </button>
               </div>
             </form>
@@ -973,7 +1020,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                       <div className="flex items-center gap-3">
                         <div className="h-11 w-11 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center text-slate-400">
                           {it.imageUrl ? (
-                            <img src={it.imageUrl} className="h-full w-full object-cover" />
+                            <img src={it.imageUrl} alt={it.name} className="h-full w-full object-cover" />
                           ) : (
                             <ImageIcon size={14} />
                           )}
@@ -988,13 +1035,22 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           )}
                         </div>
                       </div>
-                      <button 
-                        onClick={() => handleDeleteItem(it.id)}
-                        className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 active:scale-95 transition"
-                        title="Удалить"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => startEditItem(it)}
+                          className="p-2 rounded-xl text-indigo-600 hover:bg-indigo-50 active:scale-95 transition"
+                          title="Изменить"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteItem(it.id)}
+                          className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 active:scale-95 transition"
+                          title="Удалить"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}

@@ -20,7 +20,14 @@ export function normalizePlan(name?: string | null): AiPlan {
 export async function getAiRouting(businessId: string) {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
-    include: { subscriptionPlan: true },
+    select: {
+      id: true,
+      aiEnabled: true,
+      aiProvider: true,
+      aiModel: true,
+      aiDailyLimit: true,
+      subscriptionPlan: { select: { name: true } },
+    },
   });
   if (!business || !business.aiEnabled) return null;
 

@@ -73,7 +73,7 @@ export default function MiniAppError({
           {showDetails && (
             <div className="mt-2 rounded-lg bg-slate-950/60 p-3 border border-slate-900 max-h-28 overflow-y-auto">
               <p className="text-red-400 font-mono text-[9px] break-all leading-relaxed whitespace-pre-wrap">
-                {error.message || "Unknown error"}
+                Подробности ошибки записаны в server logs.
               </p>
               {error.digest && (
                 <p className="text-slate-600 font-mono text-[8px] mt-1">

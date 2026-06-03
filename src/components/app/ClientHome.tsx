@@ -69,9 +69,12 @@ export function ClientHome({
       {/* Top Banner */}
       <section className="rounded-b-[32px] bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 px-5 pb-8 pt-6 text-white shadow-xl shadow-slate-950/20">
         <div className="mx-auto max-w-3xl">
-          <div className="mb-4">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">Платформа Mini App</p>
-            <h1 className="text-3xl font-black tracking-tight mt-0.5">SmartBiz AI</h1>
+          <div className="mb-4 flex items-center gap-3">
+            <img src="/logo.svg" alt="" className="h-12 w-12 rounded-2xl shadow-lg shadow-indigo-950/20" />
+            <div>
+              <p className="text-[10px] font-black tracking-[0.2em] text-indigo-400">умные витрины для Telegram</p>
+              <h1 className="text-3xl font-black tracking-tight mt-0.5">Vitrina AI</h1>
+            </div>
           </div>
 
           <label className="flex items-center gap-3 rounded-2xl bg-white/10 px-4 py-3.5 ring-1 ring-white/15 backdrop-blur-md focus-within:ring-white/30 transition">
@@ -131,17 +134,17 @@ export function ClientHome({
             >
               <div className="flex gap-4">
                 <div
-                  className="grid h-18 w-18 shrink-0 place-items-center rounded-2xl text-2xl font-black text-white relative shadow-sm"
+                  className="grid h-[72px] w-[72px] shrink-0 place-items-center rounded-2xl p-1.5 text-2xl font-black text-white relative shadow-sm"
                   style={{
                     background: `linear-gradient(135deg, ${business.primaryColor}, ${business.accentColor})`,
                   }}
                 >
                   {business.logoUrl ? (
-                    <img
-                      src={business.logoUrl}
-                      alt=""
-                      className="h-full w-full rounded-2xl object-cover"
-                    />
+                      <img
+                        src={business.logoUrl}
+                        alt=""
+                        className="h-full w-full rounded-xl bg-white/90 object-cover"
+                      />
                   ) : (
                     business.name[0]
                   )}

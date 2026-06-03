@@ -12,7 +12,7 @@ export async function GET(
   const date = searchParams.get("date") || new Date().toISOString().slice(0, 10);
   const staffId = searchParams.get("staffId") || undefined;
 
-  const business = await prisma.business.findUnique({ where: { slug } });
+  const business = await prisma.business.findUnique({ where: { slug }, select: { id: true, isActive: true } });
   if (!business || !business.isActive) {
     return NextResponse.json({ error: "Бизнес не найден" }, { status: 404 });
   }

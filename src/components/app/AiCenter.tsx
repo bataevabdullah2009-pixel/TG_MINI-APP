@@ -11,16 +11,47 @@ interface AiCenterProps {
   onItemCreated?: () => void;
 }
 
-const AI_TABS = [
+const CORE_AI_TABS = [
   { id: "product_card", label: "Карточка товара", icon: "🛍️", desc: "Умный генератор карточек товаров" },
   { id: "post", label: "TG Пост", icon: "📢", desc: "Продающие посты для Telegram" },
+  { id: "improve", label: "Улучшить текст", icon: "✨", desc: "Сделать текст чистым и цепляющим" },
+];
+
+const ADVANCED_AI_TABS = [
   { id: "promo", label: "Акция", icon: "🔥", desc: "Скидки, комбо и спецпредложения" },
   { id: "ideas", label: "Идеи на неделю", icon: "💡", desc: "7 креативных идей контента" },
   { id: "review_reply", label: "Ответ на отзыв", icon: "💬", desc: "Лояльные ответы клиентам" },
   { id: "broadcast", label: "Рассылка", icon: "✉️", desc: "Анонсы по клиентской базе" },
-  { id: "improve", label: "Улучшить текст", icon: "✨", desc: "Сделать текст чистым и цепляющим" },
   { id: "moderation", label: "Модерация", icon: "🛡️", desc: "Проверить текст на безопасность" },
 ];
+
+const AI_TABS =
+  process.env.NEXT_PUBLIC_ENABLE_ADVANCED_AI === "true"
+    ? [...CORE_AI_TABS, ...ADVANCED_AI_TABS]
+    : CORE_AI_TABS;
+
+function buildMockAiResult(activeSubTab: string, input: { name: string; desc: string; price: string; businessType: string; prompt: string }) {
+  if (activeSubTab === "product_card") {
+    const name = input.name || "Товар";
+    const description = input.desc || `Свежая позиция для витрины ${input.businessType.toLowerCase()}. Подойдет для быстрого заказа в Mini App.`;
+    return {
+      name,
+      price: parseFloat(input.price || "0"),
+      description,
+      telegramPost: `✨ ${name}\n\n${description}\n\nЦена: ${input.price || "0"} ₽\nЗаказывайте прямо в Mini App.`,
+      shortCopy: `${name} за ${input.price || "0"} ₽`,
+      tags: ["новинка", "menu"],
+      hallucinationAlert: "ИИ-провайдер недоступен, использован локальный mock-результат.",
+    };
+  }
+
+  const base = input.prompt || "Текст для клиента";
+  if (activeSubTab === "improve") {
+    return `${base.trim()}\n\nУлучшенная версия: понятно, кратко и с акцентом на пользу для клиента.`;
+  }
+
+  return `✨ ${base.trim()}\n\nОткройте Mini App, выберите товары или услуги и оформите заказ в пару касаний.`;
+}
 
 export function AiCenter({ businessId, businessType, categories, onItemCreated }: AiCenterProps) {
   const [activeSubTab, setActiveSubTab] = useState("product_card");
@@ -116,7 +147,15 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
       }
       showSuccess("Готово!");
     } catch (e: any) {
-      setError(e.message || "Ошибка генерации ИИ");
+      const fallback = buildMockAiResult(activeSubTab, {
+        name: pcName,
+        desc: pcDesc,
+        price: pcPrice,
+        businessType,
+        prompt,
+      });
+      setGeneratedResult(fallback);
+      showSuccess("Готово в mock-режиме");
     } finally {
       setLoading(false);
     }

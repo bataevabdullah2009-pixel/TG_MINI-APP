@@ -90,7 +90,7 @@ export default function AdminLoginPage() {
             </div>
           </div>
           <h1 className="text-3xl font-extrabold text-white tracking-tight">
-            SmartBiz <span className="bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">AI</span>
+            Vitrina <span className="bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">AI</span>
           </h1>
           <p className="text-slate-400 text-sm mt-2">
             Вход в панель управления SaaS-платформы

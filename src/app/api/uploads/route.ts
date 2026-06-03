@@ -1,58 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminSession, jsonError } from "@/lib/admin-auth";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
-import crypto from "crypto";
+import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
+import { prisma } from "@/lib/prisma";
+import { bucketForUploadType, publicUploadErrorMessage, uploadImageToSupabaseStorage } from "@/lib/supabase-storage";
+import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 export async function POST(request: NextRequest) {
   try {
     const session = await getAdminSession(request);
     if (!session) return jsonError("Нужен вход в админку.", 401);
 
-    const formData = await request.formData();
-    const file = formData.get("file") as File | null;
-    if (!file) {
-      return NextResponse.json({ error: "Файл не передан." }, { status: 400 });
-    }
+    const form = await request.formData();
+    const file = form.get("file");
+    const type = String(form.get("type") || "gallery");
+    const businessValue = String(form.get("businessId") || form.get("businessSlug") || session.businessId || "");
 
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    if (!(file instanceof File)) return NextResponse.json({ error: "Файл не передан." }, { status: 400 });
 
-    const size = file.size;
-    const type = file.type;
+    const business = await prisma.business.findFirst({
+      where: { OR: [{ id: businessValue }, { slug: businessValue }] },
+      select: { id: true, slug: true },
+    });
+    if (!business) return jsonError("Бизнес не найден.", 404);
+    if (!canUseBusiness(session, business.id)) return jsonError("Нет доступа к этому бизнесу.", 403);
 
-    const isImage = type.startsWith("image/");
-    const isVideo = type.startsWith("video/");
+    const uploaded = await uploadImageToSupabaseStorage({
+      file,
+      bucket: bucketForUploadType(type),
+      folder: business.slug,
+    });
 
-    if (!isImage && !isVideo) {
-      return NextResponse.json({ error: "Разрешены только изображения и видео." }, { status: 400 });
-    }
-
-    if (isImage && size > 5 * 1024 * 1024) {
-      return NextResponse.json({ error: "Изображение не должно превышать 5MB." }, { status: 400 });
-    }
-
-    if (isVideo && size > 25 * 1024 * 1024) {
-      return NextResponse.json({ error: "Видео не должно превышать 25MB." }, { status: 400 });
-    }
-
-    // Generate safe unique filename
-    const ext = path.extname(file.name) || (isImage ? ".png" : ".mp4");
-    const uniqueName = `${crypto.randomBytes(16).toString("hex")}${ext}`;
-    
-    // Ensure public/uploads directory exists
-    const uploadsDir = path.join(process.cwd(), "public", "uploads");
-    try {
-      await mkdir(uploadsDir, { recursive: true });
-    } catch {}
-
-    const filePath = path.join(uploadsDir, uniqueName);
-    await writeFile(filePath, buffer);
-
-    const fileUrl = `/uploads/${uniqueName}`;
-    return NextResponse.json({ ok: true, url: fileUrl });
+    return NextResponse.json({ ok: true, url: uploaded.publicUrl, publicUrl: uploaded.publicUrl });
   } catch (error: any) {
     console.error("Upload error:", error);
-    return NextResponse.json({ error: error.message || "Ошибка загрузки." }, { status: 500 });
+    if (isBusinessIsDemoMissingColumnError(error)) {
+      warnPrismaSchemaDrift("Upload business lookup failed while Business.isDemo is missing", error);
+    }
+    return NextResponse.json({ error: publicUploadErrorMessage(error) }, { status: 500 });
   }
 }

@@ -114,17 +114,40 @@ export default function MarketplacePage() {
       .then((res) => res.json())
       .then((data) => {
         if (data.error) {
-          setError(data.error);
-        } else if (data.isDbEmpty) {
-          setError("База подключена, но демо-данные не загружены. Пожалуйста, посетите страницу /api/admin/super/seed в браузере для моментальной инициализации базы!");
+          console.warn("[Marketplace] Catalog API returned a fallback response:", data.error);
+        } else if (data.isDbEmpty && data.showTechnicalError) {
+          setError("База подключена, но демо-данные не загружены. Суперадмин может восстановить их в панели управления.");
         }
         setBusinesses(data.businesses || []);
       })
       .catch((err) => {
         console.error("Error loading businesses:", err);
-        setError("Не удалось подключиться к базе данных. Проверьте правильность DATABASE_URL и DIRECT_URL в панели Vercel.");
+        setBusinesses([]);
+        if ((err as any)?.showTechnicalError) {
+          setError("Не удалось подключиться к базе данных. Проверьте правильность DATABASE_URL и DIRECT_URL в панели Vercel.");
+        }
       });
   }, []);
+
+  useEffect(() => {
+    if (!session?.telegramUserId) return undefined;
+
+    let cancelled = false;
+    fetch(`/api/favorites/business?telegramUserId=${encodeURIComponent(session.telegramUserId.toString())}`)
+      .then((res) => res.json())
+      .then((resData) => {
+        if (cancelled || !resData.ok) return;
+
+        const slugs = resData.data?.businessSlugs || [];
+        setFavorites(slugs);
+        localStorage.setItem("favoriteBusinesses", JSON.stringify(slugs));
+      })
+      .catch((err) => console.warn("[Favorites] Could not load business favorites:", err));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.telegramUserId]);
 
   const resolveUserSession = async (initData: string, modeOverride?: string) => {
     setLoading(true);
@@ -158,8 +181,13 @@ export default function MarketplacePage() {
 
       setShowMockLogin(false);
     } catch (e: any) {
-      console.error(e);
-      setError(e.message || "Ошибка авторизации");
+      console.warn("[Telegram session] Profile is unavailable, continuing with catalog:", e);
+      setSession(null);
+      setActiveWorkspaceMode("CUSTOMER");
+      setShowMockLogin(false);
+      if ((e as any)?.showTechnicalError) {
+        setError(e.message || "Ошибка авторизации");
+      }
     } finally {
       setLoading(false);
     }
@@ -204,21 +232,39 @@ export default function MarketplacePage() {
   };
 
   const toggleFavorite = async (slug: string) => {
-    const next = favorites.includes(slug) ? favorites.filter((item) => item !== slug) : [...favorites, slug];
+    const previous = favorites;
+    const isFavorite = favorites.includes(slug);
+    const next = isFavorite ? favorites.filter((item) => item !== slug) : [...favorites, slug];
     setFavorites(next);
     localStorage.setItem("favoriteBusinesses", JSON.stringify(next));
 
     if (session?.telegramUserId) {
       const biz = businesses.find((b) => b.slug === slug);
       if (biz) {
-        await fetch("/api/customers/favorites", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            telegramUserId: session.telegramUserId.toString(),
-            businessId: biz.id,
-          }),
-        });
+        try {
+          const res = await fetch("/api/favorites/business", {
+            method: isFavorite ? "DELETE" : "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              telegramUserId: session.telegramUserId.toString(),
+              businessId: biz.id,
+            }),
+          });
+          const resData = await res.json().catch(() => ({}));
+          if (!res.ok || resData.ok === false) {
+            throw new Error(resData.error || "Не удалось обновить избранное");
+          }
+        } catch (error) {
+          setFavorites(previous);
+          localStorage.setItem("favoriteBusinesses", JSON.stringify(previous));
+          setError("Не удалось обновить избранное. Попробуйте ещё раз.");
+          setTimeout(() => setError(null), 4000);
+        }
+      } else {
+        setFavorites(previous);
+        localStorage.setItem("favoriteBusinesses", JSON.stringify(previous));
+        setError("Бизнес не найден в каталоге.");
+        setTimeout(() => setError(null), 4000);
       }
     }
   };
@@ -227,7 +273,7 @@ export default function MarketplacePage() {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center text-slate-900">
         <div className="animate-spin rounded-full h-9 w-9 border-b-2 border-slate-950 mb-3" />
-        <h4 className="font-extrabold text-sm">SmartBiz AI</h4>
+        <h4 className="font-extrabold text-sm">Vitrina AI</h4>
         <p className="text-xs text-slate-400 mt-1">Авторизация...</p>
       </div>
     );
@@ -287,7 +333,7 @@ export default function MarketplacePage() {
         </div>
 
         <p className="text-center text-[10px] text-slate-600 font-medium">
-          SmartBiz Platform © 2026
+          Vitrina AI © 2026
         </p>
       </main>
     );

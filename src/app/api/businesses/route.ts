@@ -1,6 +1,68 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession, requireRole, canUseBusiness, jsonError } from "@/lib/admin-auth";
+import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+
+const businessListSelect = {
+  id: true,
+  slug: true,
+  name: true,
+  type: true,
+  templateKey: true,
+  description: true,
+  logoUrl: true,
+  coverImageUrl: true,
+  primaryColor: true,
+  secondaryColor: true,
+  backgroundColor: true,
+  accentColor: true,
+  phone: true,
+  email: true,
+  address: true,
+  telegramUrl: true,
+  whatsappUrl: true,
+  instagramUrl: true,
+  telegramBotUsername: true,
+  telegramUsername: true,
+  telegramAdminChatId: true,
+  currency: true,
+  language: true,
+  timezone: true,
+  subscriptionStatus: true,
+  subscriptionPlanId: true,
+  subscriptionStartDate: true,
+  subscriptionEndDate: true,
+  modulesEnabled: true,
+  aiProvider: true,
+  aiModel: true,
+  aiEnabled: true,
+  aiDailyLimit: true,
+  aiMonthlyLimit: true,
+  isActive: true,
+  isOpen: true,
+  ownerId: true,
+  createdAt: true,
+  updatedAt: true,
+  settings: true,
+  _count: {
+    select: {
+      orders: true,
+      customers: true,
+      items: true,
+    },
+  },
+} as const;
+
+function normalizeSlug(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/['"]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80);
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,15 +75,7 @@ export async function GET(request: NextRequest) {
         isActive: true,
         ...(businessId ? { id: businessId } : {}),
       },
-      include: {
-        _count: {
-          select: {
-            orders: true,
-            customers: true,
-            items: true,
-          },
-        },
-      },
+      select: businessListSelect,
       orderBy: { createdAt: "desc" },
       take: limit,
     });
@@ -34,7 +88,11 @@ export async function GET(request: NextRequest) {
     );
   } catch (error) {
     console.error("Error fetching businesses:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    if (isBusinessIsDemoMissingColumnError(error)) {
+      warnPrismaSchemaDrift("Businesses loaded as an empty list while Business.isDemo is missing", error);
+      return NextResponse.json([]);
+    }
+    return NextResponse.json({ error: "Не удалось загрузить список бизнесов." }, { status: 500 });
   }
 }
 
@@ -47,21 +105,30 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { slug, name, type, description, primaryColor, accentColor } = body;
+    if (!name) {
+      return NextResponse.json({ error: "Укажите название бизнеса." }, { status: 400 });
+    }
 
-    const existing = await prisma.business.findUnique({ where: { slug } });
+    const normalizedSlug = normalizeSlug(String(slug || name));
+    if (!normalizedSlug) {
+      return NextResponse.json({ error: "Не удалось сформировать slug. Укажите короткую ссылку латиницей." }, { status: 400 });
+    }
+
+    const existing = await prisma.business.findUnique({ where: { slug: normalizedSlug }, select: { id: true } });
     if (existing) {
-      return NextResponse.json({ error: "Slug already taken" }, { status: 400 });
+      return NextResponse.json({ error: "Такой slug уже занят." }, { status: 400 });
     }
 
     const business = await prisma.business.create({
       data: {
-        slug,
+        slug: normalizedSlug,
         name,
         type: type || "CUSTOM",
         description,
         primaryColor: primaryColor || "#3B82F6",
         accentColor: accentColor || "#FF6347",
       },
+      select: businessListSelect,
     });
 
     return NextResponse.json(
@@ -70,7 +137,10 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     console.error("Error creating business:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    if (isBusinessIsDemoMissingColumnError(error)) {
+      warnPrismaSchemaDrift("Business create failed while Business.isDemo is missing", error);
+    }
+    return NextResponse.json({ error: "Не удалось создать бизнес." }, { status: 500 });
   }
 }
 
@@ -102,6 +172,7 @@ export async function PATCH(request: NextRequest) {
       telegramUsername,
       telegramAdminChatId,
       isActive,
+      isOpen,
       deliveryFee,
       minOrderAmount,
     } = body;
@@ -118,6 +189,7 @@ export async function PATCH(request: NextRequest) {
         ...(telegramUsername !== undefined ? { telegramUsername } : {}),
         ...(telegramAdminChatId !== undefined ? { telegramAdminChatId } : {}),
         ...(isActive !== undefined ? { isActive } : {}),
+        ...(isOpen !== undefined ? { isOpen: Boolean(isOpen) } : {}),
         ...(deliveryFee !== undefined || minOrderAmount !== undefined
           ? {
               settings: {
@@ -129,14 +201,15 @@ export async function PATCH(request: NextRequest) {
             }
           : {}),
       },
-      include: {
-        settings: true,
-      },
+      select: businessListSelect,
     });
 
     return NextResponse.json({ ...updated, telegramAdminChatId: updated.telegramAdminChatId?.toString() || null });
   } catch (error) {
     console.error("PATCH Business error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    if (isBusinessIsDemoMissingColumnError(error)) {
+      warnPrismaSchemaDrift("Business update failed while Business.isDemo is missing", error);
+    }
+    return NextResponse.json({ error: "Не удалось обновить бизнес." }, { status: 500 });
   }
 }

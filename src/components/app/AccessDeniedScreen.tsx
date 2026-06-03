@@ -53,7 +53,7 @@ export function AccessDeniedScreen({
       </div>
 
       <p className="text-center text-[10px] text-slate-600 font-bold tracking-widest uppercase mt-4 relative z-10">
-        SmartBiz Security Shield
+        Vitrina AI Security Shield
       </p>
     </div>
   );

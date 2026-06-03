@@ -2,8 +2,12 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "TelebiznezHub - Telegram Mini App Platform",
-  description: "White-label Telegram Mini App platform for local businesses",
+  title: "Vitrina AI - Telegram Mini App Platform",
+  description: "Vitrina AI Telegram Mini App platform for local businesses",
+  icons: {
+    icon: "/logo.svg",
+    apple: "/icon-192.png",
+  },
 };
 
 export default function RootLayout({

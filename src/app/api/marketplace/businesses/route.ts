@@ -10,6 +10,21 @@ const typeLabels: Record<string, string> = {
   CARWASH: "Автомойка",
 };
 
+const marketplaceBusinessSelect = {
+  id: true,
+  slug: true,
+  name: true,
+  type: true,
+  templateKey: true,
+  description: true,
+  logoUrl: true,
+  address: true,
+  primaryColor: true,
+  accentColor: true,
+  isOpen: true,
+  _count: { select: { orders: true, bookings: true } },
+} as const;
+
 function isSuperAdmin(telegramUserId: string | null) {
   if (!telegramUserId) return false;
   const ids = (process.env.TELEGRAM_SUPER_ADMIN_IDS || "")
@@ -23,44 +38,39 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const telegramUserId = searchParams.get("telegramUserId");
+    const superAdmin = isSuperAdmin(telegramUserId);
 
     const businesses = await prisma.business.findMany({
       where: { isActive: true },
-      select: {
-        id: true,
-        slug: true,
-        name: true,
-        type: true,
-        templateKey: true,
-        description: true,
-        logoUrl: true,
-        address: true,
-        primaryColor: true,
-        accentColor: true,
-        _count: { select: { orders: true, bookings: true } },
-      },
+      select: marketplaceBusinessSelect,
       orderBy: { createdAt: "desc" },
     });
 
     const isDbEmpty = businesses.length === 0;
+    if (businesses.length < 3) {
+      console.warn("[Marketplace] Fewer than 3 active businesses returned.", {
+        count: businesses.length,
+        slugs: businesses.map((business) => business.slug),
+      });
+    }
 
     return NextResponse.json({
-      isSuperAdmin: isSuperAdmin(telegramUserId),
+      isSuperAdmin: superAdmin,
       isDbEmpty,
       businesses: businesses.map((business) => ({
         ...business,
         typeLabel: typeLabels[business.type] || "Бизнес",
         rating: 4.8,
-        isOpen: true,
+        isOpen: business.isOpen,
       })),
-      message: isDbEmpty ? "База подключена, но демо-данные не загружены" : undefined
+      message: isDbEmpty ? "База подключена, но данные не загружены" : undefined,
     });
-  } catch (error: any) {
-    console.error("❌ Database Connection Error in Marketplace:", error);
+  } catch (error) {
+    console.error("Database Connection Error in Marketplace:", error);
     return NextResponse.json({
-      error: "Не удалось подключиться к базе данных. Пожалуйста, проверьте настройки подключения в панели Vercel.",
+      error: "Marketplace catalog is temporarily unavailable.",
       businesses: [],
-      isDbEmpty: true
-    }, { status: 500 });
+      isDbEmpty: true,
+    });
   }
 }

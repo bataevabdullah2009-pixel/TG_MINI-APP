@@ -1,3 +1,5 @@
+import { getAppBaseUrl } from "@/lib/production-url";
+
 export class TelegramBotService {
   private token: string;
   private baseUrl: string;
@@ -31,7 +33,7 @@ export class TelegramBotService {
         const errorText = await response.text();
         console.error(`Telegram API error (${response.status}):`, errorText);
       } else {
-        console.log(`📨 Notification sent to ${chatId}`);
+        console.log(`Telegram notification sent to ${chatId}`);
       }
     } catch (error) {
       console.error(`Failed to send notification to ${chatId}:`, error);
@@ -47,13 +49,13 @@ export class TelegramBotService {
     customerPhone: string
   ) {
     const message = `
-📦 <b>Новый заказ! #${orderNumber}</b>
+<b>Новый заказ! #${orderNumber}</b>
 
 <b>Клиент:</b> ${customerName}
 <b>Телефон:</b> ${customerPhone}
 <b>Сумма:</b> ${totalPrice} RUB
 
-<a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/admin/orders">Открыть в админке</a>
+<a href="${getAppBaseUrl()}/admin/orders">Открыть в админке</a>
     `;
 
     await this.sendNotification(chatId, message);
@@ -68,14 +70,14 @@ export class TelegramBotService {
     time: string
   ) {
     const message = `
-📅 <b>Новая запись!</b>
+<b>Новая запись!</b>
 
 <b>Клиент:</b> ${customerName}
 <b>Телефон:</b> ${customerPhone}
 <b>Услуга:</b> ${serviceName}
 <b>Время:</b> ${time}
 
-<a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/admin/bookings">Открыть в админке</a>
+<a href="${getAppBaseUrl()}/admin/bookings">Открыть в админке</a>
     `;
 
     await this.sendNotification(chatId, message);

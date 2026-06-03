@@ -12,9 +12,15 @@ export async function POST(request: NextRequest) {
     // Query for the user by email, including owned and assigned businesses
     const user = await prisma.user.findUnique({
       where: { email },
-      include: {
-        business: true,
-        ownedBusinesses: true,
+      select: {
+        id: true,
+        email: true,
+        password: true,
+        role: true,
+        businessId: true,
+        isActive: true,
+        business: { select: { id: true, slug: true } },
+        ownedBusinesses: { select: { id: true, slug: true } },
       },
     });
 

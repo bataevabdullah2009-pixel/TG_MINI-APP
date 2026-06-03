@@ -27,6 +27,17 @@ const typeContext: Record<string, string> = {
   CARWASH: "Автомойка: мойка, химчистка, сезонные акции, запись. Не пиши про стрижки или шаурму.",
 };
 
+const aiGenerateBusinessSelect = {
+  id: true,
+  name: true,
+  type: true,
+  phone: true,
+  telegramUsername: true,
+  telegramBotUsername: true,
+  description: true,
+  items: { where: { isAvailable: true }, select: { name: true, price: true, type: true } },
+} as const;
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getAdminSession(request);
@@ -34,10 +45,10 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const business = body.businessId
-      ? await prisma.business.findUnique({ where: { id: body.businessId }, include: { items: { where: { isAvailable: true }, select: { name: true, price: true, type: true } } } })
+      ? await prisma.business.findUnique({ where: { id: body.businessId }, select: aiGenerateBusinessSelect })
       : session.businessId
-        ? await prisma.business.findUnique({ where: { id: session.businessId }, include: { items: { where: { isAvailable: true }, select: { name: true, price: true, type: true } } } })
-        : await prisma.business.findFirst({ where: { isActive: true }, include: { items: { where: { isAvailable: true }, select: { name: true, price: true, type: true } } } });
+        ? await prisma.business.findUnique({ where: { id: session.businessId }, select: aiGenerateBusinessSelect })
+        : await prisma.business.findFirst({ where: { isActive: true }, select: aiGenerateBusinessSelect });
 
     if (!business) return jsonError("Бизнес не найден.", 404);
     if (!canUseBusiness(session, business.id)) return jsonError("Нет доступа к этому бизнесу.", 403);
@@ -163,6 +174,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, content, provider: usedProvider, model: routing.model, estimatedCost });
   } catch (error: any) {
     console.error("POST /api/admin/ai/generate failed:", error);
-    return jsonError(error.message || "Ошибка генерации.", 500);
+    return jsonError("ИИ временно недоступен. Попробуйте позже.", 500);
   }
 }

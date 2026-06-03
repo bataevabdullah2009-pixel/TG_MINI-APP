@@ -79,7 +79,7 @@ export const BUSINESS_TEMPLATES: Record<TemplateKey, BusinessTemplateSeed> = {
     items: [
       { category: "Новинки", name: "Футболка oversize", description: "Плотный хлопок и свободная посадка.", price: 1499, type: "PRODUCT", stock: 45, isPopular: true },
       { category: "Одежда", name: "Куртка со светоотражателями", description: "Водоотталкивающая ткань и яркие детали.", price: 4899, type: "PRODUCT", stock: 12 },
-      { category: "Аксессуары", name: "Кепка SmartBiz", description: "Классическая чёрная кепка с вышивкой.", price: 990, type: "PRODUCT", stock: 80 },
+      { category: "Аксессуары", name: "Кепка Vitrina AI", description: "Классическая чёрная кепка с вышивкой.", price: 990, type: "PRODUCT", stock: 80 },
     ],
   },
   grocery: {
@@ -140,5 +140,6 @@ export function templateKeyFromBusinessType(type: string): TemplateKey {
   if (normalized === "GROCERY") return "grocery";
   if (normalized === "HARDWARE_STORE") return "hardware_store";
   if (normalized === "CARWASH") return "carwash";
-  return "cafe";
+  if (normalized === "CUSTOM" || normalized === "COURSES") return "shop";
+  return "shop";
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getTelegramWebhookUrl } from "@/lib/production-url";
 
 export async function GET(request: NextRequest) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -7,11 +8,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "TELEGRAM_BOT_TOKEN is not configured in environment variables" }, { status: 400 });
   }
 
-  // Determine webhook URL: prefer env variable, fallback to request origin
-  const origin = request.nextUrl.origin;
-  const webhookUrl = process.env.TELEGRAM_WEBHOOK_URL || `${origin}/api/telegram/webhook`;
-
   try {
+    const webhookUrl = getTelegramWebhookUrl();
     console.log(`Setting Telegram webhook to: ${webhookUrl}`);
     const response = await fetch(
       `https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}`

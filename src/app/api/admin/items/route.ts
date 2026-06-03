@@ -2,16 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 
+const adminItemBusinessSelect = {
+  id: true,
+  slug: true,
+  name: true,
+  type: true,
+  templateKey: true,
+} as const;
+
 async function resolveBusiness(request: NextRequest, value?: string | null) {
   const session = await getAdminSession(request);
   if (!session) return { error: jsonError("Нужен вход в админку.", 401) as Response };
 
   const business =
     value
-      ? await prisma.business.findFirst({ where: { OR: [{ id: value }, { slug: value }] } })
+      ? await prisma.business.findFirst({ where: { OR: [{ id: value }, { slug: value }] }, select: adminItemBusinessSelect })
       : session.businessId
-        ? await prisma.business.findUnique({ where: { id: session.businessId } })
-        : await prisma.business.findFirst({ where: { isActive: true } });
+        ? await prisma.business.findUnique({ where: { id: session.businessId }, select: adminItemBusinessSelect })
+        : await prisma.business.findFirst({ where: { isActive: true }, select: adminItemBusinessSelect });
 
   if (!business) return { error: jsonError("Бизнес не найден.", 404) as Response };
   if (!canUseBusiness(session, business.id)) return { error: jsonError("Нет доступа к этому бизнесу.", 403) as Response };
@@ -46,8 +54,14 @@ export async function POST(request: NextRequest) {
     const resolved = await resolveBusiness(request, body.businessId || body.businessSlug);
     if ("error" in resolved) return resolved.error;
 
-    if (!body.name || body.price === undefined || body.price === "") {
+    const itemName = String(body.name || body.title || "").trim();
+    if (!itemName || body.price === undefined || body.price === "") {
       return jsonError("Укажите название и цену.", 400);
+    }
+
+    const price = Number(body.price);
+    if (!Number.isFinite(price) || price < 0) {
+      return jsonError("Укажите корректную цену.", 400);
     }
 
     const rawCategoryId = body.categoryId;
@@ -78,9 +92,9 @@ export async function POST(request: NextRequest) {
         businessId: resolved.business.id,
         categoryId: categoryId,
         type: body.type === "SERVICE" ? "SERVICE" : "PRODUCT",
-        name: String(body.name).trim(),
+        name: itemName,
         description: body.description ? String(body.description).trim() : "",
-        price: Number(body.price || 0),
+        price,
         imageUrl: body.imageUrl || undefined,
         durationMinutes: body.durationMinutes ? Number(body.durationMinutes) : undefined,
         stock: body.stock !== undefined && body.stock !== "" ? Number(body.stock) : undefined,

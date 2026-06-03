@@ -84,6 +84,22 @@ body {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+@keyframes cart-bump {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  45% {
+    transform: translateY(-3px) scale(1.02);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-cart-bump {
+  animation: cart-bump 420ms ease-out;
+}
+
 /* Telegram Mini App Safe Area */
 @supports (padding: max(0px)) {
   body {

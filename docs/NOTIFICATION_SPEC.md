@@ -8,4 +8,4 @@
 - `notifyCustomerOrderStatus(customerId, orderId)`;
 - `notifyCustomerBookingStatus(customerId, bookingId)`.
 
-Уведомления отправляются общим ботом SmartBiz AI, но текст оформлен от имени магазина. Если нужен отдельный отправитель, нужен отдельный bot token на бизнес и тариф BUSINESS.
+Уведомления отправляются общим ботом Vitrina AI, но текст оформлен от имени магазина. Если нужен отдельный отправитель, нужен отдельный bot token на бизнес и тариф BUSINESS.

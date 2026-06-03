@@ -13,7 +13,7 @@ export async function POST(
     return NextResponse.json({ ok: true, storage: "local" });
   }
 
-  const business = await prisma.business.findUnique({ where: { slug } });
+  const business = await prisma.business.findUnique({ where: { slug }, select: { id: true } });
   if (!business) {
     return NextResponse.json({ error: "Бизнес не найден" }, { status: 404 });
   }

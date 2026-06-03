@@ -63,7 +63,7 @@ export default function GlobalError({
             {showDetails && (
               <div className="mt-3 rounded-xl bg-slate-950 p-4 border border-slate-900 max-h-40 overflow-y-auto">
                 <p className="text-red-400 font-mono text-[10px] break-all leading-relaxed whitespace-pre-wrap">
-                  {error.message || "Unknown error"}
+                  Подробности ошибки записаны в server logs.
                 </p>
                 {error.digest && (
                   <p className="text-slate-600 font-mono text-[9px] mt-2">

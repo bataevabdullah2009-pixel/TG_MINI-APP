@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { ClipboardList, Calendar, Search, CheckCircle, RefreshCw, PhoneCall, AlertCircle } from "lucide-react";
+import { ClipboardList, Calendar, Search, CheckCircle, RefreshCw, AlertCircle } from "lucide-react";
 
 interface ManagerWorkPanelProps {
   session: any;
@@ -16,6 +16,7 @@ export function ManagerWorkPanel({ session, businessId }: ManagerWorkPanelProps)
   const [searchQuery, setSearchQuery] = useState("");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchActiveQueues();
@@ -37,19 +38,26 @@ export function ManagerWorkPanel({ session, businessId }: ManagerWorkPanelProps)
 
   const handleUpdateOrderStatus = async (orderId: string, newStatus: string) => {
     setActionLoading(orderId);
+    setError(null);
     try {
-      const res = await fetch(`/api/orders/${orderId}`, {
-        method: "PUT",
+      const res = await fetch(`/api/admin/orders/${orderId}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setSuccess("Статус заказа обновлен!");
         setTimeout(() => setSuccess(null), 3000);
         fetchActiveQueues();
+      } else {
+        setError(data.error || "Не удалось обновить статус заказа.");
+        setTimeout(() => setError(null), 4000);
       }
     } catch (e) {
       console.error(e);
+      setError("Не удалось обновить статус заказа. Проверьте соединение и попробуйте снова.");
+      setTimeout(() => setError(null), 4000);
     } finally {
       setActionLoading(null);
     }
@@ -57,19 +65,26 @@ export function ManagerWorkPanel({ session, businessId }: ManagerWorkPanelProps)
 
   const handleUpdateBookingStatus = async (bookingId: string, newStatus: string) => {
     setActionLoading(bookingId);
+    setError(null);
     try {
       const res = await fetch(`/api/bookings/${bookingId}`, {
-        method: "PUT",
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setSuccess("Запись обновлена!");
         setTimeout(() => setSuccess(null), 3000);
         fetchActiveQueues();
+      } else {
+        setError(data.error || "Не удалось обновить запись.");
+        setTimeout(() => setError(null), 4000);
       }
     } catch (e) {
       console.error(e);
+      setError("Не удалось обновить запись. Проверьте соединение и попробуйте снова.");
+      setTimeout(() => setError(null), 4000);
     } finally {
       setActionLoading(null);
     }
@@ -131,6 +146,13 @@ export function ManagerWorkPanel({ session, businessId }: ManagerWorkPanelProps)
         <div className="fixed top-4 inset-x-4 z-50 flex items-center gap-2 rounded-xl bg-emerald-600 p-3 text-xs font-bold text-white shadow-xl animate-fade-in">
           <CheckCircle size={15} />
           <span>{success}</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="fixed top-4 inset-x-4 z-50 flex items-center gap-2 rounded-xl bg-rose-600 p-3 text-xs font-bold text-white shadow-xl animate-fade-in">
+          <AlertCircle size={15} />
+          <span>{error}</span>
         </div>
       )}
 

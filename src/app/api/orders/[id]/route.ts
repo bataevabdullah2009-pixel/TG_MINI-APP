@@ -14,13 +14,13 @@ export async function GET(
     });
 
     if (!order) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      return NextResponse.json({ error: "Заказ не найден." }, { status: 404 });
     }
 
     return NextResponse.json(order);
   } catch (error) {
     console.error("Error fetching order:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось загрузить заказ." }, { status: 500 });
   }
 }
 
@@ -47,6 +47,6 @@ export async function PATCH(
     return NextResponse.json(order);
   } catch (error) {
     console.error("Error updating order:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось обновить заказ." }, { status: 500 });
   }
 }

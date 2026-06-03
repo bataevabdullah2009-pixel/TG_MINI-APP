@@ -8,15 +8,8 @@ import { AccessDeniedScreen } from "@/components/app/AccessDeniedScreen";
 
 const features = [
   ["post", "Telegram-пост"],
-  ["promo", "Акция"],
-  ["product_description", "Описание товара/услуги"],
-  ["review_reply", "Ответ на отзыв"],
-  ["ideas", "Идеи контента на 7 дней"],
-  ["broadcast", "Текст рассылки"],
-  ["moderation", "Модерация текста"],
+  ["product_description", "Карточка товара"],
   ["improve", "Улучшить текст"],
-  ["business_description", "Описание бизнеса"],
-  ["offer", "Короткий рекламный оффер"],
 ] as const;
 
 const tones = ["спокойный", "продающий", "премиум", "дружелюбный"];
@@ -93,7 +86,20 @@ export default function AdminAIPage() {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || "Не удалось сгенерировать текст.");
-      setResult(data.content || "");
+      setResult(
+        data.content ||
+          JSON.stringify(
+            {
+              title: data.title || data.name || "",
+              description: data.description || "",
+              category: data.category || data.categorySuggestion || "",
+              priceSuggestion: data.priceSuggestion || "",
+              marketingText: data.marketingText || "",
+            },
+            null,
+            2
+          )
+      );
       setProvider(data.provider || provider);
       setModel(data.model || model);
       loadMeta();

@@ -80,6 +80,6 @@ export async function PATCH(
     return NextResponse.json({ ok: true, data: updatedOrder });
   } catch (error: any) {
     console.error("PATCH /api/admin/orders/[id] failed:", error);
-    return jsonError(error.message || "Не удалось обновить статус заказа.", 500);
+    return jsonError("Не удалось обновить статус заказа.", 500);
   }
 }

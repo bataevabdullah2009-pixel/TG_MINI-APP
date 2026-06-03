@@ -10,6 +10,69 @@ const PLAN_IDS: Record<string, string> = {
   BUSINESS: "plan-business",
 };
 
+const cyrillicMap: Record<string, string> = {
+  а: "a",
+  б: "b",
+  в: "v",
+  г: "g",
+  д: "d",
+  е: "e",
+  ё: "e",
+  ж: "zh",
+  з: "z",
+  и: "i",
+  й: "y",
+  к: "k",
+  л: "l",
+  м: "m",
+  н: "n",
+  о: "o",
+  п: "p",
+  р: "r",
+  с: "s",
+  т: "t",
+  у: "u",
+  ф: "f",
+  х: "h",
+  ц: "c",
+  ч: "ch",
+  ш: "sh",
+  щ: "sch",
+  ъ: "",
+  ы: "y",
+  ь: "",
+  э: "e",
+  ю: "yu",
+  я: "ya",
+};
+
+function transliterate(value: string) {
+  return value
+    .split("")
+    .map((char) => cyrillicMap[char.toLowerCase()] ?? char)
+    .join("");
+}
+
+function normalizeSlug(value: string) {
+  return transliterate(value)
+    .toLowerCase()
+    .trim()
+    .replace(/['"]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80);
+}
+
+function resolveTemplateKey(type?: string, templateKey?: string) {
+  const requested = String(templateKey || "").toLowerCase();
+  if (requested && requested in BUSINESS_TEMPLATES) return requested as keyof typeof BUSINESS_TEMPLATES;
+
+  const normalizedType = String(type || "").toUpperCase();
+  if (normalizedType === "CUSTOM" || normalizedType === "COURSES") return "shop";
+  return templateKeyFromBusinessType(normalizedType);
+}
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getAdminSession(request);
@@ -32,29 +95,32 @@ export async function POST(request: NextRequest) {
       aiDailyLimit = "30",
     } = body;
 
-    if (!name || !slug || !type || !ownerEmail || !ownerPassword) {
-      return NextResponse.json({ error: "Required fields are missing" }, { status: 400 });
+    if (!name || !type || !ownerEmail || !ownerPassword) {
+      return NextResponse.json({ error: "Заполните название бизнеса, тип, email и пароль владельца." }, { status: 400 });
     }
 
-    const normalizedSlug = String(slug).toLowerCase().trim().replace(/[^a-z0-9-_]/g, "");
-    const selectedTemplateKey = templateKey || templateKeyFromBusinessType(type);
+    const normalizedSlug = normalizeSlug(String(slug || name));
+    if (!normalizedSlug) {
+      return NextResponse.json({ error: "Не удалось сформировать slug. Укажите короткую ссылку латиницей." }, { status: 400 });
+    }
+    const selectedTemplateKey = resolveTemplateKey(type, templateKey);
     const template = BUSINESS_TEMPLATES[selectedTemplateKey as keyof typeof BUSINESS_TEMPLATES];
 
     if (!template) {
-      return NextResponse.json({ error: "Unknown business template" }, { status: 400 });
+      return NextResponse.json({ error: "Неизвестный шаблон бизнеса." }, { status: 400 });
     }
 
     const [existingSlug, existingEmail] = await Promise.all([
-      prisma.business.findUnique({ where: { slug: normalizedSlug } }),
-      prisma.user.findUnique({ where: { email: ownerEmail } }),
+      prisma.business.findUnique({ where: { slug: normalizedSlug }, select: { id: true } }),
+      prisma.user.findUnique({ where: { email: ownerEmail }, select: { id: true } }),
     ]);
 
     if (existingSlug) {
-      return NextResponse.json({ error: "Slug is already taken" }, { status: 400 });
+      return NextResponse.json({ error: "Такой slug уже занят. Укажите другую короткую ссылку." }, { status: 400 });
     }
 
     if (existingEmail) {
-      return NextResponse.json({ error: "Owner email is already registered" }, { status: 400 });
+      return NextResponse.json({ error: "Этот email уже зарегистрирован. Укажите другой email владельца." }, { status: 400 });
     }
 
     const hashedPassword = await bcrypt.hash(ownerPassword, 10);
@@ -66,7 +132,7 @@ export async function POST(request: NextRequest) {
         data: {
           name,
           slug: normalizedSlug,
-          type: template.businessType,
+          type: String(type).toUpperCase() === "CUSTOM" || String(type).toUpperCase() === "COURSES" ? "CUSTOM" : template.businessType,
           templateKey: template.key,
           description: template.description,
           primaryColor: template.theme.primaryColor,
@@ -96,6 +162,7 @@ export async function POST(request: NextRequest) {
             },
           },
         },
+        select: { id: true, slug: true, name: true },
       });
 
       const linkCode = body.ownerTelegramId 
@@ -118,9 +185,10 @@ export async function POST(request: NextRequest) {
           telegramLinkExpiresAt: linkExpires,
           isActive: true,
         },
+        select: { id: true, email: true, telegramLinkCode: true },
       });
 
-      await tx.business.update({ where: { id: business.id }, data: { ownerId: owner.id } });
+      await tx.business.update({ where: { id: business.id }, data: { ownerId: owner.id }, select: { id: true } });
       await seedTemplateContent(tx, business.id, template.key);
 
       return { business: { ...business, ownerId: owner.id }, owner };
@@ -144,7 +212,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Onboard API error:", error);
-    return NextResponse.json({ error: "Server error while creating business" }, { status: 500 });
+    return NextResponse.json({ error: "Не удалось создать бизнес. Подробности записаны в server logs." }, { status: 500 });
   }
 }
 

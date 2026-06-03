@@ -4,7 +4,7 @@ import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ImagePlus, Plus, RefreshCw, Save, X } from "lucide-react";
+import { AlertCircle, ImagePlus, Pencil, Plus, RefreshCw, Save, X } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { formatPrice } from "@/lib/utils";
 import { AccessDeniedScreen } from "@/components/app/AccessDeniedScreen";
@@ -23,6 +23,7 @@ type Item = {
   description?: string | null;
   price: number;
   imageUrl?: string | null;
+  categoryId?: string | null;
   type: "PRODUCT" | "SERVICE";
   isAvailable: boolean;
   isPopular: boolean;
@@ -76,6 +77,7 @@ export default function AdminItemsPage() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"ALL" | "PRODUCT" | "SERVICE">("ALL");
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [form, setForm] = useState<FormState>(initialForm);
 
   const [aiPrompt, setAiPrompt] = useState("");
@@ -223,6 +225,36 @@ export default function AdminItemsPage() {
     }
   }
 
+  function openCreateModal() {
+    setEditingItem(null);
+    setForm(initialForm);
+    setModalOpen(true);
+  }
+
+  function openEditModal(item: Item) {
+    setEditingItem(item);
+    setForm({
+      type: item.type,
+      name: item.name || "",
+      description: item.description || "",
+      price: String(item.price ?? ""),
+      stock: item.stock === null || item.stock === undefined ? "" : String(item.stock),
+      durationMinutes:
+        item.durationMinutes === null || item.durationMinutes === undefined ? "" : String(item.durationMinutes),
+      isPopular: Boolean(item.isPopular),
+      isAvailable: Boolean(item.isAvailable),
+      imageUrl: item.imageUrl || "",
+      categoryId: item.categoryId || item.category?.id || "",
+    });
+    setModalOpen(true);
+  }
+
+  function closeModal() {
+    setModalOpen(false);
+    setEditingItem(null);
+    setForm(initialForm);
+  }
+
   async function uploadImage(file: File) {
     if (!business) return;
     const formData = new FormData();
@@ -232,26 +264,31 @@ export default function AdminItemsPage() {
     const res = await fetch("/api/admin/media/upload", { method: "POST", body: formData });
     const data = await res.json();
     if (!res.ok || !data.ok) throw new Error(data.error || "Не удалось загрузить фото.");
-    setForm((current) => ({ ...current, imageUrl: data.data.url }));
+    setForm((current) => ({ ...current, imageUrl: data.url || data.imageUrl || data.data?.url || "" }));
   }
 
-  async function createItem(event: FormEvent) {
+  async function saveItem(event: FormEvent) {
     event.preventDefault();
     if (!business) return;
     setSaving(true);
     setError("");
     try {
-      const res = await apiClient.post("/admin/items", {
+      const payload = {
         businessId: business.id,
         ...form,
         price: Number(form.price),
         stock: form.type === "PRODUCT" ? form.stock : "",
         durationMinutes: form.type === "SERVICE" ? form.durationMinutes : "",
-      });
-      setItems((current) => [res.data.data, ...current]);
-      setForm(initialForm);
-      setModalOpen(false);
-      setToast("Сохранено");
+      };
+      const res = editingItem
+        ? await apiClient.patch(`/admin/items/${editingItem.id}`, payload)
+        : await apiClient.post("/admin/items", payload);
+      const saved = res.data.data;
+      setItems((current) =>
+        editingItem ? current.map((entry) => (entry.id === editingItem.id ? saved : entry)) : [saved, ...current]
+      );
+      closeModal();
+      setToast(editingItem ? "Изменения сохранены" : "Сохранено");
       setTimeout(() => setToast(""), 2500);
     } catch (err) {
       setError(apiError(err));
@@ -293,7 +330,7 @@ export default function AdminItemsPage() {
             <button onClick={() => loadItems()} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border bg-white text-slate-600">
               <RefreshCw size={17} />
             </button>
-            <button onClick={() => setModalOpen(true)} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white">
+            <button onClick={openCreateModal} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white">
               <Plus size={17} />
               Добавить
             </button>
@@ -377,6 +414,10 @@ export default function AdminItemsPage() {
                   </div>
                   <p className="line-clamp-2 min-h-10 text-sm text-slate-500">{item.description || "Описание не указано."}</p>
                   <div className="mt-4 flex flex-wrap gap-2">
+                    <button onClick={() => openEditModal(item)} className="inline-flex items-center gap-1 rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">
+                      <Pencil size={13} />
+                      Редактировать
+                    </button>
                     <button onClick={() => toggleItem(item, { isAvailable: !item.isAvailable })} className={`rounded-xl px-3 py-2 text-xs font-bold ${item.isAvailable ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
                       {item.isAvailable ? "Активен" : "Скрыт"}
                     </button>
@@ -393,13 +434,13 @@ export default function AdminItemsPage() {
 
       {modalOpen && (
         <div className="fixed inset-0 z-40 grid place-items-end bg-black/40 p-0 backdrop-blur-sm md:place-items-center md:p-6">
-          <form onSubmit={createItem} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl md:rounded-3xl">
+          <form onSubmit={saveItem} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl md:rounded-3xl">
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <p className="text-sm font-bold text-slate-400">{business?.name}</p>
-                <h2 className="text-xl font-black">Новая позиция</h2>
+                <h2 className="text-xl font-black">{editingItem ? "Редактировать позицию" : "Новая позиция"}</h2>
               </div>
-              <button type="button" onClick={() => setModalOpen(false)} className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100">
+              <button type="button" onClick={closeModal} className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100">
                 <X size={18} />
               </button>
             </div>
@@ -481,7 +522,7 @@ export default function AdminItemsPage() {
 
             <button disabled={saving} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-4 text-sm font-black text-white disabled:opacity-50">
               <Save size={18} />
-              {saving ? "Сохраняем..." : isBookingBusiness ? "Сохранить услугу" : "Сохранить"}
+              {saving ? "Сохраняем..." : editingItem ? "Сохранить изменения" : isBookingBusiness ? "Сохранить услугу" : "Сохранить"}
             </button>
           </form>
         </div>

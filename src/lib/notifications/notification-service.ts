@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { telegramBot } from "@/lib/telegram-bot-service";
+import { getAppBaseUrl } from "@/lib/production-url";
 
 const orderStatusRu: Record<string, string> = {
   NEW: "Новый",
@@ -19,9 +20,15 @@ const bookingStatusRu: Record<string, string> = {
   NO_SHOW: "Не явился",
 };
 
+const notificationBusinessSelect = {
+  id: true,
+  slug: true,
+  name: true,
+  telegramAdminChatId: true,
+} as const;
+
 function adminUrl(path: string) {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  return `${baseUrl}${path}`;
+  return `${getAppBaseUrl()}${path}`;
 }
 
 function formatDateTime(date: Date) {
@@ -38,7 +45,7 @@ export class NotificationService {
   static async notifyBusinessOwnerNewOrder(orderId: string) {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { business: true, items: true },
+      include: { business: { select: notificationBusinessSelect }, items: true },
     });
 
     if (!order) return;
@@ -76,7 +83,7 @@ export class NotificationService {
   static async notifyBusinessOwnerNewBooking(bookingId: string) {
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
-      include: { business: true, service: true, staff: true },
+      include: { business: { select: notificationBusinessSelect }, service: true, staff: true },
     });
 
     if (!booking) return;
@@ -115,7 +122,7 @@ export class NotificationService {
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { business: true, customer: true },
+      include: { business: { select: notificationBusinessSelect }, customer: true },
     });
 
     if (!order?.customer?.telegramUserId) {
@@ -137,7 +144,7 @@ export class NotificationService {
 
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
-      include: { business: true, customer: true },
+      include: { business: { select: notificationBusinessSelect }, customer: true },
     });
 
     if (!booking?.customer?.telegramUserId) {

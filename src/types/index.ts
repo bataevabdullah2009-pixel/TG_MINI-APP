@@ -50,6 +50,7 @@ export interface Business {
   modulesEnabled: string;
   subscriptionStatus?: string;
   isActive: boolean;
+  isOpen: boolean;
   createdAt: Date;
   updatedAt: Date;
   workingHours?: WorkingHours[];

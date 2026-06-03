@@ -1,6 +1,6 @@
 # AGENT
 
-SmartBiz AI - SaaS-маркетплейс Telegram Mini Apps на Next.js, Prisma и SQLite.
+Vitrina AI - SaaS-маркетплейс Telegram Mini Apps на Next.js, Prisma и SQLite.
 
 Правила работы агента:
 - не переписывать проект с нуля;

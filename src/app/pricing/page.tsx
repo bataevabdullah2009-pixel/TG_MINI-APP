@@ -89,7 +89,7 @@ export default function PricingPage() {
           <span className="text-sm font-bold text-slate-300 group-hover:text-white transition">Вернуться на главную</span>
         </Link>
         
-        <span className="text-slate-500 text-xs font-bold font-mono">SmartBiz AI / Pricing</span>
+        <span className="text-slate-500 text-xs font-bold font-mono">Vitrina AI / Pricing</span>
       </header>
 
       {/* Heading */}

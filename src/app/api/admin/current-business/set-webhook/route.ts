@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
+import { getTelegramWebhookUrl } from "@/lib/production-url";
+import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,14 +12,13 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const businessId = body.businessId || session.businessId;
-    const { origin } = body;
 
     if (!businessId) return jsonError("Бизнес не выбран.", 400);
     if (!canUseBusiness(session, businessId)) return jsonError("Нет доступа к этому бизнесу.", 403);
-    if (!origin) return jsonError("Не передан адрес (origin) сайта.", 400);
 
     const business = await prisma.business.findUnique({
-      where: { id: businessId }
+      where: { id: businessId },
+      select: { id: true, name: true, telegramBotToken: true },
     });
 
     if (!business) return jsonError("Бизнес не найден.", 404);
@@ -25,8 +26,8 @@ export async function POST(request: NextRequest) {
       return jsonError("Укажите Токен Telegram-бота в настройках перед подключением.", 400);
     }
 
-    // Webhook URL includes the business ID as a query parameter for routing multi-tenant updates
-    const webhookUrl = `${origin}/api/telegram/webhook?businessId=${business.id}`;
+    // Webhook URL includes the business ID as a query parameter for routing multi-tenant updates.
+    const webhookUrl = getTelegramWebhookUrl({ businessId: business.id });
     
     console.log(`Setting Telegram webhook for business ${business.name} to URL: ${webhookUrl}`);
     
@@ -44,6 +45,9 @@ export async function POST(request: NextRequest) {
     }
   } catch (error: any) {
     console.error("POST /api/admin/current-business/set-webhook failed:", error);
-    return jsonError(error.message || "Не удалось настроить Webhook в Telegram.", 500);
+    if (isBusinessIsDemoMissingColumnError(error)) {
+      warnPrismaSchemaDrift("Set webhook business lookup failed while Business.isDemo is missing", error);
+    }
+    return jsonError("Could not configure Telegram webhook right now.", 500);
   }
 }

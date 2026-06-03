@@ -196,8 +196,8 @@ export default function CheckoutPage() {
         })),
         deliveryType: data.deliveryType,
         comment: data.comment,
-        telegramUserId: user?.id?.toString() || "",
-        username: user?.username || "",
+        telegramUserId: user?.id?.toString(),
+        username: user?.username,
       };
 
       const res = await apiClient.post("/orders", orderData);
@@ -215,7 +215,7 @@ export default function CheckoutPage() {
         tg.HapticFeedback.notificationOccurred("success");
       }
     } catch (err: any) {
-      setError(err?.response?.data?.error || "Ошибка оформления заказа");
+      setError(err?.response?.data?.error || "Не удалось оформить заказ. Проверьте данные и попробуйте снова.");
     } finally {
       setSubmitting(false);
     }

@@ -59,7 +59,7 @@ Prisma requires two separate connection URLs in serverless production settings (
 
 ### 🔹 Telegram Bot Live Setup
 * **TELEGRAM_BOT_TOKEN**: Your production bot token from [@BotFather](https://t.me/BotFather).
-* **TELEGRAM_BOT_USERNAME**: The username of your live bot (e.g., `SmartBizAI`).
+* **TELEGRAM_BOT_USERNAME**: The username of your live bot (e.g., `VitrinaAI_bot`).
 * **TELEGRAM_WEBHOOK_URL**: `https://your-vercel-domain.vercel.app/api/telegram/webhook`
 * After deployment, register the webhook with Telegram by visiting:
   `https://your-vercel-domain.vercel.app/api/telegram/set-webhook`

@@ -1,5 +1,19 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+
+const favoriteBusinessSelect = {
+  id: true,
+  slug: true,
+  name: true,
+  type: true,
+  templateKey: true,
+  description: true,
+  logoUrl: true,
+  address: true,
+  primaryColor: true,
+  accentColor: true,
+} as const;
 
 // GET: Получить все избранные бизнесы и товары пользователя
 export async function GET(req: Request) {
@@ -16,7 +30,7 @@ export async function GET(req: Request) {
     const favoriteBusinesses = await prisma.favoriteBusiness.findMany({
       where: { telegramUserId },
       include: {
-        business: true,
+        business: { select: favoriteBusinessSelect },
       },
     });
 
@@ -24,7 +38,7 @@ export async function GET(req: Request) {
       where: { telegramUserId },
       include: {
         item: true,
-        business: true,
+        business: { select: favoriteBusinessSelect },
       },
     });
 
@@ -38,7 +52,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, data: safeData });
   } catch (e: any) {
     console.error("[favorites GET error]", e);
-    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+    if (isBusinessIsDemoMissingColumnError(e)) {
+      warnPrismaSchemaDrift("Favorites loaded as an empty list while Business.isDemo is missing", e);
+      return NextResponse.json({ ok: true, data: { favoriteBusinesses: [], favoriteItems: [] } });
+    }
+    return NextResponse.json({ ok: false, error: "Favorites are temporarily unavailable." }, { status: 500 });
   }
 }
 
@@ -117,6 +135,6 @@ export async function POST(req: Request) {
     }
   } catch (e: any) {
     console.error("[favorites POST error]", e);
-    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Could not update favorites right now." }, { status: 500 });
   }
 }
