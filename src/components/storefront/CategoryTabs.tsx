@@ -22,4 +22,3 @@ export function CategoryTabs({ categories, activeCategory, onCategoryChange }: C
     </div>
   );
 }
-

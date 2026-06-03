@@ -146,4 +146,3 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Не удалось удалить бизнес из избранного." }, { status: 500 });
   }
 }
-

@@ -34,4 +34,3 @@ export type StorefrontCartLine = {
   item: StorefrontItem;
   quantity: number;
 };
-

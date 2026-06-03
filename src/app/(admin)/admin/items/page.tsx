@@ -4,7 +4,7 @@ import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ImagePlus, Pencil, Plus, RefreshCw, Save, X } from "lucide-react";
+import { AlertCircle, ImagePlus, Pencil, Plus, RefreshCw, Save, Sparkles, Trash2, X } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { formatPrice } from "@/lib/utils";
 import { AccessDeniedScreen } from "@/components/app/AccessDeniedScreen";
@@ -88,37 +88,40 @@ export default function AdminItemsPage() {
     if (!aiPrompt.trim() || !business) return;
     setAiLoading(true);
     setAiError("");
+    setError("");
     try {
-      const textRes = await fetch("/api/ai/generate-content", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          businessId: business.id,
-          prompt: aiPrompt,
-          type: "product_card",
-        }),
+      const currentCategory = categories.find((entry) => entry.id === form.categoryId)?.name || "Основное";
+      const textRes = await apiClient.post("/admin/ai/generate", {
+        businessId: business.id,
+        feature: "product_card",
+        contentType: "product_card",
+        tone: "дружелюбный",
+        prompt: [
+          `Идея товара: ${aiPrompt}`,
+          form.name ? `Текущее название: ${form.name}` : "",
+          form.description ? `Текущее описание: ${form.description}` : "",
+          form.price ? `Цена: ${form.price} ₽` : "",
+          `Категория: ${currentCategory}`,
+          categories.length ? `Существующие категории: ${categories.map((entry) => entry.name).join(", ")}` : "",
+        ].filter(Boolean).join(", "),
       });
-
-      const textData = await textRes.json();
-      if (!textRes.ok || textData.error) {
-        throw new Error(textData.error || "Не удалось сгенерировать текст карточки.");
-      }
-
-      setForm((current) => ({
-        ...current,
-        name: textData.name || aiPrompt,
-        description: textData.description || "",
-      }));
+      const textData = textRes.data;
 
       if (textData.category && categories.length > 0) {
         const foundCategory = categories.find(
-          (c) => c.name.toLowerCase().includes(textData.category.toLowerCase()) || 
+          (c) => c.name.toLowerCase().includes(textData.category.toLowerCase()) ||
                  textData.category.toLowerCase().includes(c.name.toLowerCase())
         );
         if (foundCategory) {
           setForm((current) => ({ ...current, categoryId: foundCategory.id }));
         }
       }
+
+      setForm((current) => ({
+        ...current,
+        name: textData.name || current.name || aiPrompt,
+        description: textData.description || textData.marketingText || current.description,
+      }));
 
       if (textData.imagePrompt) {
         try {
@@ -146,7 +149,7 @@ export default function AdminItemsPage() {
         setTimeout(() => setToast(""), 2500);
       }
     } catch (err: any) {
-      setAiError(err.message || "Ошибка ИИ-генерации.");
+      setAiError(apiError(err));
     } finally {
       setAiLoading(false);
     }
@@ -220,6 +223,45 @@ export default function AdminItemsPage() {
       const res = await apiClient.patch(`/admin/items/${item.id}`, patch);
       const updated = res.data?.data;
       setItems((current) => current.map((entry) => (entry.id === item.id ? updated : entry)));
+    } catch (err) {
+      setError(apiError(err));
+    }
+  }
+
+  async function deleteItem(item: Item) {
+    if (!confirm(`Удалить позицию "${item.name}"? Это действие нельзя отменить.`)) return;
+    setError("");
+    try {
+      await apiClient.delete(`/admin/items/${item.id}`);
+      setItems((current) => current.filter((entry) => entry.id !== item.id));
+      if (editingItem?.id === item.id) closeModal();
+      setToast("Позиция удалена");
+      setTimeout(() => setToast(""), 2500);
+    } catch (err) {
+      setError(apiError(err));
+    }
+  }
+
+  async function deleteCategory(categoryId: string) {
+    const category = categories.find((entry) => entry.id === categoryId);
+    if (!category) return;
+    if (!confirm(`Удалить категорию "${category.name}"? Товары останутся без категории.`)) return;
+    setError("");
+    try {
+      await apiClient.delete(`/categories?id=${categoryId}`);
+      setCategories((current) => current.filter((entry) => entry.id !== categoryId));
+      setItems((current) =>
+        current.map((entry) =>
+          entry.categoryId === categoryId || entry.category?.id === categoryId
+            ? { ...entry, categoryId: null, category: null }
+            : entry
+        )
+      );
+      if (form.categoryId === categoryId) {
+        setForm((current) => ({ ...current, categoryId: "" }));
+      }
+      setToast("Категория удалена");
+      setTimeout(() => setToast(""), 2500);
     } catch (err) {
       setError(apiError(err));
     }
@@ -310,10 +352,10 @@ export default function AdminItemsPage() {
 
   if (isManager) {
     return (
-      <AccessDeniedScreen 
-        backUrl="/admin" 
-        backText="Вернуться в панель" 
-        description="Менеджеры не имеют доступа к добавлению, изменению или удалению товаров и услуг." 
+      <AccessDeniedScreen
+        backUrl="/admin"
+        backText="Вернуться в панель"
+        description="Менеджеры не имеют доступа к добавлению, изменению или удалению товаров и услуг."
       />
     );
   }
@@ -424,6 +466,10 @@ export default function AdminItemsPage() {
                     <button onClick={() => toggleItem(item, { isPopular: !item.isPopular })} className={`rounded-xl px-3 py-2 text-xs font-bold ${item.isPopular ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
                       {item.isPopular ? "Популярный" : "Обычный"}
                     </button>
+                    <button onClick={() => deleteItem(item)} className="inline-flex items-center gap-1 rounded-xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">
+                      <Trash2 size={13} />
+                      Удалить
+                    </button>
                   </div>
                 </div>
               </article>
@@ -450,55 +496,67 @@ export default function AdminItemsPage() {
               <button type="button" onClick={() => setForm({ ...form, type: "SERVICE" })} className={`rounded-xl px-3 py-3 text-sm font-black ${form.type === "SERVICE" ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-700"}`}>Услуга</button>
             </div>
 
-            {/* AI Generator Panel */}
-            <div className="mb-5 p-4 rounded-2xl border border-indigo-100 bg-indigo-50/30">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-sm">✨</span>
-                <h3 className="text-xs font-black text-indigo-950 uppercase tracking-wider">AI-генератор карточки товара</h3>
-              </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Например: Свежий круассан с миндалем"
-                  value={aiPrompt}
-                  onChange={(e) => setAiPrompt(e.target.value)}
-                  className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none focus:border-indigo-400"
-                />
-                <button
-                  type="button"
-                  disabled={aiLoading || !aiPrompt.trim()}
-                  onClick={handleAiGenerate}
-                  className="rounded-xl bg-indigo-600 hover:bg-indigo-750 disabled:bg-indigo-300 text-white font-black text-xs px-4 py-2 transition"
-                >
-                  {aiLoading ? "Генерация..." : "Создать с ИИ"}
-                </button>
-              </div>
-              {aiLoading && (
-                <div className="mt-3 flex items-center gap-2 text-xs font-bold text-indigo-600 animate-pulse">
-                  <div className="h-2 w-2 rounded-full bg-indigo-600 animate-bounce" />
-                  Генерируем текст и изображение...
+            {form.type === "PRODUCT" && (
+              <div className="mb-5 rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4">
+                <div className="mb-2 flex items-center gap-2">
+                  <Sparkles size={16} className="text-indigo-700" />
+                  <h3 className="text-xs font-black uppercase tracking-wider text-indigo-950">AI-генератор карточки товара</h3>
                 </div>
-              )}
-              {aiError && (
-                <p className="text-rose-600 text-[10px] font-bold mt-2">⚠️ {aiError}</p>
-              )}
-            </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Например: Свежий круассан с миндалем"
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                    className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none focus:border-indigo-400"
+                  />
+                  <button
+                    type="button"
+                    disabled={aiLoading || !aiPrompt.trim()}
+                    onClick={handleAiGenerate}
+                    className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-black text-white transition hover:bg-indigo-700 disabled:bg-indigo-300"
+                  >
+                    {aiLoading ? "Генерация..." : "Создать с ИИ"}
+                  </button>
+                </div>
+                {aiLoading && (
+                  <div className="mt-3 flex animate-pulse items-center gap-2 text-xs font-bold text-indigo-600">
+                    <div className="h-2 w-2 animate-bounce rounded-full bg-indigo-600" />
+                    Генерируем текст и изображение...
+                  </div>
+                )}
+                {aiError && (
+                  <p className="mt-2 text-[10px] font-bold text-rose-600">⚠️ {aiError}</p>
+                )}
+              </div>
+            )}
 
             <div className="grid gap-3 md:grid-cols-2">
               <Field label="Название"><input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="field" /></Field>
               <Field label="Цена, ₽"><input required type="number" min="0" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="field" /></Field>
               <Field label={form.type === "SERVICE" ? "Длительность, минут" : "Остаток"}><input type="number" min="0" value={form.type === "SERVICE" ? form.durationMinutes : form.stock} onChange={(e) => setForm({ ...form, [form.type === "SERVICE" ? "durationMinutes" : "stock"]: e.target.value })} className="field" /></Field>
               <Field label="Категория">
-                <select
-                  value={form.categoryId}
-                  onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
-                  className="field cursor-pointer"
-                >
-                  <option value="">Без категории</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                <div className="flex gap-2">
+                  <select
+                    value={form.categoryId}
+                    onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
+                    className="field cursor-pointer"
+                  >
+                    <option value="">Без категории</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => form.categoryId && deleteCategory(form.categoryId)}
+                    disabled={!form.categoryId}
+                    className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-rose-50 text-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    title="Удалить категорию"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </Field>
               <Field label="Описание"><textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="field min-h-28 md:col-span-2" /></Field>
             </div>

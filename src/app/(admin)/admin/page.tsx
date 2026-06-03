@@ -40,6 +40,7 @@ const STATUS_COLORS: Record<string, string> = {
   DELIVERING: "#F59E0B",
   COMPLETED: "#10B981",
   CANCELLED: "#EF4444",
+  EXPIRED: "#64748B",
 };
 
 export default function AdminDashboard() {

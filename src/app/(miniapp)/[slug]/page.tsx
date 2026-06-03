@@ -4,4 +4,3 @@ export default async function LegacyBusinessPage({ params }: { params: Promise<{
   const { slug } = await params;
   redirect(`/app/${slug}`);
 }
-

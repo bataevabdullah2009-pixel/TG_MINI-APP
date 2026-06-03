@@ -65,4 +65,3 @@ export function identityValuesFromSearch(searchParams: URLSearchParams): Favorit
     userId: searchParams.get("userId"),
   };
 }
-

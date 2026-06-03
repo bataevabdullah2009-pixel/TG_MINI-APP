@@ -14,18 +14,18 @@ import { formatPrice } from "@/lib/utils";
 import { useTelegram } from "@/hooks/useTelegram";
 import Link from "next/link";
 import { PhoneVerificationScreen } from "@/components/app/PhoneVerificationScreen";
-import { 
-  User, 
-  Phone, 
-  MapPin, 
-  MessageSquare, 
-  ShieldCheck, 
-  ShieldAlert, 
-  ArrowLeft, 
-  Store, 
-  Truck, 
-  Wallet, 
-  Smartphone, 
+import {
+  User,
+  Phone,
+  MapPin,
+  MessageSquare,
+  ShieldCheck,
+  ShieldAlert,
+  ArrowLeft,
+  Store,
+  Truck,
+  Wallet,
+  Smartphone,
   ShoppingBag,
   CheckCircle2,
   ChevronRight
@@ -55,7 +55,7 @@ export default function CheckoutPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Verification states
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
@@ -104,7 +104,7 @@ export default function CheckoutPage() {
             } else if (profileData.telegramName) {
               setValue("customerName", profileData.telegramName);
             }
-            
+
             if (cust.phone) {
               setValue("customerPhone", cust.phone);
               if (cust.phoneVerified) {
@@ -392,14 +392,14 @@ export default function CheckoutPage() {
 
       <div className="flex-1 max-w-md w-full mx-auto p-4 space-y-4">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          
+
           {/* Order Summary Box */}
           <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
             <div className="flex items-center gap-2">
               <ShoppingBag size={16} className="text-slate-400" />
               <h2 className="text-xs font-black uppercase text-slate-400 tracking-wider">Сводка заказа</h2>
             </div>
-            
+
             <div className="space-y-2.5 max-h-40 overflow-y-auto pr-1 no-scrollbar">
               {cartItems.map((item) => (
                 <div key={item.itemId} className="flex justify-between items-center text-xs font-bold">
@@ -608,7 +608,7 @@ export default function CheckoutPage() {
               {formatPrice(total)}
             </span>
           </div>
-          
+
           {phoneVerified ? (
             <Button
               onClick={handleSubmit(onSubmit)}

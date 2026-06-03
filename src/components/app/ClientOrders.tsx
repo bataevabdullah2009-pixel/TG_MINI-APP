@@ -48,6 +48,8 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
         return { label: "Выполнен", color: "bg-slate-100 text-slate-700 ring-slate-200" };
       case "CANCELLED":
         return { label: "Отменен", color: "bg-rose-50 text-rose-700 ring-rose-200" };
+      case "EXPIRED":
+        return { label: "Истёк", color: "bg-slate-100 text-slate-700 ring-slate-200" };
       default:
         return { label: status, color: "bg-slate-50 text-slate-600 ring-slate-200" };
     }
@@ -63,6 +65,10 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
         return { label: "Выполнен", color: "bg-slate-100 text-slate-700 ring-slate-200" };
       case "CANCELLED":
         return { label: "Отменен", color: "bg-rose-50 text-rose-700 ring-rose-200" };
+      case "EXPIRED":
+        return { label: "Истекла", color: "bg-slate-100 text-slate-700 ring-slate-200" };
+      case "NO_SHOW":
+        return { label: "Клиент не пришёл", color: "bg-rose-50 text-rose-700 ring-rose-200" };
       default:
         return { label: status, color: "bg-slate-50 text-slate-600 ring-slate-200" };
     }

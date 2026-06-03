@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
       // Total order revenue
       prisma.order.aggregate({
         where: {
-          status: { not: "CANCELLED" },
+          status: "COMPLETED",
         },
         _sum: {
           totalPrice: true,

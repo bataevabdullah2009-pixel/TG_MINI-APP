@@ -136,4 +136,3 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Не удалось удалить товар из избранного." }, { status: 500 });
   }
 }
-

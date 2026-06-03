@@ -54,21 +54,44 @@ export class PolzaAIProvider implements AIProvider {
 
   async generateContent(input: any): Promise<string> {
     if (input.contentType === "product_card" || input.contentType === "productCard") {
-      const system = `Ты — профессиональный контент-генератор для интернет-магазинов. Твоя задача — создать карточку товара для бизнеса "${input.businessName}" (${input.businessType}).
-Ты должен вернуть строго валидный JSON объект и больше ничего. Не оборачивай JSON в маркдаун \`\`\`json \`\`\`. Не пиши никаких дополнительных текстов.
-JSON должен строго содержать следующие поля:
-{
-  "name": "Название товара (привлекательное)",
-  "description": "Описание товара (подробное, продающее, 2-3 предложения)",
-  "category": "Название категории (одно слово или короткая фраза, подходящая для группировки)",
-  "marketingText": "Промо-текст для SMM/поста в Telegram (со смайликами, призывом к действию)",
-  "imagePrompt": "Промпт для генерации фото-изображения этого товара на английском языке (детальное описание визуального стиля для Stable Diffusion/Midjourney, professional product photography, clean background, 8k, photorealistic)"
-}`;
-      const user = `Сделай карточку товара по теме: "${input.productOrService || "Новый товар"}". Тон: ${input.tone || "продающий"}.`;
+      const system = [
+        "Ты помогаешь продавцу заполнить карточку товара в Telegram Mini App.",
+        "Верни только валидный JSON без markdown, без пояснений и без code fence.",
+        "Схема строго такая: {\"name\":string,\"description\":string,\"category\":string,\"marketingText\":string,\"imagePrompt\":string}.",
+        "Поле imagePrompt пиши на английском языке для генерации предметного фото.",
+        "Пиши по-русски. Не выдумывай цену и факты, которых нет во входных данных.",
+      ].join(" ");
+      const user = [
+        `Бизнес: ${input.businessName}. Тип бизнеса: ${input.businessType}.`,
+        `Данные товара: ${input.productOrService || "не указаны"}.`,
+        `Тон: ${input.tone || "дружелюбный"}.`,
+        `Категории и ограничения: ${input.goal || "используй только факты из данных"}.`,
+      ].join("\n");
       return this.callAPI(system, user);
     }
+
     const system = `Ты — профессиональный SMM и маркетолог. Напиши контент формата "${input.contentType}" для бизнеса ${input.businessName}. Тон: ${input.tone || "продающий"}.`;
     const user = `Тема: ${input.productOrService || "Общее продвижение"}. Цель: ${input.goal || "Привлечь клиентов"}. Ограничься 700 символами.`;
+    return this.callAPI(system, user);
+  }
+
+  async generateNotice(input: {
+    recipient: "customer" | "seller";
+    event: string;
+    facts: string;
+    fallback: string;
+  }): Promise<string> {
+    const system = [
+      "Ты пишешь короткие сервисные уведомления для Telegram Mini App.",
+      "Не принимай бизнес-решений и не пересчитывай время: сервер уже решил, что событие произошло.",
+      "Верни одно человеческое сообщение на русском, до 220 символов, без markdown.",
+    ].join(" ");
+    const user = [
+      `Получатель: ${input.recipient === "customer" ? "клиент" : "продавец"}.`,
+      `Событие: ${input.event}.`,
+      `Факты от сервера: ${input.facts}.`,
+      `Базовый смысл: ${input.fallback}`,
+    ].join("\n");
     return this.callAPI(system, user);
   }
 

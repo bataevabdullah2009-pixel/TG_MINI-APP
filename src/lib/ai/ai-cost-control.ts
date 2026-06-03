@@ -33,13 +33,23 @@ export async function getAiRouting(businessId: string) {
 
   const plan = normalizePlan(business.subscriptionPlan?.name);
   const limits = planLimits[plan];
-  const preferredProvider = business.aiProvider && business.aiProvider !== "mock" ? business.aiProvider : limits.provider;
+  const envProvider = process.env.AI_PROVIDER?.trim().toLowerCase();
+  const preferredProvider = envProvider || (business.aiProvider && business.aiProvider !== "mock" ? business.aiProvider : limits.provider);
   const hasOpenRouter = Boolean(process.env.OPENROUTER_API_KEY);
   const hasPolza = Boolean(process.env.POLZA_AI_API_KEY);
 
-  let provider = preferredProvider;
-  if (provider === "openrouter" && !hasOpenRouter) provider = plan === "FREE" ? "mock" : "mock";
-  if (provider === "polza" && !hasPolza) provider = hasOpenRouter ? "openrouter" : "mock";
+  const provider = preferredProvider.toLowerCase();
+  const providerConfigured =
+    provider === "mock" ||
+    (provider === "openrouter" && hasOpenRouter) ||
+    (provider === "polza" && hasPolza);
+
+  if (provider === "polza" && !hasPolza) {
+    console.error("[AI Routing] AI_PROVIDER=polza but POLZA_AI_API_KEY is not configured.");
+  }
+  if (provider === "openrouter" && !hasOpenRouter) {
+    console.error("[AI Routing] AI_PROVIDER=openrouter but OPENROUTER_API_KEY is not configured.");
+  }
 
   return {
     business,
@@ -47,8 +57,8 @@ export async function getAiRouting(businessId: string) {
     dailyLimit: business.aiDailyLimit || limits.daily,
     maxTokens: limits.maxTokens,
     provider,
-    model: business.aiModel || limits.model,
-    providerConfigured: provider === "mock" || (provider === "openrouter" && hasOpenRouter) || (provider === "polza" && hasPolza),
+    model: business.aiModel || (provider === "polza" ? process.env.POLZA_TEXT_MODEL || "z-ai/glm-4.7-flash" : limits.model),
+    providerConfigured,
   };
 }
 

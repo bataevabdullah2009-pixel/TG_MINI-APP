@@ -17,26 +17,32 @@ interface Booking {
   endTime: string;
   status: string;
   comment?: string;
+  expiredAt?: string | null;
+  expireReason?: string | null;
   service?: { id: string; name: string; price: number; durationMinutes?: number };
   staff?: { id: string; name: string };
   business?: { name: string; slug: string };
 }
 
-const BOOKING_STATUSES = ["NEW", "CONFIRMED", "COMPLETED", "CANCELLED", "NO_SHOW"];
+const BOOKING_STATUSES = ["PENDING", "NEW", "CONFIRMED", "COMPLETED", "CANCELLED", "EXPIRED", "NO_SHOW"];
 
 const STATUS_COLORS: Record<string, string> = {
+  PENDING: "#64748B",
   NEW: "#3B82F6",
   CONFIRMED: "#10B981",
   COMPLETED: "#6B7280",
   CANCELLED: "#EF4444",
+  EXPIRED: "#64748B",
   NO_SHOW: "#9CA3AF",
 };
 
 const STATUS_NEXT: Record<string, string[]> = {
+  PENDING: ["CONFIRMED", "CANCELLED"],
   NEW: ["CONFIRMED", "CANCELLED"],
   CONFIRMED: ["COMPLETED", "CANCELLED", "NO_SHOW"],
   COMPLETED: [],
   CANCELLED: [],
+  EXPIRED: [],
   NO_SHOW: [],
 };
 
@@ -100,7 +106,7 @@ export default function AdminBookingsPage() {
 
   const stats = {
     total: bookings.length,
-    new: bookings.filter((b) => b.status === "NEW").length,
+    new: bookings.filter((b) => b.status === "PENDING" || b.status === "NEW").length,
     confirmed: bookings.filter((b) => b.status === "CONFIRMED").length,
     today: bookings.filter((b) => b.startTime.startsWith(new Date().toISOString().split("T")[0])).length,
   };
@@ -368,6 +374,14 @@ export default function AdminBookingsPage() {
                     <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                       <p className="text-xs text-muted-foreground mb-1">Комментарий</p>
                       <p className="text-sm">{selectedBooking.comment}</p>
+                    </div>
+                  )}
+                  {(selectedBooking.status === "EXPIRED" || selectedBooking.status === "NO_SHOW") && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                      <p className="text-xs text-muted-foreground mb-1">
+                        {selectedBooking.status === "NO_SHOW" ? "Клиент не пришёл" : "Истекла"}
+                      </p>
+                      <p className="text-sm">{selectedBooking.expireReason || "Запись автоматически снята."}</p>
                     </div>
                   )}
                 </div>

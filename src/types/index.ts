@@ -3,9 +3,9 @@ export type Role = "SUPER_ADMIN" | "BUSINESS_OWNER" | "MANAGER" | "CUSTOMER";
 
 export type BusinessType = "CAFE" | "BARBERSHOP" | "CARWASH" | "SHOP" | "COURSES" | "CUSTOM";
 
-export type OrderStatus = "NEW" | "ACCEPTED" | "PREPARING" | "READY" | "DELIVERING" | "COMPLETED" | "CANCELLED";
+export type OrderStatus = "NEW" | "ACCEPTED" | "PREPARING" | "READY" | "DELIVERING" | "COMPLETED" | "CANCELLED" | "EXPIRED";
 
-export type BookingStatus = "NEW" | "CONFIRMED" | "COMPLETED" | "CANCELLED" | "NO_SHOW";
+export type BookingStatus = "PENDING" | "NEW" | "CONFIRMED" | "COMPLETED" | "CANCELLED" | "EXPIRED" | "NO_SHOW";
 
 export type ItemType = "PRODUCT" | "SERVICE";
 
@@ -165,6 +165,8 @@ export interface Order {
   deliveryType: "DELIVERY" | "PICKUP" | "NONE";
   comment: string | null;
   internalNotes?: string | null;
+  expiredAt?: Date | null;
+  expireReason?: string | null;
   items?: OrderItem[];
   createdAt: Date;
   updatedAt: Date;
@@ -194,6 +196,8 @@ export interface Booking {
   status: BookingStatus;
   comment: string | null;
   internalNotes?: string | null;
+  expiredAt?: Date | null;
+  expireReason?: string | null;
   reminderSent: boolean;
   createdAt: Date;
   updatedAt: Date;

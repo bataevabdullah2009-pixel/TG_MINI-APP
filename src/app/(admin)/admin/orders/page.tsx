@@ -17,11 +17,13 @@ interface Order {
   status: string;
   deliveryType: string;
   createdAt: string;
+  expiredAt?: string | null;
+  expireReason?: string | null;
   items: Array<{ name: string; quantity: number }>;
   business?: { name: string; slug: string };
 }
 
-const ORDER_STATUSES = ["NEW", "ACCEPTED", "PREPARING", "READY", "DELIVERING", "COMPLETED", "CANCELLED"];
+const ORDER_STATUSES = ["NEW", "ACCEPTED", "PREPARING", "READY", "DELIVERING", "COMPLETED", "CANCELLED", "EXPIRED"];
 
 const STATUS_COLORS: Record<string, string> = {
   NEW: "#3B82F6",
@@ -31,6 +33,7 @@ const STATUS_COLORS: Record<string, string> = {
   DELIVERING: "#F59E0B",
   COMPLETED: "#10B981",
   CANCELLED: "#EF4444",
+  EXPIRED: "#64748B",
 };
 
 export default function AdminOrdersPage() {
@@ -92,7 +95,7 @@ export default function AdminOrdersPage() {
     new: orders.filter((o) => o.status === "NEW").length,
     inProgress: orders.filter((o) => ["ACCEPTED", "PREPARING", "READY", "DELIVERING"].includes(o.status)).length,
     completed: orders.filter((o) => o.status === "COMPLETED").length,
-    revenue: orders.filter((o) => o.status !== "CANCELLED").reduce((sum, o) => sum + o.totalPrice, 0),
+    revenue: orders.filter((o) => o.status === "COMPLETED").reduce((sum, o) => sum + o.totalPrice, 0),
   };
 
   if (loading) {
@@ -301,6 +304,14 @@ export default function AdminOrdersPage() {
                     <span className="text-muted-foreground">Дата</span>
                     <span className="text-xs">{formatDateTime(selectedOrder.createdAt)}</span>
                   </div>
+                  {selectedOrder.status === "EXPIRED" && (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs font-medium text-slate-500">Истёк</p>
+                      <p className="text-sm font-semibold text-slate-700">
+                        {selectedOrder.expireReason || "Заказ автоматически истёк."}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Status Update */}

@@ -73,6 +73,11 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=""
 SUPABASE_SERVICE_ROLE_KEY=""
 JWT_SECRET=""
 ENCRYPTION_SECRET=""
+CRON_SECRET=""
+AI_PROVIDER="polza"
+POLZA_AI_API_KEY=""
+POLZA_BASE_URL="https://polza.ai/api/v1"
+POLZA_TEXT_MODEL="z-ai/glm-4.7-flash"
 ```
 
 ## 4. Telegram BotFather setup
@@ -131,7 +136,31 @@ NEXT_PUBLIC_APP_URL + /app/[businessSlug]
 
 Keep route structure stable. Do not change Mini App routes during deployment hotfixes.
 
-## 7. Release checks
+## 7. Scheduled expiration
+
+Create a Vercel Cron Job or external scheduler for:
+
+```text
+https://your-vercel-domain.vercel.app/api/cron/expire
+```
+
+Authorize the request with one of:
+
+```text
+Authorization: Bearer CRON_SECRET
+```
+
+or:
+
+```text
+https://your-vercel-domain.vercel.app/api/cron/expire?secret=CRON_SECRET
+```
+
+The endpoint expires:
+- bookings that are still `PENDING`, `NEW` or `CONFIRMED` 5+ minutes after `startTime`;
+- pickup orders that are not `COMPLETED`, `CANCELLED` or `EXPIRED` 24+ hours after `createdAt`.
+
+## 8. Release checks
 
 Run locally or in CI before final deploy:
 
@@ -151,7 +180,7 @@ Manual QA:
 - Check Telegram bot opens the Vercel Mini App URL.
 - Check Supabase production logs for raw Prisma errors.
 
-## 8. Rollback
+## 9. Rollback
 
 If deploy breaks production:
 - Roll back Vercel deployment first.

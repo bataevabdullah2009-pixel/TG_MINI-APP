@@ -7,24 +7,29 @@ import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 
 export function getAIProviderConfig(providerName?: string, modelName?: string): AIProvider {
-  const provider = providerName || process.env.AI_PROVIDER || "mock";
+  const provider = (process.env.AI_PROVIDER || providerName || "mock").toLowerCase();
+
+  if (provider === "mock") {
+    return new MockAIProvider();
+  }
 
   if (provider === "openrouter") {
     const key = process.env.OPENROUTER_API_KEY;
     if (key) return new OpenRouterProvider(key, modelName);
-    console.warn("⚠️ [AI Service] 'openrouter' was selected but OPENROUTER_API_KEY is not defined. Falling back to 'mock' provider.");
+    console.error("[AI Service] 'openrouter' was selected but OPENROUTER_API_KEY is not defined.");
+    throw new Error("OpenRouter API key is not configured.");
   }
 
   if (provider === "polza") {
     const key = process.env.POLZA_AI_API_KEY;
     if (!key) {
-      throw new Error("API-ключ Polza AI (POLZA_AI_API_KEY) отсутствует в конфигурации сервера. Пожалуйста, настройте его в .env файле.");
+      console.error("[AI Service] 'polza' was selected but POLZA_AI_API_KEY is not defined.");
+      throw new Error("Polza AI API key is not configured.");
     }
     return new PolzaAIProvider(key, modelName);
   }
 
-  // Fallback to mock if keys are missing or provider is mock
-  return new MockAIProvider();
+  throw new Error(`Unsupported AI provider: ${provider}`);
 }
 
 async function checkCache(businessId: string, feature: string, promptHash: string) {
