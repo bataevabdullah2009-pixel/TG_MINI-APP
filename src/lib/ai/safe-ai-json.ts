@@ -45,8 +45,25 @@ export function safeParseAiJson<T>(
   validate: (value: unknown) => T
 ): T {
   const jsonText = extractAiJsonObject(raw);
-  const parsed = JSON.parse(jsonText);
-  return validate(parsed);
+  const candidates = [
+    jsonText,
+    jsonText
+      .replace(/[“”]/g, "\"")
+      .replace(/[‘’]/g, "'")
+      .replace(/,\s*([}\]])/g, "$1")
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ""),
+  ];
+
+  let lastError: unknown;
+  for (const candidate of Array.from(new Set(candidates))) {
+    try {
+      return validate(JSON.parse(candidate));
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("AI JSON repair parse failed.");
 }
 
 function requiredString(value: unknown, field: string) {
@@ -57,14 +74,18 @@ function requiredString(value: unknown, field: string) {
 }
 
 export function validateProductCardJson(value: unknown): ProductCardJson {
-  const input = value as Partial<ProductCardJson>;
+  const input = value as Partial<ProductCardJson> & {
+    categorySuggestion?: unknown;
+    marketing?: unknown;
+    image_prompt?: unknown;
+  };
 
   return {
     name: requiredString(input.name, "name"),
     description: requiredString(input.description, "description"),
-    category: requiredString(input.category, "category"),
-    marketingText: requiredString(input.marketingText, "marketingText"),
-    imagePrompt: requiredString(input.imagePrompt, "imagePrompt"),
+    category: requiredString(input.category ?? input.categorySuggestion, "category"),
+    marketingText: requiredString(input.marketingText ?? input.marketing, "marketingText"),
+    imagePrompt: requiredString(input.imagePrompt ?? input.image_prompt, "imagePrompt"),
   };
 }
 

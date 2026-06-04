@@ -2,6 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTelegramSessionUser } from "@/lib/auth-telegram";
 import { prisma } from "@/lib/prisma";
 import { normalizeRuPhone } from "@/lib/phone/phone-utils";
+import { classifyDatabaseError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+
+async function resolveBusinessId(value: string) {
+  if (!value) return undefined;
+  const business = await prisma.business.findFirst({
+    where: {
+      OR: [
+        { id: value },
+        { slug: value },
+        { slug: { equals: value, mode: "insensitive" } },
+      ],
+    },
+    select: { id: true },
+  });
+  return business?.id;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,16 +26,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ ok: false, error: "Init data missing" }, { status: 401 });
     }
 
-    const { searchParams } = new URL(request.url);
-    const businessSlug = searchParams.get("businessSlug") || "";
-
-    let businessId = undefined;
-    if (businessSlug) {
-      const biz = await prisma.business.findUnique({ where: { slug: businessSlug }, select: { id: true } });
-      businessId = biz?.id;
-    }
-
+    const businessSlug = new URL(request.url).searchParams.get("businessSlug") || "";
+    const businessId = await resolveBusinessId(businessSlug);
     const session = await getTelegramSessionUser(initData, businessId);
+
     if (!session || !session.customer) {
       return NextResponse.json({ ok: false, error: "Not authorized" }, { status: 401 });
     }
@@ -33,9 +43,13 @@ export async function GET(request: NextRequest) {
       telegramName: session.name,
       telegramUsername: session.username,
     });
-  } catch (error: any) {
-    console.error("GET /api/customer/profile failed:", error);
-    return NextResponse.json({ ok: false, error: "Profile is temporarily unavailable." }, { status: 503 });
+  } catch (error) {
+    const classification = classifyDatabaseError(error);
+    warnPrismaSchemaDrift("GET /api/customer/profile failed", error);
+    return NextResponse.json(
+      { ok: false, code: classification.code, error: "Профиль временно недоступен. Причина записана в server logs." },
+      { status: 503 }
+    );
   }
 }
 
@@ -48,14 +62,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { businessSlug, phone, name, address } = body;
-
-    let businessId = undefined;
-    if (businessSlug) {
-      const biz = await prisma.business.findUnique({ where: { slug: businessSlug }, select: { id: true } });
-      businessId = biz?.id;
-    }
-
+    const businessId = await resolveBusinessId(String(businessSlug || ""));
     const session = await getTelegramSessionUser(initData, businessId);
+
     if (!session || !session.customer) {
       return NextResponse.json({ ok: false, error: "Not authorized" }, { status: 401 });
     }
@@ -98,8 +107,12 @@ export async function POST(request: NextRequest) {
         telegramUserId: updatedCustomer.telegramUserId.toString(),
       },
     });
-  } catch (error: any) {
-    console.error("POST /api/customer/profile failed:", error);
-    return NextResponse.json({ ok: false, error: "Profile is temporarily unavailable." }, { status: 503 });
+  } catch (error) {
+    const classification = classifyDatabaseError(error);
+    warnPrismaSchemaDrift("POST /api/customer/profile failed", error);
+    return NextResponse.json(
+      { ok: false, code: classification.code, error: "Профиль временно недоступен. Причина записана в server logs." },
+      { status: 503 }
+    );
   }
 }

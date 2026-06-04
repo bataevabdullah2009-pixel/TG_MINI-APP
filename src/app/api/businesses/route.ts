@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession, requireRole, canUseBusiness, jsonError } from "@/lib/admin-auth";
-import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { classifyDatabaseError, isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 const businessListSelect = {
   id: true,
@@ -89,10 +89,10 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error fetching businesses:", error);
     if (isBusinessIsDemoMissingColumnError(error)) {
-      warnPrismaSchemaDrift("Businesses loaded as an empty list while Business.isDemo is missing", error);
-      return NextResponse.json([]);
+      warnPrismaSchemaDrift("Businesses query failed while Business.isDemo is missing", error);
     }
-    return NextResponse.json({ error: "Не удалось загрузить список бизнесов." }, { status: 500 });
+    const classification = classifyDatabaseError(error);
+    return NextResponse.json({ code: classification.code, error: "Не удалось загрузить список бизнесов." }, { status: 503 });
   }
 }
 

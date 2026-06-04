@@ -24,4 +24,10 @@ export interface AIProvider {
     productFeatures?: string;
     tone?: string;
   }): Promise<string>;
+
+  generateStrictJson?(input: {
+    system: string;
+    user: string;
+    model?: string;
+  }): Promise<string>;
 }

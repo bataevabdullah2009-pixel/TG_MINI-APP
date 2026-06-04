@@ -5,6 +5,46 @@ type PolzaMessage =
   | { role: "system" | "user"; content: string }
   | { role: "user"; content: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> };
 
+type PolzaResponse = {
+  choices?: Array<{
+    text?: unknown;
+    finish_reason?: unknown;
+    message?: {
+      content?: unknown;
+    };
+  }>;
+};
+
+function extractContentPart(part: unknown): string {
+  if (typeof part === "string") return part;
+  if (!part || typeof part !== "object") return "";
+
+  const value = part as { text?: unknown; content?: unknown };
+  if (typeof value.text === "string") return value.text;
+  if (typeof value.content === "string") return value.content;
+  return "";
+}
+
+export function extractPolzaText(data: PolzaResponse): string {
+  const choice = data.choices?.[0];
+  const content = choice?.message?.content;
+
+  if (typeof content === "string" && content.trim()) return content.trim();
+  if (Array.isArray(content)) {
+    const combined = content.map(extractContentPart).filter(Boolean).join("\n").trim();
+    if (combined) return combined;
+  }
+  if (typeof choice?.text === "string" && choice.text.trim()) return choice.text.trim();
+
+  console.error("[POLZA AI ERROR] Empty response content", {
+    choicesCount: data.choices?.length || 0,
+    choiceKeys: choice ? Object.keys(choice) : [],
+    messageKeys: choice?.message ? Object.keys(choice.message) : [],
+    finishReason: choice?.finish_reason,
+  });
+  throw new Error("Polza AI returned an empty response");
+}
+
 export function getPolzaChatEndpoint() {
   const chatUrl = process.env.POLZA_CHAT_BASE_URL?.trim();
   if (chatUrl) return chatUrl;
@@ -35,7 +75,13 @@ export class PolzaAIProvider implements AIProvider {
   private async callAPI(
     system: string,
     user: string,
-    options: { maxTokens?: number; temperature?: number; model?: string; messages?: PolzaMessage[] } = {}
+    options: {
+      maxTokens?: number;
+      temperature?: number;
+      model?: string;
+      messages?: PolzaMessage[];
+      responseFormat?: { type: "json_object" };
+    } = {}
   ): Promise<string> {
     if (!this.apiKey) {
       console.error("[AI CONFIG ERROR] POLZA_AI_API_KEY missing");
@@ -52,33 +98,58 @@ export class PolzaAIProvider implements AIProvider {
       { role: "user" as const, content: enforcePromptLength(user) },
     ];
 
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        max_tokens: maxTokens,
-        temperature,
-      }),
-    });
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            max_tokens: maxTokens,
+            temperature,
+            reasoning: {
+              enabled: false,
+              exclude: true,
+            },
+            ...(options.responseFormat ? { response_format: options.responseFormat } : {}),
+          }),
+          signal: AbortSignal.timeout(45_000),
+        });
 
-    if (!res.ok) {
-      const errorText = await res.text();
-      console.error("[POLZA AI ERROR]", {
-        status: res.status,
-        responseText: errorText,
-        model,
-        endpoint,
-      });
-      throw new Error("Polza AI API request failed");
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error("[POLZA AI ERROR]", {
+            status: res.status,
+            responsePreview: errorText.slice(0, 500),
+            model,
+            endpoint,
+            attempt,
+          });
+          throw new Error(`Polza AI API request failed with status ${res.status}`);
+        }
+
+        const data = (await res.json()) as PolzaResponse;
+        return extractPolzaText(data);
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2) {
+          console.warn("[POLZA AI RETRY]", {
+            model,
+            endpoint,
+            attempt,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+          await new Promise((resolve) => setTimeout(resolve, 750));
+        }
+      }
     }
 
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || "";
+    throw lastError instanceof Error ? lastError : new Error("Polza AI API request failed");
   }
 
   async generateFAQAnswer(input: any): Promise<string> {
@@ -109,7 +180,11 @@ export class PolzaAIProvider implements AIProvider {
         `Тон: ${input.tone || "дружелюбный"}.`,
         `Категории и ограничения: ${input.goal || "используй только факты из данных"}.`,
       ].join("\n");
-      return this.callAPI(system, user, { maxTokens: 1200, temperature: 0.3 });
+      return this.callAPI(system, user, {
+        maxTokens: 1200,
+        temperature: 0.3,
+        responseFormat: { type: "json_object" },
+      });
     }
 
     const system = `Ты профессиональный SMM и маркетолог. Напиши контент формата "${input.contentType}" для бизнеса ${input.businessName}. Тон: ${input.tone || "продающий"}.`;
@@ -167,6 +242,7 @@ export class PolzaAIProvider implements AIProvider {
       model: input.model || this.model,
       maxTokens: 1200,
       temperature: 0.1,
+      responseFormat: { type: "json_object" },
     });
   }
 

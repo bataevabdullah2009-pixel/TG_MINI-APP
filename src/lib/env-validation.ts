@@ -34,15 +34,30 @@ export function validateEnv() {
     );
   }
   if (aiProvider === "polza" && !process.env.POLZA_AI_API_KEY) {
-    console.warn(
-      `⚠️ [AI CONFIG WARNING] AI_PROVIDER is set to 'polza', but 'POLZA_AI_API_KEY' is missing. AI content generation will return an error until the key is configured.`
+    console.error(
+      `[AI CONFIG ERROR] AI_PROVIDER=polza but POLZA_AI_API_KEY is missing. Mock fallback is disabled.`
     );
   }
 
-  // App domain configuration check
+  if (process.env.NODE_ENV === "production") {
+    const expectedProductionVars = [
+      "NEXT_PUBLIC_APP_URL",
+      "NEXT_PUBLIC_WEBAPP_URL",
+      "TELEGRAM_WEBHOOK_URL",
+      "DIRECT_URL",
+      "AI_PROVIDER",
+      "POLZA_TEXT_MODEL",
+      "POLZA_VISION_MODEL",
+    ];
+    const missingProductionVars = expectedProductionVars.filter((name) => !process.env[name]);
+    if (missingProductionVars.length > 0) {
+      console.error(`[ENV CONFIG ERROR] Missing production variables: ${missingProductionVars.join(", ")}`);
+    }
+  }
+
   if (!process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_WEBAPP_URL) {
     console.warn(
-      `⚠️ [URL CONFIG WARNING] Neither 'NEXT_PUBLIC_APP_URL' nor 'NEXT_PUBLIC_WEBAPP_URL' is configured. Webhook and redirection services will fallback to 'https://tg-mini-app-two-ruby.vercel.app'.`
+      `[URL CONFIG ERROR] Neither NEXT_PUBLIC_APP_URL nor NEXT_PUBLIC_WEBAPP_URL is configured.`
     );
   }
 }

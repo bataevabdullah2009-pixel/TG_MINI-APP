@@ -29,7 +29,7 @@ const typeContext: Record<string, string> = {
   CARWASH: "Автомойка: мойка, химчистка, сезонные акции, запись. Не пиши про стрижки или шаурму.",
 };
 
-const PRODUCT_CARD_FORMAT_ERROR = "ИИ вернул неверный формат. Попробуйте ещё раз.";
+const PRODUCT_CARD_FORMAT_ERROR = "Polza AI не удалось преобразовать ответ в карточку товара. Уточните название и характеристики, затем повторите.";
 
 type ProductCard = {
   name: string;
@@ -178,17 +178,28 @@ export async function POST(request: NextRequest) {
         });
 
         try {
-          repairedContent = await provider.generateContent({
-            ...input,
-            productOrService: [
-              "Исправь этот ответ в валидный JSON строго по схеме:",
-              "{\"name\":\"string\",\"description\":\"string\",\"category\":\"string\",\"marketingText\":\"string\",\"imagePrompt\":\"string\"}",
-              "Верни только JSON без markdown и пояснений.",
-              "",
-              "Исходный ответ:",
-              content,
-            ].join("\n"),
-          });
+          repairedContent = provider.generateStrictJson
+            ? await provider.generateStrictJson({
+                system: "Преобразуй ответ в строгий JSON карточки товара. Верни только JSON без markdown и пояснений.",
+                user: [
+                  "Схема:",
+                  "{\"name\":\"string\",\"description\":\"string\",\"category\":\"string\",\"marketingText\":\"string\",\"imagePrompt\":\"string\"}",
+                  "Исходный ответ:",
+                  content,
+                ].join("\n"),
+                model: routing.model,
+              })
+            : await provider.generateContent({
+                ...input,
+                productOrService: [
+                  "Исправь этот ответ в валидный JSON строго по схеме:",
+                  "{\"name\":\"string\",\"description\":\"string\",\"category\":\"string\",\"marketingText\":\"string\",\"imagePrompt\":\"string\"}",
+                  "Верни только JSON без markdown и пояснений.",
+                  "",
+                  "Исходный ответ:",
+                  content,
+                ].join("\n"),
+              });
 
           const parsed = parseProductCardResponse(repairedContent);
           const normalizedContent = JSON.stringify(parsed);

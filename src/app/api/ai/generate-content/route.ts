@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
             raw: repaired,
           });
           return NextResponse.json({
-            error: "ИИ вернул неверный формат. Попробуйте ещё раз.",
+            error: "Polza AI не удалось преобразовать ответ в карточку товара. Уточните название и характеристики, затем повторите.",
             rawPreview: aiRawPreview(repaired || content),
           }, { status: 500 });
         }

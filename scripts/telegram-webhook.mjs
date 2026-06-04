@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 const action = process.argv[2];
 const token = process.env.TELEGRAM_BOT_TOKEN;
 

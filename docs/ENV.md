@@ -2,6 +2,8 @@
 
 Do not commit real secrets. Use `.env.example` as a template and store production values in Vercel Project Settings.
 
+Run `npm run env:diagnose` before deploy. It reports missing variables and unsafe URL hosts without printing secrets.
+
 ## Required for production
 
 `DATABASE_URL`
@@ -47,7 +49,7 @@ Do not commit real secrets. Use `.env.example` as a template and store productio
 
 `CRON_SECRET`
 - Long random server-only secret for scheduled endpoints.
-- Required for `/api/cron/expire`.
+- Required for `/api/cron/expire` and protected `/api/health/db?diagnose=1`.
 - Send as `Authorization: Bearer CRON_SECRET` or `?secret=CRON_SECRET`.
 
 `NEXT_PUBLIC_SUPABASE_URL`

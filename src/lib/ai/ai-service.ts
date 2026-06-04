@@ -25,6 +25,12 @@ export function resolveAIProviderName(providerName?: string | null) {
 
 export function getAIProviderConfig(providerName?: string | null, modelName?: string | null): AIProvider {
   const provider = resolveAIProviderName(providerName);
+  const envProvider = process.env.AI_PROVIDER?.trim().toLowerCase();
+
+  if (envProvider === "polza" && provider !== "polza") {
+    console.error(`[AI CONFIG ERROR] AI_PROVIDER=polza cannot route to ${provider}`);
+    throw new AIConfigurationError("AI_PROVIDER=polza cannot use a fallback provider");
+  }
 
   if (provider === "mock") {
     return new MockAIProvider();
@@ -106,28 +112,37 @@ async function saveCache(
 
 export class AIService {
   static async generateFAQAnswer(businessId: string, providerConfig: string, modelConfig: string, input: any): Promise<string> {
-    const isAllowed = await checkBusinessAiLimit(businessId);
-    if (!isAllowed) {
-      return "Лимит AI-запросов на сегодня исчерпан. Передайте вопрос менеджеру или попробуйте завтра.";
-    }
-
-    const provider = getAIProviderConfig(providerConfig, modelConfig);
-    const hash = crypto.createHash("md5").update(JSON.stringify(input)).digest("hex");
-    const cached = await checkCache(businessId, "faq", hash);
-    if (cached) return cached;
-
+    let provider: AIProvider | null = null;
     try {
+      const isAllowed = await checkBusinessAiLimit(businessId);
+      if (!isAllowed) {
+        return "Лимит AI-запросов на сегодня исчерпан. Передайте вопрос менеджеру или попробуйте завтра.";
+      }
+
+      provider = getAIProviderConfig(providerConfig, modelConfig);
+      const hash = crypto.createHash("md5").update(JSON.stringify(input)).digest("hex");
+      const cached = await checkCache(businessId, "faq", hash);
+      if (cached) return cached;
+
       const response = await provider.generateFAQAnswer(input);
+      if (!response.trim()) {
+        throw new Error("AI provider returned an empty response");
+      }
       await saveCache(businessId, "faq", hash, provider.name, modelConfig, response);
       await incrementAiUsage(businessId, "faq", provider.name, modelConfig, JSON.stringify(input).length, "SUCCESS", response.length);
       return response;
     } catch (error) {
       console.error("AI Error:", error);
-      await incrementAiUsage(businessId, "faq", provider.name, modelConfig, JSON.stringify(input).length, "FAILED");
-      if (error instanceof AIConfigurationError || String((error as Error)?.message || "").includes("POLZA_AI_API_KEY missing")) {
-        return "AI-помощник требует настройки Polza AI. Напишите продавцу напрямую или откройте Mini App.";
+      if (provider) {
+        await incrementAiUsage(businessId, "faq", provider.name, modelConfig, JSON.stringify(input).length, "FAILED");
       }
-      return "Не получилось получить ответ от AI-помощника. Я передам вопрос продавцу.";
+      if (
+        error instanceof AIConfigurationError ||
+        String((error as Error)?.message || "").includes("POLZA_AI_API_KEY missing")
+      ) {
+        return "AI-помощник временно недоступен: на сервере не настроен ключ Polza AI. Администратор уже может увидеть [AI CONFIG ERROR] в логах.";
+      }
+      return "Не получилось получить живой ответ от Polza AI. Попробуйте отправить сообщение ещё раз через минуту.";
     }
   }
 

@@ -15,7 +15,10 @@
     "telegram:webhook:info": "node scripts/telegram-webhook.mjs info",
     "telegram:webhook:set": "node scripts/telegram-webhook.mjs set",
     "telegram:webhook:delete": "node scripts/telegram-webhook.mjs delete",
+    "db:diagnose": "node scripts/db-diagnostics.mjs",
+    "env:diagnose": "node scripts/env-diagnostics.mjs",
     "smoke:production-flow": "node scripts/smoke-production-flow.js",
+    "smoke:polza-ai": "node scripts/smoke-polza-ai.mjs",
     "type-check": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "postinstall": "prisma generate"

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { NotificationService } from "@/lib/notifications/notification-service";
 import { ensureTelegramUser } from "@/lib/auth/telegram-user-service";
-import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { classifyDatabaseError, isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 import { getAdminSession } from "@/lib/admin-auth";
 
@@ -57,10 +57,10 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error fetching bookings:", error);
     if (isBusinessIsDemoMissingColumnError(error)) {
-      warnPrismaSchemaDrift("Bookings loaded as an empty list while Business.isDemo is missing", error);
-      return NextResponse.json([]);
+      warnPrismaSchemaDrift("Bookings query failed while Business.isDemo is missing", error);
     }
-    return NextResponse.json({ error: "Не удалось загрузить записи." }, { status: 500 });
+    const classification = classifyDatabaseError(error);
+    return NextResponse.json({ code: classification.code, error: "Не удалось загрузить записи." }, { status: 503 });
   }
 }
 

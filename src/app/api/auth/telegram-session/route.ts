@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getTelegramSessionUser } from "@/lib/auth-telegram";
-import { toJsonSafe } from "@/lib/prisma-schema-guard";
+import { classifyDatabaseError, toJsonSafe, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 export async function POST(req: Request) {
   try {
@@ -21,10 +21,15 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, data: toJsonSafe(session) });
   } catch (e) {
-    console.error("[telegram-session api error]", e);
-    return NextResponse.json({
-      ok: false,
-      error: "Профиль Telegram временно недоступен. Каталог можно открыть без профиля.",
-    });
+    const classification = classifyDatabaseError(e);
+    warnPrismaSchemaDrift("Telegram session/profile sync failed", e);
+    return NextResponse.json(
+      {
+        ok: false,
+        code: classification.code,
+        error: "Не удалось загрузить профиль Telegram. Повторите попытку; причина записана в server logs.",
+      },
+      { status: 503 }
+    );
   }
 }

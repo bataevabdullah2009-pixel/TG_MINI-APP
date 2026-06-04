@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { classifyDatabaseError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 const typeLabels: Record<string, string> = {
   CAFE: "Еда",
@@ -66,11 +67,15 @@ export async function GET(request: NextRequest) {
       message: isDbEmpty ? "База подключена, но данные не загружены" : undefined,
     });
   } catch (error) {
-    console.error("Database Connection Error in Marketplace:", error);
-    return NextResponse.json({
-      error: "Marketplace catalog is temporarily unavailable.",
-      businesses: [],
-      isDbEmpty: true,
-    });
+    const classification = classifyDatabaseError(error);
+    warnPrismaSchemaDrift("Marketplace businesses query failed", error);
+    return NextResponse.json(
+      {
+        ok: false,
+        code: classification.code,
+        error: "Каталог временно недоступен из-за ошибки базы данных.",
+      },
+      { status: 503 }
+    );
   }
 }
