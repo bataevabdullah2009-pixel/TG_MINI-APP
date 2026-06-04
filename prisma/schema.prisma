@@ -80,7 +80,9 @@ enum PaymentProvider {
 
 enum PaymentStatus {
   PENDING
+  AWAITING_REVIEW
   PAID
+  REJECTED
   FAILED
   REFUNDED
 }
@@ -183,6 +185,14 @@ model Business {
   aiEnabled         Boolean       @default(true)
   aiDailyLimit      Int?          @default(10)
   aiMonthlyLimit    Int?          @default(300)
+
+  // Manual transfer payment settings
+  transferPaymentEnabled Boolean  @default(false)
+  transferBankName       String?
+  transferPaymentPhone   String?
+  transferRecipientName  String?
+  transferPaymentCommentRequired Boolean @default(false)
+  transferPaymentInstructions String?
   
   isActive          Boolean       @default(true)
   isOpen            Boolean       @default(true)
@@ -197,6 +207,7 @@ model Business {
   items             Item[]
   customers         Customer[]
   orders            Order[]
+  orderAttempts     OrderAttempt[]
   bookings          Booking[]
   staff             Staff[]
   workingHours      WorkingHours[]
@@ -413,6 +424,8 @@ model Customer {
   totalOrders       Int       @default(0)
   totalSpent        Float     @default(0)
   bonusBalance      Float     @default(0)
+  isBlocked         Boolean   @default(false)
+  blockReason       String?
   
   orders            Order[]
   bookings          Booking[]
@@ -426,6 +439,7 @@ model Customer {
   @@unique([businessId, telegramUserId])
   @@index([businessId])
   @@index([userId])
+  @@index([isBlocked])
 }
 
 model FavoriteBusiness {
@@ -482,6 +496,16 @@ model Order {
   
   status            OrderStatus @default(NEW)
   deliveryType      DeliveryType @default(PICKUP)
+
+  paymentMethod     PaymentProvider @default(CASH)
+  paymentStatus     PaymentStatus @default(PENDING)
+  paymentProofUrl   String?
+  paymentProofAiStatus String?
+  paymentProofAiSummary String?
+  paymentProofAiConfidence Int?
+  paymentReviewedAt DateTime?
+  paymentReviewedBy String?
+  paymentRejectReason String?
   
   comment           String?   
   internalNotes     String?   
@@ -496,7 +520,25 @@ model Order {
   @@index([businessId])
   @@index([customerId])
   @@index([status])
+  @@index([paymentMethod])
+  @@index([paymentStatus])
   @@index([deliveryType, status, createdAt])
+}
+
+model OrderAttempt {
+  id              String   @id @default(cuid())
+  businessId      String?
+  business        Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  telegramUserId  BigInt
+  phone           String?
+  success         Boolean  @default(false)
+  reason          String?
+  createdAt       DateTime @default(now())
+
+  @@index([businessId])
+  @@index([telegramUserId, createdAt])
+  @@index([phone, createdAt])
+  @@index([success, createdAt])
 }
 
 model OrderItem {

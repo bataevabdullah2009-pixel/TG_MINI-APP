@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AIService } from "@/lib/ai/ai-service";
+import { aiRawPreview, safeParseAiJson, validateProductCardJson } from "@/lib/ai/safe-ai-json";
 import { prisma } from "@/lib/prisma";
 
 const aiContentBusinessSelect = {
@@ -19,53 +20,82 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Укажите задачу и тип генерации." }, { status: 400 });
     }
 
-    let business;
-    if (businessId) {
-      business = await prisma.business.findUnique({ where: { id: businessId }, select: aiContentBusinessSelect });
-    } else {
-      business = await prisma.business.findFirst({ select: aiContentBusinessSelect });
-    }
+    const business = businessId
+      ? await prisma.business.findUnique({ where: { id: businessId }, select: aiContentBusinessSelect })
+      : await prisma.business.findFirst({ select: aiContentBusinessSelect });
 
     if (!business) {
       return NextResponse.json({ error: "Бизнес не найден." }, { status: 404 });
     }
 
     const isProductCard = type === "product_card" || type === "productCard";
+    const input = {
+      businessName: business.name,
+      businessType: business.type,
+      contentType: isProductCard ? "product_card" : type,
+      productOrService: prompt,
+      tone: tone || "продающий",
+      goal: goal || "привлечь внимание",
+    };
 
     const content = await AIService.generateContent(
       business.id,
       business.aiProvider || "mock",
       business.aiModel || "",
-      {
-        businessName: business.name,
-        businessType: business.type,
-        contentType: isProductCard ? "product_card" : type,
-        productOrService: prompt,
-        tone: tone || "продающий",
-        goal: goal || "привлечь внимание",
-      }
+      input
     );
 
     if (isProductCard) {
       try {
-        const cleanContent = content.trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim();
-        const parsed = JSON.parse(cleanContent);
-        return NextResponse.json(parsed);
-      } catch (err) {
-        console.error("Failed to parse product_card JSON:", err);
         return NextResponse.json({
-          name: prompt || "Новый товар",
-          description: content,
-          category: "Разное",
-          marketingText: content,
-          imagePrompt: `photo of ${prompt || "item"}, clean background, photorealistic`
+          ok: true,
+          ...safeParseAiJson(content, validateProductCardJson),
         });
+      } catch (firstParseError) {
+        console.error("Failed to parse product_card JSON:", {
+          error: firstParseError,
+          raw: content,
+        });
+
+        const repaired = await AIService.generateContent(
+          business.id,
+          business.aiProvider || "mock",
+          business.aiModel || "",
+          {
+            ...input,
+            productOrService: [
+              "Исправь этот ответ в валидный JSON строго по схеме:",
+              "{\"name\":\"string\",\"description\":\"string\",\"category\":\"string\",\"marketingText\":\"string\",\"imagePrompt\":\"string\"}",
+              "Верни только JSON без markdown и пояснений.",
+              "",
+              "Исходный ответ:",
+              content,
+            ].join("\n"),
+          }
+        );
+
+        try {
+          return NextResponse.json({
+            ok: true,
+            ...safeParseAiJson(repaired, validateProductCardJson),
+            repaired: true,
+          });
+        } catch (repairError) {
+          console.error("Failed to repair product_card JSON:", {
+            error: repairError,
+            raw: repaired,
+          });
+          return NextResponse.json({
+            error: "ИИ вернул неверный формат. Попробуйте ещё раз.",
+            rawPreview: aiRawPreview(repaired || content),
+          }, { status: 500 });
+        }
       }
     }
 
     return NextResponse.json({ content });
   } catch (error: any) {
     console.error("AI Content Generation Error:", error);
-    return NextResponse.json({ error: "ИИ временно недоступен. Попробуйте позже." }, { status: 500 });
+    return NextResponse.json({ error: error.message || "Ошибка генерации ИИ. Попробуйте позже." }, { status: 500 });
   }
 }

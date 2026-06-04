@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { ensureTelegramUser } from "../auth/telegram-user-service";
+import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 
 export interface EnsureCustomerForTelegramUserInput {
   telegramId: string | number | bigint;
@@ -37,6 +38,7 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
 
   // Normalize phone number
   const normalizedPhone = normalizePhone(input.phone);
+  const verifiedUserPhone = user.phoneVerified ? normalizeRuPhone(user.phone) : null;
 
   // Validate businessId to prevent foreign key constraint violations
   let businessId = (input.businessId && input.businessId !== "global") ? input.businessId : null;
@@ -75,7 +77,8 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
         where: { id: existing.id },
         data: {
           userId: user.id,
-          phone: normalizedPhone ?? existing.phone,
+          phone: verifiedUserPhone ?? normalizedPhone ?? existing.phone,
+          ...(verifiedUserPhone ? { phoneVerified: true, verificationMethod: "global_user_phone" } : {}),
           username: input.username || existing.username,
           name: [input.firstName, input.lastName].filter(Boolean).join(" ") || existing.name,
         },
@@ -89,9 +92,9 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
         telegramUserId,
         name: [input.firstName, input.lastName].filter(Boolean).join(" ") || input.username || `Customer_${input.telegramId}`,
         username: input.username || null,
-        phone: normalizedPhone || null,
-        phoneVerified: false,
-        verificationMethod: "none",
+        phone: verifiedUserPhone || normalizedPhone || null,
+        phoneVerified: Boolean(verifiedUserPhone),
+        verificationMethod: verifiedUserPhone ? "global_user_phone" : "none",
       },
     });
   } else {
@@ -108,7 +111,8 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
         where: { id: existing.id },
         data: {
           userId: user.id,
-          phone: normalizedPhone ?? existing.phone,
+          phone: verifiedUserPhone ?? normalizedPhone ?? existing.phone,
+          ...(verifiedUserPhone ? { phoneVerified: true, verificationMethod: "global_user_phone" } : {}),
           username: input.username || existing.username,
           name: [input.firstName, input.lastName].filter(Boolean).join(" ") || existing.name,
         },
@@ -122,9 +126,9 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
         telegramUserId,
         name: [input.firstName, input.lastName].filter(Boolean).join(" ") || input.username || `Customer_${input.telegramId}`,
         username: input.username || null,
-        phone: normalizedPhone || null,
-        phoneVerified: false,
-        verificationMethod: "none",
+        phone: verifiedUserPhone || normalizedPhone || null,
+        phoneVerified: Boolean(verifiedUserPhone),
+        verificationMethod: verifiedUserPhone ? "global_user_phone" : "none",
       },
     });
   }

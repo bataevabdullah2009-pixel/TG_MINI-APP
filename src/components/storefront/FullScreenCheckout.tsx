@@ -1,8 +1,7 @@
 "use client";
 
 import type { FormEvent, ReactNode } from "react";
-import { useState } from "react";
-import { ArrowLeft, Banknote, CheckCircle2, CreditCard, MapPin, MessageSquare, PackageCheck, Phone, ShoppingBag, Store, Truck, User } from "lucide-react";
+import { ArrowLeft, Banknote, CheckCircle2, CreditCard, MapPin, MessageSquare, PackageCheck, Phone, ShoppingBag, Store, Truck, Upload, User } from "lucide-react";
 
 type CheckoutItem = {
   item: {
@@ -23,12 +22,26 @@ type CheckoutForm = {
   comment: string;
 };
 
+type CheckoutBusiness = {
+  transferPaymentEnabled?: boolean;
+  transferBankName?: string | null;
+  transferPaymentPhone?: string | null;
+  transferRecipientName?: string | null;
+  transferPaymentInstructions?: string | null;
+};
+
 type Props = {
+  business: CheckoutBusiness;
   cart: CheckoutItem[];
   cartTotal: number;
   cartCount: number;
   form: CheckoutForm;
   setForm: (value: CheckoutForm | ((current: CheckoutForm) => CheckoutForm)) => void;
+  paymentMethod: "CASH" | "TRANSFER";
+  setPaymentMethod: (value: "CASH" | "TRANSFER") => void;
+  paymentProofUrl: string;
+  paymentProofUploading: boolean;
+  onPaymentProofUpload: (file: File) => void;
   checkoutError: string;
   needsPhoneVerification: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -38,11 +51,17 @@ type Props = {
 };
 
 export function FullScreenCheckout({
+  business,
   cart,
   cartTotal,
   cartCount,
   form,
   setForm,
+  paymentMethod,
+  setPaymentMethod,
+  paymentProofUrl,
+  paymentProofUploading,
+  onPaymentProofUpload,
   checkoutError,
   needsPhoneVerification,
   onSubmit,
@@ -50,8 +69,6 @@ export function FullScreenCheckout({
   onVerifyPhone,
   formatPrice,
 }: Props) {
-  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "TRANSFER">("CASH");
-
   const updateForm = (patch: Partial<CheckoutForm>) => {
     setForm((current) => ({ ...current, ...patch }));
   };
@@ -147,7 +164,7 @@ export function FullScreenCheckout({
                 {[
                   { value: "CASH" as const, label: "Наличные", icon: Banknote },
                   { value: "TRANSFER" as const, label: "Перевод", icon: CreditCard },
-                ].map((option) => {
+                ].filter((option) => option.value !== "TRANSFER" || business.transferPaymentEnabled).map((option) => {
                   const Icon = option.icon;
                   const selected = paymentMethod === option.value;
                   return (
@@ -165,6 +182,47 @@ export function FullScreenCheckout({
                   );
                 })}
               </div>
+
+              {paymentMethod === "TRANSFER" && business.transferPaymentEnabled && (
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-xs font-bold text-emerald-950">
+                  <div className="grid gap-2">
+                    <div className="flex justify-between gap-3">
+                      <span className="text-emerald-700">Банк</span>
+                      <span className="text-right">{business.transferBankName || "не указан"}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-emerald-700">Телефон/SBP</span>
+                      <span className="text-right">{business.transferPaymentPhone || "не указан"}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-emerald-700">Получатель</span>
+                      <span className="text-right">{business.transferRecipientName || "не указан"}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-emerald-700">Сумма</span>
+                      <span className="text-right">{formatPrice(cartTotal)}</span>
+                    </div>
+                  </div>
+                  <p className="mt-3 rounded-xl bg-white/70 p-3 text-[11px] leading-relaxed text-emerald-900">
+                    {business.transferPaymentInstructions || "После перевода загрузите чек."}
+                  </p>
+                  <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-emerald-700 px-3 py-3 text-xs font-black text-white active:scale-[0.98]">
+                    <Upload size={16} />
+                    {paymentProofUploading ? "Загружаем чек..." : paymentProofUrl ? "Чек загружен" : "Загрузить чек перевода"}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      disabled={paymentProofUploading}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) onPaymentProofUpload(file);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+              )}
             </section>
 
             <section className="space-y-3">
@@ -190,6 +248,12 @@ export function FullScreenCheckout({
               </Field>
             </section>
 
+            {needsPhoneVerification && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
+                Подтвердите номер телефона, чтобы оформить заказ.
+              </div>
+            )}
+
             {checkoutError && (
               <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
                 {checkoutError}
@@ -211,7 +275,7 @@ export function FullScreenCheckout({
           <div className="mx-auto max-w-3xl">
             <button
               type="submit"
-              disabled={cart.length === 0}
+              disabled={cart.length === 0 || (paymentMethod === "TRANSFER" && (!paymentProofUrl || paymentProofUploading))}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-4 text-sm font-black text-white shadow-xl shadow-slate-900/15 disabled:opacity-50"
             >
               <CheckCircle2 size={18} />

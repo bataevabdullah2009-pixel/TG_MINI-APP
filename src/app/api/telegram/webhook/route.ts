@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { telegramBot } from "@/lib/telegram-bot-service";
-import { AIService } from "@/lib/ai/ai-service";
+import { AIService, resolveAIProviderName } from "@/lib/ai/ai-service";
+import { getPolzaChatEndpoint } from "@/lib/ai/polza-provider";
 import { ensureTelegramUser, trySyncUserPhone } from "@/lib/auth/telegram-user-service";
 import { ensureCustomerForTelegramUser } from "@/lib/customer/customer-service";
 import { getMiniAppUrl } from "@/lib/production-url";
 import { looksLikeSellerLinkAttempt, parseSellerLinkText } from "@/lib/seller-link";
+import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 
 function withTelegramWebAppCacheBust(url: string) {
   const parsed = new URL(url);
@@ -139,7 +141,7 @@ export async function POST(request: NextRequest) {
       }
 
       const telegramId = String(from.id);
-      const phone = contact.phone_number;
+      const phone = normalizeRuPhone(contact.phone_number) || contact.phone_number;
 
       // 1. Ensure User exists and is synchronized
       const user = await ensureTelegramUser({
@@ -431,17 +433,30 @@ export async function POST(request: NextRequest) {
     });
 
     const activeBusiness = business || customer?.business;
+    const activeBusinessProvider = activeBusiness ? resolveAIProviderName(activeBusiness.aiProvider) : "mock";
+    const activeBusinessModel = activeBusinessProvider === "polza"
+      ? process.env.POLZA_TEXT_MODEL || activeBusiness?.aiModel || "z-ai/glm-4.7-flash"
+      : activeBusiness?.aiModel || "";
 
     if (activeBusiness) {
       const knowledgeBase = `Название: ${activeBusiness.name}. Описание: ${activeBusiness.description || "нет"}. Телефон: ${activeBusiness.phone || "нет"}. Адрес: ${activeBusiness.address || "нет"}.`;
       
+      console.log("[TELEGRAM AI DEBUG]", {
+        activeBusinessId: activeBusiness.id,
+        activeBusinessName: activeBusiness.name,
+        provider: activeBusinessProvider,
+        model: activeBusinessModel,
+        hasPolzaKey: Boolean(process.env.POLZA_AI_API_KEY),
+        endpoint: activeBusinessProvider === "polza" ? getPolzaChatEndpoint() : null,
+      });
+
       console.log("Sending FAQ loading notification to Chat ID:", chatId);
       await telegramBot.sendNotification(chatId, "⏳ Думаю...");
       
       const answer = await AIService.generateFAQAnswer(
         activeBusiness.id,
-        activeBusiness.aiProvider || "mock",
-        activeBusiness.aiModel || "",
+        activeBusinessProvider,
+        activeBusinessModel,
         {
           businessName: activeBusiness.name,
           businessType: activeBusiness.type,

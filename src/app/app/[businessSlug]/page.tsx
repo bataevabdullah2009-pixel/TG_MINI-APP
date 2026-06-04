@@ -77,6 +77,9 @@ export default function BusinessMiniAppPage() {
   const [needsPhoneVerification, setNeedsPhoneVerification] = useState(false);
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", address: "", deliveryType: "PICKUP", comment: "" });
+  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "TRANSFER">("CASH");
+  const [paymentProofUrl, setPaymentProofUrl] = useState("");
+  const [paymentProofUploading, setPaymentProofUploading] = useState(false);
 
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp;
@@ -143,6 +146,13 @@ export default function BusinessMiniAppPage() {
         setSelectedTime("");
       });
   }, [business, slug, selectedDate, selectedStaffId]);
+
+  useEffect(() => {
+    if (!business?.transferPaymentEnabled) {
+      setPaymentMethod("CASH");
+      setPaymentProofUrl("");
+    }
+  }, [business?.transferPaymentEnabled]);
 
   const ui = business ? templateUi[business.templateKey] || templateUi.cafe : templateUi.cafe;
   const mode = ui.mode;
@@ -254,6 +264,14 @@ export default function BusinessMiniAppPage() {
     setCheckoutError("");
     setNeedsPhoneVerification(false);
     const user = telegramUser();
+    if (form.deliveryType === "DELIVERY" && form.address.trim().length < 5) {
+      setCheckoutError("Укажите адрес доставки.");
+      return;
+    }
+    if (paymentMethod === "TRANSFER" && !paymentProofUrl) {
+      setCheckoutError("Загрузите чек перевода.");
+      return;
+    }
     try {
       const res = await fetch(`/api/businesses/${slug}/orders`, {
         method: "POST",
@@ -266,6 +284,8 @@ export default function BusinessMiniAppPage() {
           comment: form.comment,
           telegramUserId: user?.id,
           username: user?.username,
+          paymentMethod,
+          paymentProofUrl: paymentMethod === "TRANSFER" ? paymentProofUrl : undefined,
           items: cart.map((line) => ({ itemId: line.item.id, quantity: line.quantity })),
         }),
       });
@@ -274,14 +294,46 @@ export default function BusinessMiniAppPage() {
       if (res.ok) {
         setCart([]);
         setCheckoutOpen(false);
+        setPaymentProofUrl("");
+        setPaymentMethod("CASH");
         setSuccess("Заказ оформлен. Продавец уже получил уведомление.");
       } else {
         const message = data.error || "Не удалось оформить заказ. Проверьте данные и попробуйте снова.";
         setCheckoutError(message);
-        setNeedsPhoneVerification(res.status === 403 && message.toLowerCase().includes("телефон"));
+        const phoneNotVerified = data.code === "PHONE_NOT_VERIFIED";
+        setNeedsPhoneVerification(phoneNotVerified);
+        if (phoneNotVerified) setVerifyOpen(true);
       }
     } catch (error) {
       setCheckoutError("Не удалось отправить заказ. Проверьте соединение и попробуйте снова.");
+    }
+  }
+
+  async function handlePaymentProofUpload(file: File) {
+    if (!business) return;
+    setCheckoutError("");
+    setPaymentProofUploading(true);
+    try {
+      const initData = (window as any).Telegram?.WebApp?.initData || sessionStorage.getItem("tgInitData") || "";
+      const formData = new FormData();
+      formData.append("businessId", business.id);
+      formData.append("file", file);
+
+      const res = await fetch("/api/orders/payment-proof", {
+        method: "POST",
+        headers: initData ? { "x-telegram-init-data": initData } : undefined,
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Не удалось загрузить чек.");
+      }
+      setPaymentProofUrl(data.url || data.publicUrl || "");
+    } catch (error) {
+      setPaymentProofUrl("");
+      setCheckoutError(error instanceof Error ? error.message : "Не удалось загрузить чек.");
+    } finally {
+      setPaymentProofUploading(false);
     }
   }
 
@@ -444,11 +496,17 @@ export default function BusinessMiniAppPage() {
 
       {checkoutOpen && (
         <FullScreenCheckout
+          business={business}
           cart={cart}
           cartTotal={cartTotal}
           cartCount={cartCount}
           form={form}
           setForm={setForm}
+          paymentMethod={paymentMethod}
+          setPaymentMethod={setPaymentMethod}
+          paymentProofUrl={paymentProofUrl}
+          paymentProofUploading={paymentProofUploading}
+          onPaymentProofUpload={handlePaymentProofUpload}
           checkoutError={checkoutError}
           needsPhoneVerification={needsPhoneVerification}
           onSubmit={submitOrder}

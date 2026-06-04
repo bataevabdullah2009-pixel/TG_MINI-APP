@@ -1,39 +1,120 @@
-import { prisma } from "@/lib/prisma";
-import { MockSMSProvider } from "./providers/mock-sms-provider";
 import * as crypto from "crypto";
+import { prisma } from "@/lib/prisma";
+import { trySyncUserPhone } from "@/lib/auth/telegram-user-service";
+import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 
-const smsProvider = new MockSMSProvider();
+function codeHash(code: string) {
+  return crypto.createHash("sha256").update(code).digest("hex");
+}
+
+function smsProviderName() {
+  return (process.env.SMS_PROVIDER || "mock").trim().toLowerCase();
+}
+
+export function isMockSmsMode() {
+  const provider = smsProviderName();
+  return !provider || provider === "mock";
+}
+
+export function isPhoneTestCodeEnabled() {
+  return process.env.PHONE_TEST_CODE_ENABLED === "true";
+}
+
+async function syncVerifiedPhoneToCustomerAndUser(customerId: string, phone: string, verificationMethod: string) {
+  const normalizedPhone = normalizeRuPhone(phone);
+  if (!normalizedPhone) {
+    return { success: false, error: "Введите корректный номер телефона." };
+  }
+
+  const customer = await prisma.customer.update({
+    where: { id: customerId },
+    data: {
+      phone: normalizedPhone,
+      phoneVerified: true,
+      verificationMethod,
+    },
+    select: {
+      id: true,
+      userId: true,
+      telegramUserId: true,
+    },
+  });
+
+  const user = customer.userId
+    ? await prisma.user.findUnique({ where: { id: customer.userId }, select: { id: true } })
+    : await prisma.user.findUnique({ where: { telegramId: customer.telegramUserId }, select: { id: true } });
+
+  if (user?.id) {
+    await trySyncUserPhone(user.id, normalizedPhone, {
+      verified: true,
+      context: `phone verification sync via ${verificationMethod}`,
+    });
+  }
+
+  return { success: true, phone: normalizedPhone };
+}
 
 export class PhoneVerificationService {
+  static getPublicConfig() {
+    const mockMode = isMockSmsMode();
+    const testCodeEnabled = isPhoneTestCodeEnabled();
+    return {
+      smsProvider: smsProviderName(),
+      mockMode,
+      testCodeEnabled,
+      canRequestCode: !mockMode || testCodeEnabled,
+      message: mockMode && testCodeEnabled
+        ? "Тестовый режим: введите код 1111"
+        : "Подтвердите номер через Telegram contact в боте",
+    };
+  }
+
   static async sendCode(
     customerId: string,
     phone: string,
     provider: "telegram_contact" | "manual" | "mock_sms" | "sms"
-  ): Promise<{ success: boolean; verificationId?: string; error?: string }> {
+  ): Promise<{ success: boolean; verificationId?: string; error?: string; code?: string }> {
     try {
-      // 1. Generate code (4 digits, e.g. "1111" or random in production)
-      const isDevOrMock = process.env.NODE_ENV !== "production" && (process.env.SMS_PROVIDER === "mock" || !process.env.SMS_PROVIDER);
-      const code = isDevOrMock ? "1111" : Math.floor(1000 + Math.random() * 9000).toString();
+      const normalizedPhone = normalizeRuPhone(phone);
+      if (!normalizedPhone) {
+        return { success: false, code: "INVALID_PHONE", error: "Введите корректный номер телефона." };
+      }
 
-      const codeHash = crypto.createHash("sha256").update(code).digest("hex");
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
+      const mockMode = isMockSmsMode();
+      if (mockMode && !isPhoneTestCodeEnabled()) {
+        return {
+          success: false,
+          code: "TELEGRAM_CONTACT_REQUIRED",
+          error: "Подтвердите номер через Telegram contact в боте.",
+        };
+      }
 
-      // 2. Create the PhoneVerification in DB
+      if (!mockMode) {
+        return {
+          success: false,
+          code: "SMS_PROVIDER_NOT_IMPLEMENTED",
+          error: "SMS-провайдер не подключён. Подтвердите номер через Telegram contact.",
+        };
+      }
+
+      const code = "1111";
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
       const verification = await prisma.phoneVerification.create({
         data: {
           customerId,
-          phone,
-          codeHash,
+          phone: normalizedPhone,
+          codeHash: codeHash(code),
           status: "pending",
-          provider,
+          provider: provider === "sms" ? "mock_sms" : provider,
           expiresAt,
         },
       });
 
-      // 3. Send SMS if needed
-      if (provider === "mock_sms" || provider === "sms") {
-        await smsProvider.sendVerificationCode(phone, code);
-      }
+      console.info("[PHONE TEST CODE] mock verification record created", {
+        customerId,
+        phone: normalizedPhone,
+        testCodeEnabled: true,
+      });
 
       return { success: true, verificationId: verification.id };
     } catch (e: any) {
@@ -46,16 +127,23 @@ export class PhoneVerificationService {
     customerId: string,
     phone: string,
     code: string
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ success: boolean; error?: string; phone?: string }> {
     try {
-      const codeHash = crypto.createHash("sha256").update(code).digest("hex");
-      const isDevOrMock = process.env.NODE_ENV !== "production" && (process.env.SMS_PROVIDER === "mock" || !process.env.SMS_PROVIDER);
+      const normalizedPhone = normalizeRuPhone(phone);
+      if (!normalizedPhone) {
+        return { success: false, error: "Введите корректный номер телефона." };
+      }
 
-      // Find pending verification
+      const mockMode = isMockSmsMode();
+      const allowTestCode = mockMode && isPhoneTestCodeEnabled();
+      if (mockMode && (!allowTestCode || code !== "1111")) {
+        return { success: false, error: "Неверный код подтверждения." };
+      }
+
       const verification = await prisma.phoneVerification.findFirst({
         where: {
           customerId,
-          phone,
+          phone: normalizedPhone,
           status: "pending",
           expiresAt: { gt: new Date() },
         },
@@ -63,59 +151,40 @@ export class PhoneVerificationService {
       });
 
       if (!verification) {
-        // Fallback for easy testing in dev/mock without active verification records
-        if (code === "1111" && isDevOrMock) {
-          await prisma.customer.updateMany({
-            where: { id: customerId },
-            data: {
-              phone,
-              phoneVerified: true,
-              verificationMethod: "mock_sms",
-            },
-          });
-          return { success: true };
+        if (allowTestCode && code === "1111") {
+          return syncVerifiedPhoneToCustomerAndUser(customerId, normalizedPhone, "mock_sms");
         }
-        return { success: false, error: "Код верификации не найден или истек." };
+        return { success: false, error: "Код верификации не найден или истёк." };
       }
 
-      // Check hash (allow fallback to 1111 in dev/mock)
-      const isDevFallback = code === "1111" && isDevOrMock;
-      const isMatch = verification.codeHash === codeHash || isDevFallback;
-
-      if (!isMatch) {
-        return { success: false, error: "Неверный код верификации." };
+      if (verification.codeHash !== codeHash(code)) {
+        return { success: false, error: "Неверный код подтверждения." };
       }
 
-      // Mark verified
       await prisma.phoneVerification.update({
         where: { id: verification.id },
         data: { status: "verified" },
       });
 
-      // Update customer verification status
-      await prisma.customer.updateMany({
-        where: { id: customerId },
-        data: {
-          phone,
-          phoneVerified: true,
-          verificationMethod: verification.provider,
-        },
-      });
-
-      return { success: true };
+      return syncVerifiedPhoneToCustomerAndUser(customerId, normalizedPhone, verification.provider);
     } catch (e: any) {
       console.error("[PhoneVerificationService] verifyCode error:", e);
       return { success: false, error: e.message };
     }
   }
 
-  static async verifyViaTelegramContact(customerId: string, phone: string): Promise<{ success: boolean; error?: string }> {
+  static async verifyViaTelegramContact(customerId: string, phone: string): Promise<{ success: boolean; error?: string; phone?: string }> {
     try {
+      const normalizedPhone = normalizeRuPhone(phone);
+      if (!normalizedPhone) {
+        return { success: false, error: "Введите корректный номер телефона." };
+      }
+
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
       await prisma.phoneVerification.create({
         data: {
           customerId,
-          phone,
+          phone: normalizedPhone,
           codeHash: "telegram_contact",
           status: "verified",
           provider: "telegram_contact",
@@ -123,17 +192,7 @@ export class PhoneVerificationService {
         },
       });
 
-      // Update customer
-      await prisma.customer.updateMany({
-        where: { id: customerId },
-        data: {
-          phone,
-          phoneVerified: true,
-          verificationMethod: "telegram_contact",
-        },
-      });
-
-      return { success: true };
+      return syncVerifiedPhoneToCustomerAndUser(customerId, normalizedPhone, "telegram_contact");
     } catch (e: any) {
       console.error("[PhoneVerificationService] verifyViaTelegramContact error:", e);
       return { success: false, error: e.message };
