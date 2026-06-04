@@ -19,6 +19,7 @@ type CheckoutForm = {
   phone: string;
   address: string;
   deliveryType: string;
+  deliveryZoneId: string;
   comment: string;
 };
 
@@ -28,6 +29,19 @@ type CheckoutBusiness = {
   transferPaymentPhone?: string | null;
   transferRecipientName?: string | null;
   transferPaymentInstructions?: string | null;
+  settings?: {
+    deliveryEnabled: boolean;
+    pickupEnabled: boolean;
+    minOrderAmount: number;
+  } | null;
+  deliveryZones?: Array<{
+    id: string;
+    name: string;
+    cityArea: string;
+    fee: number;
+    estimatedMinutes?: number | null;
+    isActive: boolean;
+  }>;
 };
 
 type Props = {
@@ -72,6 +86,12 @@ export function FullScreenCheckout({
   const updateForm = (patch: Partial<CheckoutForm>) => {
     setForm((current) => ({ ...current, ...patch }));
   };
+  const zones = (business.deliveryZones || []).filter((zone) => zone.isActive);
+  const selectedZone = zones.find((zone) => zone.id === form.deliveryZoneId);
+  const deliveryFee = form.deliveryType === "DELIVERY" ? selectedZone?.fee || 0 : 0;
+  const orderTotal = cartTotal + deliveryFee;
+  const pickupEnabled = business.settings?.pickupEnabled !== false;
+  const deliveryEnabled = business.settings?.deliveryEnabled === true && zones.length > 0;
 
   return (
     <div className="fixed inset-0 z-50 bg-white text-slate-950">
@@ -125,9 +145,13 @@ export function FullScreenCheckout({
                 ))}
               </div>
 
-              <div className="mt-4 flex items-end justify-between border-t border-slate-200 pt-4">
-                <span className="text-sm font-bold text-slate-500">Итого к оплате</span>
-                <span className="text-2xl font-black">{formatPrice(cartTotal)}</span>
+              <div className="mt-4 space-y-2 border-t border-slate-200 pt-4 text-sm font-bold">
+                <div className="flex justify-between text-slate-500"><span>Сумма товаров</span><span>{formatPrice(cartTotal)}</span></div>
+                {form.deliveryType === "DELIVERY" && <div className="flex justify-between text-slate-500"><span>Стоимость доставки</span><span>{formatPrice(deliveryFee)}</span></div>}
+                <div className="flex items-end justify-between pt-1">
+                  <span className="text-sm font-black text-slate-700">Итого к оплате</span>
+                  <span className="text-2xl font-black">{formatPrice(orderTotal)}</span>
+                </div>
               </div>
             </section>
 
@@ -137,14 +161,18 @@ export function FullScreenCheckout({
                 {[
                   { value: "PICKUP", label: "Самовывоз", icon: Store, note: "Заберу сам" },
                   { value: "DELIVERY", label: "Доставка", icon: Truck, note: "Привезите мне" },
-                ].map((option) => {
+                ].filter((option) => option.value === "PICKUP" ? pickupEnabled : deliveryEnabled).map((option) => {
                   const Icon = option.icon;
                   const selected = form.deliveryType === option.value;
                   return (
                     <button
                       key={option.value}
                       type="button"
-                      onClick={() => updateForm({ deliveryType: option.value, address: option.value === "PICKUP" ? "" : form.address })}
+                      onClick={() => updateForm({
+                        deliveryType: option.value,
+                        address: option.value === "PICKUP" ? "" : form.address,
+                        deliveryZoneId: option.value === "PICKUP" ? "" : form.deliveryZoneId,
+                      })}
                       className={`rounded-2xl border p-4 text-left transition active:scale-[0.98] ${
                         selected ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-700"
                       }`}
@@ -156,6 +184,9 @@ export function FullScreenCheckout({
                   );
                 })}
               </div>
+              {!pickupEnabled && !deliveryEnabled && (
+                <p className="rounded-2xl bg-rose-50 p-3 text-xs font-bold text-rose-700">Магазин временно не принимает заказы на доставку или самовывоз.</p>
+              )}
             </section>
 
             <section className="space-y-3">
@@ -200,7 +231,7 @@ export function FullScreenCheckout({
                     </div>
                     <div className="flex justify-between gap-3">
                       <span className="text-emerald-700">Сумма</span>
-                      <span className="text-right">{formatPrice(cartTotal)}</span>
+                      <span className="text-right">{formatPrice(orderTotal)}</span>
                     </div>
                   </div>
                   <p className="mt-3 rounded-xl bg-white/70 p-3 text-[11px] leading-relaxed text-emerald-900">
@@ -208,10 +239,10 @@ export function FullScreenCheckout({
                   </p>
                   <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-emerald-700 px-3 py-3 text-xs font-black text-white active:scale-[0.98]">
                     <Upload size={16} />
-                    {paymentProofUploading ? "Загружаем чек..." : paymentProofUrl ? "Чек загружен" : "Загрузить чек перевода"}
+                    {paymentProofUploading ? "Загружаем PDF-чек..." : paymentProofUrl ? "PDF-чек загружен" : "Загрузить PDF-чек перевода"}
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/webp"
+                      accept="application/pdf,.pdf"
                       className="hidden"
                       disabled={paymentProofUploading}
                       onChange={(event) => {
@@ -239,9 +270,17 @@ export function FullScreenCheckout({
                 <input required value={form.phone} onChange={(event) => updateForm({ phone: event.target.value })} placeholder="+7 (999) 999-99-99" className="checkout-field" />
               </Field>
               {form.deliveryType === "DELIVERY" && (
-                <Field icon={<MapPin size={17} />} label="Адрес доставки">
-                  <input required value={form.address} onChange={(event) => updateForm({ address: event.target.value })} className="checkout-field" />
-                </Field>
+                <>
+                  <Field icon={<MapPin size={17} />} label="Город / район доставки">
+                    <select required value={form.deliveryZoneId} onChange={(event) => updateForm({ deliveryZoneId: event.target.value })} className="checkout-field">
+                      <option value="">Выберите зону</option>
+                      {zones.map((zone) => <option key={zone.id} value={zone.id}>{zone.name} — {formatPrice(zone.fee)}</option>)}
+                    </select>
+                  </Field>
+                  <Field icon={<MapPin size={17} />} label="Адрес доставки">
+                    <input required value={form.address} onChange={(event) => updateForm({ address: event.target.value })} className="checkout-field" />
+                  </Field>
+                </>
               )}
               <Field icon={<MessageSquare size={17} />} label="Комментарий">
                 <textarea value={form.comment} onChange={(event) => updateForm({ comment: event.target.value })} className="checkout-field min-h-24 resize-none" />
@@ -275,11 +314,11 @@ export function FullScreenCheckout({
           <div className="mx-auto max-w-3xl">
             <button
               type="submit"
-              disabled={cart.length === 0 || (paymentMethod === "TRANSFER" && (!paymentProofUrl || paymentProofUploading))}
+              disabled={cart.length === 0 || (!pickupEnabled && !deliveryEnabled) || (form.deliveryType === "DELIVERY" && !form.deliveryZoneId) || (paymentMethod === "TRANSFER" && (!paymentProofUrl || paymentProofUploading))}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-4 text-sm font-black text-white shadow-xl shadow-slate-900/15 disabled:opacity-50"
             >
               <CheckCircle2 size={18} />
-              Подтвердить заказ на {formatPrice(cartTotal)}
+              Подтвердить заказ на {formatPrice(orderTotal)}
             </button>
           </div>
         </div>

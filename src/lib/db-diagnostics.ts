@@ -16,6 +16,7 @@ const BUSINESS_OPEN_PATCH = "docs/manual-add-business-is-open.sql";
 const BUSINESS_DEMO_PATCH = "docs/manual-add-business-is-demo.sql";
 const CHECKOUT_PATCH = "docs/manual-hotfix-polza-checkout-payment-flow.sql";
 const EXPIRATION_PATCH = "docs/manual-expire-bookings-orders.sql";
+const DELIVERY_PATCH = "docs/manual-courier-direct-links.sql";
 
 const REQUIRED_TABLES = [
   "User",
@@ -44,6 +45,9 @@ const REQUIRED_TABLES = [
   "PhoneVerification",
   "SellerInvite",
   "AiRequestLog",
+  "Courier",
+  "DeliveryZone",
+  "DeliveryAssignment",
 ] as const;
 
 const REQUIRED_COLUMNS = [
@@ -64,6 +68,7 @@ const REQUIRED_COLUMNS = [
   },
   { table: "Business", patch: BUSINESS_OPEN_PATCH, columns: ["isOpen"] },
   { table: "Business", patch: BUSINESS_DEMO_PATCH, columns: ["isDemo"] },
+  { table: "BusinessSettings", patch: DELIVERY_PATCH, columns: ["pickupWaitHours", "courierAcceptanceMinutes"] },
   {
     table: "Business",
     patch: CHECKOUT_PATCH,
@@ -104,6 +109,20 @@ const REQUIRED_COLUMNS = [
     ],
   },
   { table: "Order", patch: EXPIRATION_PATCH, columns: ["expiredAt", "expireReason"] },
+  {
+    table: "Order",
+    patch: DELIVERY_PATCH,
+    columns: [
+      "itemsSubtotal",
+      "deliveryFee",
+      "deliveryStatus",
+      "deliveryZoneId",
+      "deliveryZoneName",
+      "deliveryCityArea",
+      "courierAssignedAt",
+      "courierPickupDeadline",
+    ],
+  },
   { table: "Booking", patch: EXPIRATION_PATCH, columns: ["expiredAt", "expireReason"] },
   {
     table: "OrderAttempt",
@@ -113,7 +132,18 @@ const REQUIRED_COLUMNS = [
 ] as const;
 
 const REQUIRED_ENUMS = [
+  { enum: "Role", patch: DELIVERY_PATCH, values: ["COURIER"] },
   { enum: "OrderStatus", patch: EXPIRATION_PATCH, values: ["EXPIRED"] },
+  {
+    enum: "OrderStatus",
+    patch: DELIVERY_PATCH,
+    values: ["READY_FOR_PICKUP", "READY_FOR_DELIVERY", "COURIER_ASSIGNED", "PICKED_UP", "DELIVERED"],
+  },
+  {
+    enum: "DeliveryStatus",
+    patch: DELIVERY_PATCH,
+    values: ["NONE", "WAITING_COURIER", "ASSIGNED", "PICKED_UP", "DELIVERED", "CANCELLED", "EXPIRED"],
+  },
   { enum: "BookingStatus", patch: EXPIRATION_PATCH, values: ["PENDING", "EXPIRED"] },
   { enum: "PaymentStatus", patch: CHECKOUT_PATCH, values: ["AWAITING_REVIEW", "REJECTED"] },
 ] as const;
@@ -173,7 +203,11 @@ export async function runDatabaseDiagnostics() {
       issues.push({
         type: "missing_table",
         table,
-        patch: table === "OrderAttempt" ? CHECKOUT_PATCH : BASE_SCHEMA_PATCH,
+        patch: table === "OrderAttempt"
+          ? CHECKOUT_PATCH
+          : ["Courier", "DeliveryZone", "DeliveryAssignment"].includes(table)
+            ? DELIVERY_PATCH
+            : BASE_SCHEMA_PATCH,
         message: `Missing table public."${table}".`,
       });
     }

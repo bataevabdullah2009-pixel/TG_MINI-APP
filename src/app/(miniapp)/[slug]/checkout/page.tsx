@@ -36,6 +36,7 @@ const CheckoutSchema = z.object({
   customerPhone: z.string().min(10, "Введите корректный номер телефона"),
   customerAddress: z.string().optional(),
   deliveryType: z.enum(["DELIVERY", "PICKUP"]),
+  deliveryZoneId: z.string().optional(),
   comment: z.string().optional(),
   paymentMethod: z.enum(["CASH", "TRANSFER"]),
 });
@@ -82,6 +83,7 @@ export default function CheckoutPage() {
   });
 
   const deliveryType = watch("deliveryType");
+  const deliveryZoneId = watch("deliveryZoneId");
   const customerName = watch("customerName");
   const paymentMethod = watch("paymentMethod");
 
@@ -93,6 +95,13 @@ export default function CheckoutPage() {
       setBusiness(biz);
       if (!biz.transferPaymentEnabled) {
         setValue("paymentMethod", "CASH");
+      }
+      const deliveryAvailable = biz.settings?.deliveryEnabled && Boolean(biz.deliveryZones?.length);
+      if (!biz.settings?.pickupEnabled && deliveryAvailable) {
+        setValue("deliveryType", "DELIVERY");
+      } else if (biz.settings?.pickupEnabled && !deliveryAvailable) {
+        setValue("deliveryType", "PICKUP");
+        setValue("deliveryZoneId", "");
       }
 
       const initData = typeof window !== "undefined" ? (window as any).Telegram?.WebApp?.initData : "";
@@ -140,7 +149,12 @@ export default function CheckoutPage() {
     }
   }, [user, setValue, customerName]);
 
-  const total = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const itemsSubtotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const selectedZone = business?.deliveryZones?.find((zone) => zone.id === deliveryZoneId);
+  const deliveryFee = deliveryType === "DELIVERY" ? selectedZone?.fee || 0 : 0;
+  const total = itemsSubtotal + deliveryFee;
+  const pickupEnabled = business?.settings?.pickupEnabled !== false;
+  const deliveryEnabled = business?.settings?.deliveryEnabled === true && Boolean(business?.deliveryZones?.length);
 
   const handleVerified = (verifiedPhone: string) => {
     setPhoneVerified(true);
@@ -216,6 +230,10 @@ export default function CheckoutPage() {
       setError("Укажите адрес доставки.");
       return;
     }
+    if (data.deliveryType === "DELIVERY" && !data.deliveryZoneId) {
+      setError("Выберите город или район доставки.");
+      return;
+    }
 
     if (data.paymentMethod === "TRANSFER" && !paymentProofUrl) {
       setError("Загрузите чек перевода.");
@@ -238,6 +256,7 @@ export default function CheckoutPage() {
           name: item.name,
         })),
         deliveryType: data.deliveryType,
+        deliveryZoneId: data.deliveryType === "DELIVERY" ? data.deliveryZoneId : undefined,
         paymentMethod: data.paymentMethod,
         paymentProofUrl: data.paymentMethod === "TRANSFER" ? paymentProofUrl : undefined,
         comment: data.comment,
@@ -465,10 +484,20 @@ export default function CheckoutPage() {
             </div>
 
             <div className="border-t border-dashed border-slate-200 pt-3.5 flex justify-between items-center">
-              <span className="text-xs font-black text-slate-900">Итого к оплате:</span>
+              <span className="text-xs font-black text-slate-900">Сумма товаров:</span>
               <span className="text-base font-black" style={{ color: business.primaryColor }}>
-                {formatPrice(total)}
+                {formatPrice(itemsSubtotal)}
               </span>
+            </div>
+            {deliveryType === "DELIVERY" && (
+              <div className="flex justify-between items-center text-xs font-bold text-slate-500">
+                <span>Стоимость доставки:</span>
+                <span>{formatPrice(deliveryFee)}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-black text-slate-900">Итого к оплате:</span>
+              <span className="text-base font-black" style={{ color: business.primaryColor }}>{formatPrice(total)}</span>
             </div>
           </div>
 
@@ -479,14 +508,17 @@ export default function CheckoutPage() {
               {[
                 { value: "PICKUP" as const, label: "Самовывоз", desc: "Заберу сам", icon: Store },
                 { value: "DELIVERY" as const, label: "Доставка", desc: "Привезем вам", icon: Truck },
-              ].map((option) => {
+              ].filter((option) => option.value === "PICKUP" ? pickupEnabled : deliveryEnabled).map((option) => {
                 const Icon = option.icon;
                 const isSelected = deliveryType === option.value;
                 return (
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() => setValue("deliveryType", option.value)}
+                    onClick={() => {
+                      setValue("deliveryType", option.value);
+                      if (option.value === "PICKUP") setValue("deliveryZoneId", "");
+                    }}
                     className={`p-4 rounded-2xl border-2 text-left transition-all relative ${
                       isSelected
                         ? "shadow-sm"
@@ -574,6 +606,17 @@ export default function CheckoutPage() {
 
               {deliveryType === "DELIVERY" && (
                 <div className="animate-fade-in space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Город / район доставки *</label>
+                  <select
+                    {...register("deliveryZoneId")}
+                    className="mb-3 w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-xs font-bold"
+                    required
+                  >
+                    <option value="">Выберите зону</option>
+                    {business.deliveryZones?.filter((zone) => zone.isActive).map((zone) => (
+                      <option key={zone.id} value={zone.id}>{zone.name} — {formatPrice(zone.fee)}</option>
+                    ))}
+                  </select>
                   <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Адрес доставки *</label>
                   <div className="relative">
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-455">
@@ -638,10 +681,10 @@ export default function CheckoutPage() {
                   {business.transferPaymentInstructions || "После перевода загрузите чек."}
                 </p>
                 <label className="block rounded-xl bg-white p-3 text-center text-[11px] font-black text-emerald-700 ring-1 ring-emerald-100">
-                  {paymentProofUploading ? "Загружаем чек..." : paymentProofUrl ? "Чек загружен" : "Загрузить чек перевода"}
+                  {paymentProofUploading ? "Загружаем PDF-чек..." : paymentProofUrl ? "PDF-чек загружен" : "Загрузить PDF-чек перевода"}
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/webp"
+                    accept="application/pdf,.pdf"
                     className="hidden"
                     disabled={paymentProofUploading}
                     onChange={(event) => handlePaymentProofUpload(event.target.files?.[0])}

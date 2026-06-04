@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTelegramSessionUser } from "@/lib/auth-telegram";
 import { prisma } from "@/lib/prisma";
-import { classifyDatabaseError, isPrismaMissingColumnError, toJsonSafe, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { classifyDatabaseError, toJsonSafe, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 const orderHistoryLegacySelect = {
   id: true,
@@ -34,6 +34,13 @@ const orderHistorySelect = {
   paymentRejectReason: true,
   expiredAt: true,
   expireReason: true,
+  itemsSubtotal: true,
+  deliveryFee: true,
+  deliveryStatus: true,
+  deliveryZoneId: true,
+  deliveryZoneName: true,
+  deliveryCityArea: true,
+  deliveryAssignment: { select: { courier: { select: { name: true, phone: true } } } },
 } as const;
 
 const bookingHistoryLegacySelect = {
@@ -130,9 +137,10 @@ export async function GET(request: NextRequest) {
     try {
       history = await loadHistory(customerIds, false);
     } catch (error) {
-      if (!isPrismaMissingColumnError(error)) throw error;
+      const classification = classifyDatabaseError(error);
+      if (classification.type !== "missing_table" && classification.type !== "missing_column") throw error;
       schemaFallback = true;
-      warnPrismaSchemaDrift("Customer order history retried without new payment/expiration columns", error);
+      warnPrismaSchemaDrift("Customer order history retried without optional payment/delivery schema", error);
       history = await loadHistory(customerIds, true);
     }
 

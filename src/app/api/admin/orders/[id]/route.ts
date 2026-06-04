@@ -8,6 +8,11 @@ const ALLOWED_STATUSES = new Set([
   "NEW",
   "ACCEPTED",
   "PREPARING",
+  "READY_FOR_PICKUP",
+  "READY_FOR_DELIVERY",
+  "COURIER_ASSIGNED",
+  "PICKED_UP",
+  "DELIVERED",
   "READY",
   "DELIVERING",
   "COMPLETED",
@@ -56,16 +61,33 @@ export async function PATCH(
       status = "ACCEPTED";
     }
 
+    if (status === "READY") {
+      status = order.deliveryType === "DELIVERY" ? "READY_FOR_DELIVERY" : "READY_FOR_PICKUP";
+    } else if (status === "DELIVERING" && order.deliveryType === "DELIVERY") {
+      status = "PICKED_UP";
+    }
+
     // Validate the target status
     if (!ALLOWED_STATUSES.has(status)) {
-      return jsonError(`Недопустимый статус заказа: ${status}. Разрешены только: NEW, ACCEPTED, PREPARING, READY, DELIVERING, COMPLETED, CANCELLED, EXPIRED.`, 400);
+      return jsonError(`Недопустимый статус заказа: ${status}.`, 400);
     }
 
     // 4. Update order details
+    const deliveryStatus =
+      status === "READY_FOR_DELIVERY" ? "WAITING_COURIER" :
+      status === "COURIER_ASSIGNED" ? "ASSIGNED" :
+      status === "PICKED_UP" ? "PICKED_UP" :
+      status === "DELIVERED" ? "DELIVERED" :
+      status === "CANCELLED" ? "CANCELLED" :
+      status === "EXPIRED" ? "EXPIRED" :
+      status === "READY_FOR_PICKUP" ? "NONE" :
+      undefined;
+
     const updatedOrder = await prisma.order.update({
       where: { id },
       data: {
         status,
+        ...(deliveryStatus ? { deliveryStatus } : {}),
         ...(internalNotes !== undefined ? { internalNotes } : {}),
       },
       include: { items: true },
@@ -74,6 +96,16 @@ export async function PATCH(
     // 5. Notify the customer of status updates safely in the background
     try {
       await NotificationService.notifyCustomerOrderStatus(updatedOrder.customerId || "", updatedOrder.id);
+      if (status === "READY_FOR_DELIVERY") {
+        await NotificationService.notifyCouriersNewDelivery(updatedOrder.id);
+      }
+      if (status === "CANCELLED") {
+        await prisma.deliveryAssignment.updateMany({
+          where: { orderId: updatedOrder.id, status: { in: ["ASSIGNED", "PICKED_UP"] } },
+          data: { status: "CANCELLED", releasedAt: new Date() },
+        });
+        await NotificationService.notifyCourierOrderCancelled(updatedOrder.id);
+      }
     } catch (notificationError) {
       console.warn("Could not dispatch customer push notification:", notificationError);
     }

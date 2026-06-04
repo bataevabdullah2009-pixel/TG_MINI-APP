@@ -1,11 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { generateNotice, noticeReasons } from "@/lib/ai/generateNotice";
 import { NotificationService } from "@/lib/notifications/notification-service";
+import { releaseExpiredCourierAssignments } from "@/lib/delivery/delivery-service";
 
 const BOOKING_EXPIRE_AFTER_MS = 5 * 60 * 1000;
-const PICKUP_ORDER_EXPIRE_AFTER_MS = 24 * 60 * 60 * 1000;
 const BOOKING_ACTIVE_STATUSES = ["PENDING", "NEW", "CONFIRMED"] as const;
-const ORDER_FINAL_STATUSES = ["COMPLETED", "CANCELLED", "EXPIRED"] as const;
+const PICKUP_READY_STATUSES = ["READY", "READY_FOR_PICKUP"] as const;
 
 function formatTime(date: Date, timezone?: string | null) {
   try {
@@ -68,7 +68,6 @@ async function notifyExpiredPickupOrder(input: {
 
 export async function expireBookingsAndPickupOrders(now = new Date()) {
   const bookingCutoff = new Date(now.getTime() - BOOKING_EXPIRE_AFTER_MS);
-  const pickupOrderCutoff = new Date(now.getTime() - PICKUP_ORDER_EXPIRE_AFTER_MS);
 
   const bookings = await prisma.booking.findMany({
     where: {
@@ -111,23 +110,27 @@ export async function expireBookingsAndPickupOrders(now = new Date()) {
   const pickupOrders = await prisma.order.findMany({
     where: {
       deliveryType: "PICKUP",
-      createdAt: { lt: pickupOrderCutoff },
-      status: { notIn: [...ORDER_FINAL_STATUSES] },
+      status: { in: [...PICKUP_READY_STATUSES] },
       expiredAt: null,
     },
     select: {
       id: true,
-      business: { select: { name: true } },
+      updatedAt: true,
+      business: { select: { name: true, settings: { select: { pickupWaitHours: true } } } },
     },
   });
 
   let expiredPickupOrders = 0;
   for (const order of pickupOrders) {
+    const pickupWaitHours = order.business.settings?.pickupWaitHours || 24;
+    const pickupOrderCutoff = new Date(now.getTime() - pickupWaitHours * 60 * 60 * 1000);
+    if (order.updatedAt >= pickupOrderCutoff) continue;
+
     const updated = await prisma.order.updateMany({
       where: {
         id: order.id,
         deliveryType: "PICKUP",
-        status: { notIn: [...ORDER_FINAL_STATUSES] },
+        status: { in: [...PICKUP_READY_STATUSES] },
         expiredAt: null,
       },
       data: {
@@ -147,8 +150,11 @@ export async function expireBookingsAndPickupOrders(now = new Date()) {
     }
   }
 
+  const releasedCourierAssignments = await releaseExpiredCourierAssignments(now);
+
   return {
     expiredBookings,
     expiredPickupOrders,
+    releasedCourierAssignments,
   };
 }

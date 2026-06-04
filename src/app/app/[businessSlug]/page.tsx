@@ -77,7 +77,7 @@ export default function BusinessMiniAppPage() {
   const [favoriteProductIds, setFavoriteProductIds] = useState<string[]>([]);
   const [needsPhoneVerification, setNeedsPhoneVerification] = useState(false);
   const [verifyOpen, setVerifyOpen] = useState(false);
-  const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", address: "", deliveryType: "PICKUP", comment: "" });
+  const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", address: "", deliveryType: "PICKUP", deliveryZoneId: "", comment: "" });
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "TRANSFER">("CASH");
   const [paymentProofUrl, setPaymentProofUrl] = useState("");
   const [paymentProofUploading, setPaymentProofUploading] = useState(false);
@@ -165,6 +165,16 @@ export default function BusinessMiniAppPage() {
       setPaymentProofUrl("");
     }
   }, [business?.transferPaymentEnabled]);
+
+  useEffect(() => {
+    if (!business?.settings) return;
+    const deliveryAvailable = business.settings.deliveryEnabled && Boolean(business.deliveryZones?.length);
+    if (!business.settings.pickupEnabled && deliveryAvailable) {
+      setForm((current) => ({ ...current, deliveryType: "DELIVERY" }));
+    } else if (business.settings.pickupEnabled && !deliveryAvailable) {
+      setForm((current) => ({ ...current, deliveryType: "PICKUP", deliveryZoneId: "" }));
+    }
+  }, [business]);
 
   const ui = business ? templateUi[business.templateKey] || templateUi.cafe : templateUi.cafe;
   const mode = ui.mode;
@@ -280,6 +290,10 @@ export default function BusinessMiniAppPage() {
       setCheckoutError("Укажите адрес доставки.");
       return;
     }
+    if (form.deliveryType === "DELIVERY" && !form.deliveryZoneId) {
+      setCheckoutError("Выберите город или район доставки.");
+      return;
+    }
     if (paymentMethod === "TRANSFER" && !paymentProofUrl) {
       setCheckoutError("Загрузите чек перевода.");
       return;
@@ -293,6 +307,7 @@ export default function BusinessMiniAppPage() {
           customerPhone: form.phone,
           customerAddress: form.deliveryType === "DELIVERY" ? form.address : "",
           deliveryType: form.deliveryType,
+          deliveryZoneId: form.deliveryType === "DELIVERY" ? form.deliveryZoneId : undefined,
           comment: form.comment,
           telegramUserId: user?.id,
           username: user?.username,
@@ -689,7 +704,7 @@ function ContactFields({
   setForm,
   showAddress = false,
 }: {
-  form: { firstName: string; lastName: string; phone: string; address: string; deliveryType: string; comment: string };
+  form: { firstName: string; lastName: string; phone: string; address: string; deliveryType: string; deliveryZoneId: string; comment: string };
   setForm: (value: any) => void;
   showAddress?: boolean;
 }) {

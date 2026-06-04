@@ -42,7 +42,20 @@ const currentBusinessSelect = {
   isActive: true,
   isOpen: true,
   ownerId: true,
-  settings: true,
+  settings: {
+    select: {
+      deliveryEnabled: true,
+      pickupEnabled: true,
+      bookingEnabled: true,
+      reviewsEnabled: true,
+      loyaltyEnabled: true,
+      minOrderAmount: true,
+      deliveryFee: true,
+      deliveryTime: true,
+      notificationsEnabled: true,
+      reminderTime: true,
+    },
+  },
 } as const;
 
 export async function GET(request: NextRequest) {

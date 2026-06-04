@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { 
   TrendingUp, 
   ShoppingBag, 
-  Sparkles, 
   Image as ImageIcon, 
   Settings as SettingsIcon,
   Plus,
@@ -26,10 +25,14 @@ import {
   Check,
   User,
   Clock,
-  Pencil
+  Pencil,
+  Bike,
+  Truck,
 } from "lucide-react";
 import { MediaUpload } from "./MediaUpload";
-import { AiCenter } from "./AiCenter";
+import { SellerStoreTools } from "./SellerStoreTools";
+import { SellerDeliverySettings } from "./SellerDeliverySettings";
+import { SellerCouriers } from "./SellerCouriers";
 import { miniAppFetch } from "@/lib/miniAppFetch";
 
 interface SellerHomeProps {
@@ -40,7 +43,7 @@ interface SellerHomeProps {
 export function SellerHome({ session, businessId }: SellerHomeProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<
-    "DASHBOARD" | "ORDERS" | "BOOKINGS" | "ITEMS" | "AI" | "CLIENTS" | "MEDIA" | "SETTINGS"
+    "DASHBOARD" | "ORDERS" | "BOOKINGS" | "ITEMS" | "DELIVERY" | "COURIERS" | "CLIENTS" | "MEDIA" | "SETTINGS"
   >("DASHBOARD");
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
@@ -163,10 +166,13 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
       const todayOrders = ords.filter((o: any) => new Date(o.createdAt) >= startOfDay);
       const revenue = todayOrders
-        .filter((o: any) => o.status === "COMPLETED")
+        .filter((o: any) => ["COMPLETED", "DELIVERED"].includes(o.status))
         .reduce((sum: number, o: any) => sum + (o.totalPrice || 0), 0);
 
-      const activeOrds = ords.filter((o: any) => o.status === "NEW" || o.status === "ACCEPTED" || o.status === "PREPARING" || o.status === "READY" || o.status === "DELIVERING").length;
+      const activeOrds = ords.filter((o: any) => [
+        "NEW", "ACCEPTED", "PREPARING", "READY", "READY_FOR_PICKUP", "READY_FOR_DELIVERY",
+        "COURIER_ASSIGNED", "PICKED_UP", "DELIVERING",
+      ].includes(o.status)).length;
       const activeBks = bks.filter((b: any) => b.status === "PENDING" || b.status === "NEW" || b.status === "CONFIRMED").length;
 
       setStats({
@@ -509,7 +515,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
             { id: "ORDERS", label: "Заказы", icon: <ClipboardList size={11} /> },
             { id: "BOOKINGS", label: "Записи", icon: <Calendar size={11} /> },
             { id: "ITEMS", label: "Товары", icon: <ShoppingBag size={11} /> },
-            { id: "AI", label: "ИИ-Маркетинг", icon: <Sparkles size={11} /> },
+            { id: "DELIVERY", label: "Доставка", icon: <Truck size={11} /> },
+            { id: "COURIERS", label: "Курьеры", icon: <Bike size={11} /> },
             { id: "CLIENTS", label: "Клиенты", icon: <Users size={11} /> },
             { id: "MEDIA", label: "Медиа", icon: <ImageIcon size={11} /> },
             { id: "SETTINGS", label: "Настройки", icon: <SettingsIcon size={11} /> },
@@ -581,12 +588,6 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                   <Plus size={16} /> Добавить услугу
                 </button>
                 <button 
-                  onClick={() => setActiveTab("AI")}
-                  className="p-3 bg-emerald-50 text-emerald-700 rounded-2xl hover:bg-emerald-100 transition active:scale-95 flex flex-col items-center gap-1.5 col-span-2"
-                >
-                  <Sparkles size={16} fill="currentColor" /> Создать промо-пост с ИИ
-                </button>
-                <button 
                   onClick={() => setActiveTab("MEDIA")}
                   className="p-2.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 transition active:scale-95"
                 >
@@ -600,6 +601,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                 </button>
               </div>
             </div>
+
+            <SellerStoreTools businessSlug={businessData?.slug || ""} />
 
             {/* Active/Today Orders */}
             <div className="bg-white rounded-3xl p-4 shadow-sm ring-1 ring-slate-100/80">
@@ -673,7 +676,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
               
               {/* Filter statuses */}
               <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-3">
-                {["ALL", "NEW", "ACCEPTED", "PREPARING", "READY", "DELIVERING", "COMPLETED", "CANCELLED", "EXPIRED"].map((status) => (
+                {["ALL", "NEW", "ACCEPTED", "PREPARING", "READY_FOR_PICKUP", "READY_FOR_DELIVERY", "COURIER_ASSIGNED", "PICKED_UP", "DELIVERED", "COMPLETED", "CANCELLED", "EXPIRED"].map((status) => (
                   <button
                     key={status}
                     onClick={() => setOrderFilter(status)}
@@ -708,9 +711,9 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           order.status === "NEW" ? "bg-amber-100 text-amber-700" :
                           order.status === "ACCEPTED" ? "bg-indigo-100 text-indigo-700" :
                           order.status === "PREPARING" ? "bg-purple-100 text-purple-700" :
-                          order.status === "READY" ? "bg-cyan-100 text-cyan-700" :
-                          order.status === "DELIVERING" ? "bg-blue-100 text-blue-700" :
-                          order.status === "COMPLETED" ? "bg-emerald-100 text-emerald-700" :
+                          ["READY", "READY_FOR_PICKUP", "READY_FOR_DELIVERY"].includes(order.status) ? "bg-cyan-100 text-cyan-700" :
+                          ["DELIVERING", "COURIER_ASSIGNED", "PICKED_UP"].includes(order.status) ? "bg-blue-100 text-blue-700" :
+                          ["DELIVERED", "COMPLETED"].includes(order.status) ? "bg-emerald-100 text-emerald-700" :
                           order.status === "EXPIRED" ? "bg-slate-200 text-slate-700" :
                           "bg-slate-200 text-slate-500"
                         }`}>
@@ -780,6 +783,17 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                             )}
                           </div>
                         )}
+                        {order.deliveryCityArea && (
+                          <div className="flex items-center gap-1.5">
+                            <Truck size={12} className="text-slate-400" />
+                            <span>{order.deliveryZoneName || order.deliveryCityArea} · доставка {order.deliveryFee || 0} ₽</span>
+                          </div>
+                        )}
+                        {order.deliveryAssignment?.courier && (
+                          <div className="rounded-xl bg-blue-50 p-2 text-[10px] font-bold text-blue-800">
+                            Курьер: {order.deliveryAssignment.courier.name} · {order.deliveryAssignment.courier.phone}
+                          </div>
+                        )}
                       </div>
 
                       {/* Items Ordered */}
@@ -790,7 +804,17 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                             <span>{item.price * item.quantity} ₽</span>
                           </div>
                         ))}
-                        <div className="border-t pt-1.5 flex justify-between font-black text-slate-900">
+                        <div className="border-t pt-1.5 flex justify-between font-bold text-slate-600">
+                          <span>Товары:</span>
+                          <span>{order.itemsSubtotal || order.totalPrice - (order.deliveryFee || 0)} ₽</span>
+                        </div>
+                        {order.deliveryType === "DELIVERY" && (
+                          <div className="flex justify-between font-bold text-slate-600">
+                            <span>Доставка:</span>
+                            <span>{order.deliveryFee || 0} ₽</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between font-black text-slate-900">
                           <span>Итого:</span>
                           <span className="text-indigo-600">{order.totalPrice} ₽</span>
                         </div>
@@ -843,7 +867,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                               onClick={() => handleUpdateOrderStatus(order.id, "READY")}
                               className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white font-black text-xs py-2 rounded-xl transition"
                             >
-                              Готов к выдаче
+                              {order.deliveryType === "DELIVERY" ? "Готов к доставке" : "Готов к выдаче"}
                             </button>
                             <button
                               onClick={() => handleUpdateOrderStatus(order.id, "CANCELLED")}
@@ -859,13 +883,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                               onClick={() => handleUpdateOrderStatus(order.id, "READY")}
                               className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white font-black text-xs py-2 rounded-xl transition"
                             >
-                              Готов к выдаче
-                            </button>
-                            <button
-                              onClick={() => handleUpdateOrderStatus(order.id, "DELIVERING")}
-                              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs py-2 rounded-xl transition"
-                            >
-                              В доставку
+                              {order.deliveryType === "DELIVERY" ? "Готов к доставке" : "Готов к выдаче"}
                             </button>
                             <button
                               onClick={() => handleUpdateOrderStatus(order.id, "CANCELLED")}
@@ -900,6 +918,29 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           </button>
                         )}
                           </>
+                        )}
+                        {order.status === "READY_FOR_PICKUP" && (
+                          <button
+                            onClick={() => handleUpdateOrderStatus(order.id, "COMPLETED")}
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm"
+                          >
+                            <CheckCircle size={14} /> Выдан клиенту
+                          </button>
+                        )}
+                        {order.status === "READY_FOR_DELIVERY" && (
+                          <div className="w-full rounded-xl bg-cyan-50 p-2 text-center text-[10px] font-black text-cyan-700">
+                            Заказ виден активным курьерам
+                          </div>
+                        )}
+                        {order.status === "COURIER_ASSIGNED" && (
+                          <div className="w-full rounded-xl bg-blue-50 p-2 text-center text-[10px] font-black text-blue-700">
+                            Курьер назначен и должен забрать заказ
+                          </div>
+                        )}
+                        {order.status === "PICKED_UP" && (
+                          <div className="w-full rounded-xl bg-indigo-50 p-2 text-center text-[10px] font-black text-indigo-700">
+                            Курьер забрал заказ и везёт клиенту
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1203,16 +1244,18 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
           </div>
         )}
 
-        {/* Tab 5: AI Marketing Center */}
-        {activeTab === "AI" && (
-          <div className="space-y-4">
-            <AiCenter
-              businessId={businessId}
-              businessType={businessData?.type || "CAFE"}
-              categories={categories}
-              onItemCreated={fetchSellerData}
-            />
-          </div>
+        {activeTab === "DELIVERY" && (
+          <SellerDeliverySettings
+            businessId={businessId}
+            onMessage={(message, isError) => isError ? showError(message) : showSuccess(message)}
+          />
+        )}
+
+        {activeTab === "COURIERS" && (
+          <SellerCouriers
+            businessId={businessId}
+            onMessage={(message, isError) => isError ? showError(message) : showSuccess(message)}
+          />
         )}
 
         {/* Tab 6: Customers List CRM */}

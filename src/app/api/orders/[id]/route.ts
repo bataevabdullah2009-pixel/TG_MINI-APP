@@ -1,6 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { NotificationService } from "@/lib/notifications/notification-service";
+import { classifyDatabaseError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+
+const legacyOrderDetailSelect = {
+  id: true,
+  businessId: true,
+  customerId: true,
+  customerName: true,
+  customerPhone: true,
+  customerAddress: true,
+  totalPrice: true,
+  status: true,
+  deliveryType: true,
+  paymentMethod: true,
+  paymentStatus: true,
+  paymentProofUrl: true,
+  paymentProofAiStatus: true,
+  paymentProofAiSummary: true,
+  paymentProofAiConfidence: true,
+  paymentReviewedAt: true,
+  paymentReviewedBy: true,
+  paymentRejectReason: true,
+  comment: true,
+  internalNotes: true,
+  expiredAt: true,
+  expireReason: true,
+  createdAt: true,
+  updatedAt: true,
+  items: true,
+  payment: true,
+} as const;
 
 export async function GET(
   _request: NextRequest,
@@ -8,10 +38,26 @@ export async function GET(
 ) {
   try {
     const { id } = await context.params;
-    const order = await prisma.order.findUnique({
-      where: { id },
-      include: { items: true, payment: true },
-    });
+    let order;
+    try {
+      order = await prisma.order.findUnique({
+        where: { id },
+        include: {
+          items: true,
+          payment: true,
+          deliveryZone: true,
+          deliveryAssignment: { include: { courier: true } },
+        },
+      });
+    } catch (error) {
+      const classification = classifyDatabaseError(error);
+      if (classification.type !== "missing_table" && classification.type !== "missing_column") throw error;
+      warnPrismaSchemaDrift(`Order ${id} retried without courier/delivery relations`, error);
+      order = await prisma.order.findUnique({
+        where: { id },
+        select: legacyOrderDetailSelect,
+      });
+    }
 
     if (!order) {
       return NextResponse.json({ error: "Заказ не найден." }, { status: 404 });

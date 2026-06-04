@@ -50,7 +50,7 @@ Run `npm run env:diagnose` before deploy. It reports missing variables and unsaf
 `CRON_SECRET`
 - Long random server-only secret for scheduled endpoints.
 - Required for `/api/cron/expire` and protected `/api/health/db?diagnose=1`.
-- Send as `Authorization: Bearer CRON_SECRET` or `?secret=CRON_SECRET`.
+- Send only as `Authorization: Bearer CRON_SECRET`.
 
 `NEXT_PUBLIC_SUPABASE_URL`
 - Supabase project URL.
@@ -74,6 +74,15 @@ Run `npm run env:diagnose` before deploy. It reports missing variables and unsaf
 `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME`
 - Public bot username for client-side links.
 - Source: BotFather.
+
+`NEXT_PUBLIC_TELEGRAM_MINI_APP_SHORT_NAME`
+- Optional Mini App short name from BotFather.
+- Used for direct links like `https://t.me/BOT/SHORT_NAME?startapp=store_demo-cafe`.
+- If omitted, the app uses `https://t.me/BOT?startapp=store_demo-cafe`.
+
+`NEXT_PUBLIC_AI_CARD_BOT_URL`
+- Public URL of the separate AI bot for product cards and advertising materials.
+- If omitted, the seller panel shows the disabled state `AI-бот не настроен`.
 
 `TELEGRAM_ADMIN_CHAT_ID`
 - Fallback seller/admin chat id for notifications.
