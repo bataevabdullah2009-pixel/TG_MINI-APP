@@ -31,6 +31,21 @@ export type StorefrontBusiness = {
   transferRecipientName?: string | null;
   transferPaymentCommentRequired?: boolean;
   transferPaymentInstructions?: string | null;
+  settings?: {
+    deliveryEnabled: boolean;
+    pickupEnabled: boolean;
+    minOrderAmount: number;
+    pickupWaitHours: number;
+    courierAcceptanceMinutes: number;
+  } | null;
+  deliveryZones?: Array<{
+    id: string;
+    name: string;
+    cityArea: string;
+    fee: number;
+    estimatedMinutes?: number | null;
+    isActive: boolean;
+  }>;
 };
 
 export type StorefrontMode = "cart" | "booking";

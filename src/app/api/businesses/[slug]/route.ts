@@ -44,7 +44,20 @@ const businessDetailLegacySelect = {
   ownerId: true,
   createdAt: true,
   updatedAt: true,
-  settings: true,
+  settings: {
+    select: {
+      deliveryEnabled: true,
+      pickupEnabled: true,
+      bookingEnabled: true,
+      reviewsEnabled: true,
+      loyaltyEnabled: true,
+      minOrderAmount: true,
+      deliveryFee: true,
+      deliveryTime: true,
+      notificationsEnabled: true,
+      reminderTime: true,
+    },
+  },
   categories: { where: { isActive: true } },
 } as const;
 
@@ -61,6 +74,8 @@ const currentBusinessFieldsSelect = {
 const businessDetailSelect = {
   ...businessDetailLegacySelect,
   ...currentBusinessFieldsSelect,
+  settings: true,
+  deliveryZones: { where: { isActive: true }, orderBy: { name: "asc" } },
 } as const;
 
 function normalizeLookup(value: string) {
@@ -97,9 +112,10 @@ export async function GET(
         select: businessDetailSelect,
       });
     } catch (error) {
-      if (!isPrismaMissingColumnError(error)) throw error;
+      const classification = classifyDatabaseError(error);
+      if (classification.type !== "missing_table" && classification.type !== "missing_column") throw error;
       schemaFallback = true;
-      warnPrismaSchemaDrift(`Business detail ${slug} retried without transfer payment columns`, error);
+      warnPrismaSchemaDrift(`Business detail ${slug} retried without optional payment/delivery schema`, error);
       business = await prisma.business.findFirst({
         where: businessLookupWhere(slug),
         select: businessDetailLegacySelect,

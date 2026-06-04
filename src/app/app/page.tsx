@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Search, Settings, Star, Store, UserRound, Heart, ClipboardList, Shield, Home } from "lucide-react";
 import { ClientHome } from "@/components/app/ClientHome";
 import { ClientFavorites } from "@/components/app/ClientFavorites";
@@ -9,6 +10,7 @@ import { ClientProfile } from "@/components/app/ClientProfile";
 import { SellerHome } from "@/components/app/SellerHome";
 import { ManagerWorkPanel } from "@/components/app/ManagerWorkPanel";
 import { SuperAdminHome } from "@/components/app/SuperAdminHome";
+import { getStoreSlugFromStartParam } from "@/lib/business-share-links";
 
 type Business = {
   id: string;
@@ -27,6 +29,7 @@ type Business = {
 };
 
 export default function MarketplacePage() {
+  const router = useRouter();
   const [session, setSession] = useState<any>(null);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,6 +96,13 @@ export default function MarketplacePage() {
     tg?.ready?.();
     tg?.expand?.();
 
+    const initDataStartParam = new URLSearchParams(tg?.initData || sessionStorage.getItem("tgInitData") || "").get("start_param");
+    const storeSlug = getStoreSlugFromStartParam(tg?.initDataUnsafe?.start_param || initDataStartParam);
+    if (storeSlug) {
+      router.replace(`/app/${encodeURIComponent(storeSlug)}`);
+      return;
+    }
+
     // Load favorites from localstorage
     const localFavorites = localStorage.getItem("favoriteBusinesses");
     if (localFavorites) setFavorites(JSON.parse(localFavorites));
@@ -126,7 +136,7 @@ export default function MarketplacePage() {
         console.error("Error loading businesses:", err);
         setCatalogError(err instanceof Error ? err.message : "Не удалось загрузить каталог.");
       });
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     if (!session?.telegramUserId) return undefined;
@@ -170,7 +180,10 @@ export default function MarketplacePage() {
       setProfileError(null);
 
       // Determine initial workspace mode
-      if (modeOverride === "SELLER" && (sessionData.role === "BUSINESS_OWNER" || sessionData.role === "SUPER_ADMIN")) {
+      if (sessionData.role === "COURIER") {
+        window.location.replace("/courier");
+        return;
+      } else if (modeOverride === "SELLER" && (sessionData.role === "BUSINESS_OWNER" || sessionData.role === "SUPER_ADMIN")) {
         setActiveWorkspaceMode("SELLER");
       } else if (modeOverride === "SUPER" && sessionData.role === "SUPER_ADMIN") {
         setActiveWorkspaceMode("SUPER_ADMIN");

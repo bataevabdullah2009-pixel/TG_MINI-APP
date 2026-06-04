@@ -1,9 +1,9 @@
 // Shared types
-export type Role = "SUPER_ADMIN" | "BUSINESS_OWNER" | "MANAGER" | "CUSTOMER";
+export type Role = "SUPER_ADMIN" | "BUSINESS_OWNER" | "MANAGER" | "COURIER" | "CUSTOMER";
 
 export type BusinessType = "CAFE" | "BARBERSHOP" | "CARWASH" | "SHOP" | "COURSES" | "CUSTOM";
 
-export type OrderStatus = "NEW" | "ACCEPTED" | "PREPARING" | "READY" | "DELIVERING" | "COMPLETED" | "CANCELLED" | "EXPIRED";
+export type OrderStatus = "NEW" | "ACCEPTED" | "PREPARING" | "READY_FOR_PICKUP" | "READY_FOR_DELIVERY" | "COURIER_ASSIGNED" | "PICKED_UP" | "DELIVERED" | "READY" | "DELIVERING" | "COMPLETED" | "CANCELLED" | "EXPIRED";
 
 export type BookingStatus = "PENDING" | "NEW" | "CONFIRMED" | "COMPLETED" | "CANCELLED" | "EXPIRED" | "NO_SHOW";
 
@@ -61,6 +61,7 @@ export interface Business {
   updatedAt: Date;
   workingHours?: WorkingHours[];
   settings?: BusinessSettings;
+  deliveryZones?: DeliveryZone[];
 }
 
 export interface WorkingHours {
@@ -83,8 +84,20 @@ export interface BusinessSettings {
   minOrderAmount: number;
   deliveryFee: number;
   deliveryTime: number | null;
+  pickupWaitHours: number;
+  courierAcceptanceMinutes: number;
   notificationsEnabled: boolean;
   reminderTime: number;
+}
+
+export interface DeliveryZone {
+  id: string;
+  businessId: string;
+  name: string;
+  cityArea: string;
+  fee: number;
+  estimatedMinutes: number | null;
+  isActive: boolean;
 }
 
 export interface Category {
@@ -166,9 +179,15 @@ export interface Order {
   customerName: string;
   customerPhone: string;
   customerAddress: string | null;
+  itemsSubtotal?: number;
+  deliveryFee?: number;
   totalPrice: number;
   status: OrderStatus;
   deliveryType: "DELIVERY" | "PICKUP" | "NONE";
+  deliveryStatus?: "NONE" | "WAITING_COURIER" | "ASSIGNED" | "PICKED_UP" | "DELIVERED" | "CANCELLED" | "EXPIRED";
+  deliveryZoneId?: string | null;
+  deliveryZoneName?: string | null;
+  deliveryCityArea?: string | null;
   paymentMethod?: "CASH" | "TRANSFER" | "TELEGRAM_STARS" | "YOOKASSA" | "MANUAL";
   paymentStatus?: "PENDING" | "AWAITING_REVIEW" | "PAID" | "REJECTED" | "FAILED" | "REFUNDED";
   paymentProofUrl?: string | null;

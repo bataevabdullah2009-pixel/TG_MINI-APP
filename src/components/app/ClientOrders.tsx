@@ -55,6 +55,16 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
         return { label: "В работе", color: "bg-amber-50 text-amber-700 ring-amber-200" };
       case "READY":
         return { label: "Готов", color: "bg-emerald-50 text-emerald-700 ring-emerald-200" };
+      case "READY_FOR_PICKUP":
+        return { label: "Готов к самовывозу", color: "bg-emerald-50 text-emerald-700 ring-emerald-200" };
+      case "READY_FOR_DELIVERY":
+        return { label: "Ожидает курьера", color: "bg-cyan-50 text-cyan-700 ring-cyan-200" };
+      case "COURIER_ASSIGNED":
+        return { label: "Курьер назначен", color: "bg-blue-50 text-blue-700 ring-blue-200" };
+      case "PICKED_UP":
+        return { label: "В пути", color: "bg-indigo-50 text-indigo-700 ring-indigo-200" };
+      case "DELIVERED":
+        return { label: "Доставлен", color: "bg-emerald-50 text-emerald-700 ring-emerald-200" };
       case "COMPLETED":
         return { label: "Выполнен", color: "bg-slate-100 text-slate-700 ring-slate-200" };
       case "CANCELLED":
@@ -191,6 +201,13 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
                             <div className="mt-2 text-slate-500 bg-slate-50 p-2 rounded-xl">
                               <span className="font-bold block text-[9px] text-slate-400">АДРЕС ДОСТАВКИ</span>
                               {order.customerAddress}
+                            </div>
+                          )}
+                          {order.deliveryType === "DELIVERY" && (
+                            <div className="mt-2 grid gap-1 rounded-xl bg-slate-50 p-2 text-slate-500">
+                              <div className="flex justify-between"><span>Товары</span><span>{order.itemsSubtotal || order.totalPrice - (order.deliveryFee || 0)} ₽</span></div>
+                              <div className="flex justify-between"><span>Доставка {order.deliveryZoneName ? `(${order.deliveryZoneName})` : ""}</span><span>{order.deliveryFee || 0} ₽</span></div>
+                              {order.deliveryAssignment?.courier && <div className="font-bold text-indigo-700">Курьер: {order.deliveryAssignment.courier.name}</div>}
                             </div>
                           )}
                           {order.comment && (

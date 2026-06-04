@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession, requireRole, canUseBusiness, jsonError } from "@/lib/admin-auth";
 import { classifyDatabaseError, isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { normalizeBusinessSlug } from "@/lib/business-slug";
 
 const businessListSelect = {
   id: true,
@@ -43,7 +44,20 @@ const businessListSelect = {
   ownerId: true,
   createdAt: true,
   updatedAt: true,
-  settings: true,
+  settings: {
+    select: {
+      deliveryEnabled: true,
+      pickupEnabled: true,
+      bookingEnabled: true,
+      reviewsEnabled: true,
+      loyaltyEnabled: true,
+      minOrderAmount: true,
+      deliveryFee: true,
+      deliveryTime: true,
+      notificationsEnabled: true,
+      reminderTime: true,
+    },
+  },
   _count: {
     select: {
       orders: true,
@@ -52,17 +66,6 @@ const businessListSelect = {
     },
   },
 } as const;
-
-function normalizeSlug(value: string) {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/['"]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 80);
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -109,7 +112,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Укажите название бизнеса." }, { status: 400 });
     }
 
-    const normalizedSlug = normalizeSlug(String(slug || name));
+    const normalizedSlug = normalizeBusinessSlug(String(slug || name));
     if (!normalizedSlug) {
       return NextResponse.json({ error: "Не удалось сформировать slug. Укажите короткую ссылку латиницей." }, { status: 400 });
     }

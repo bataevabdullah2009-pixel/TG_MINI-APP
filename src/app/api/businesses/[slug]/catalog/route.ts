@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { classifyDatabaseError, isPrismaMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { classifyDatabaseError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 const catalogBusinessBaseSelect = {
   id: true,
@@ -63,8 +63,32 @@ function normalizeLookup(value: string) {
   }
 }
 
-function catalogRelations(search?: string) {
+function catalogRelations(search: string | undefined, includeDeliveryConfig: boolean) {
   return {
+    settings: includeDeliveryConfig
+      ? true
+      : {
+          select: {
+            deliveryEnabled: true,
+            pickupEnabled: true,
+            bookingEnabled: true,
+            reviewsEnabled: true,
+            loyaltyEnabled: true,
+            minOrderAmount: true,
+            deliveryFee: true,
+            deliveryTime: true,
+            notificationsEnabled: true,
+            reminderTime: true,
+          },
+        },
+    ...(includeDeliveryConfig
+      ? {
+          deliveryZones: {
+            where: { isActive: true },
+            orderBy: { name: "asc" as const },
+          },
+        }
+      : {}),
     categories: {
       where: { isActive: true },
       orderBy: { sortOrder: "asc" as const },
@@ -90,7 +114,7 @@ function catalogRelations(search?: string) {
   };
 }
 
-async function findCatalogBusiness(slug: string, search: string | undefined, includeCurrentFields: boolean) {
+async function findCatalogBusiness(slug: string, search: string | undefined, includeCurrentFields: boolean, includeDeliveryConfig: boolean) {
   const lookup = normalizeLookup(slug);
   return prisma.business.findFirst({
     where: {
@@ -103,7 +127,7 @@ async function findCatalogBusiness(slug: string, search: string | undefined, inc
     select: {
       ...catalogBusinessBaseSelect,
       ...(includeCurrentFields ? currentBusinessFieldsSelect : {}),
-      ...catalogRelations(search),
+      ...catalogRelations(search, includeDeliveryConfig),
     },
   });
 }
@@ -119,12 +143,13 @@ export async function GET(
   try {
     let business;
     try {
-      business = await findCatalogBusiness(slug, search, true);
+      business = await findCatalogBusiness(slug, search, true, true);
     } catch (error) {
-      if (!isPrismaMissingColumnError(error)) throw error;
+      const classification = classifyDatabaseError(error);
+      if (classification.type !== "missing_table" && classification.type !== "missing_column") throw error;
       usedSchemaFallback = true;
-      warnPrismaSchemaDrift(`Catalog ${slug} retried without transfer payment columns`, error);
-      business = await findCatalogBusiness(slug, search, false);
+      warnPrismaSchemaDrift(`Catalog ${slug} retried without optional payment/delivery schema`, error);
+      business = await findCatalogBusiness(slug, search, false, false);
     }
 
     if (!business || !business.isActive) {

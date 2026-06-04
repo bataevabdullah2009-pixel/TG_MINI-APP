@@ -18,7 +18,7 @@ type AdminSessionUser = {
   name: string | null;
   telegramId: bigint | null;
   username: string | null;
-  role: "CUSTOMER" | "BUSINESS_OWNER" | "MANAGER" | "SUPER_ADMIN";
+  role: "CUSTOMER" | "BUSINESS_OWNER" | "MANAGER" | "COURIER" | "SUPER_ADMIN";
   businessId: string | null;
   isActive: boolean;
   business: { id: string; slug: string; name: string } | null;
@@ -165,7 +165,7 @@ export async function getTelegramSessionUser(initData: string, businessId?: stri
 
   // 3. Determine the effective role
   // Default is CUSTOMER. But if they match the SUPER_ADMIN list, or have a specific User role, we upgrade.
-  let role: "CUSTOMER" | "BUSINESS_OWNER" | "MANAGER" | "SUPER_ADMIN" = "CUSTOMER";
+  let role: "CUSTOMER" | "BUSINESS_OWNER" | "MANAGER" | "COURIER" | "SUPER_ADMIN" = "CUSTOMER";
 
   const superAdminIds = (process.env.TELEGRAM_SUPER_ADMIN_IDS || "")
     .split(",")
@@ -182,6 +182,8 @@ export async function getTelegramSessionUser(initData: string, businessId?: stri
       role = "BUSINESS_OWNER";
     } else if (adminUser.role === "MANAGER") {
       role = "MANAGER";
+    } else if (adminUser.role === "COURIER") {
+      role = "COURIER";
     }
   }
 

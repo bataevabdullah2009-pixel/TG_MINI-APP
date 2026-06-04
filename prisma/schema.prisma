@@ -17,6 +17,7 @@ enum Role {
   SUPER_ADMIN
   BUSINESS_OWNER
   MANAGER
+  COURIER
   CUSTOMER
 }
 
@@ -47,6 +48,11 @@ enum OrderStatus {
   NEW
   ACCEPTED
   PREPARING
+  READY_FOR_PICKUP
+  READY_FOR_DELIVERY
+  COURIER_ASSIGNED
+  PICKED_UP
+  DELIVERED
   READY
   DELIVERING
   COMPLETED
@@ -58,6 +64,16 @@ enum DeliveryType {
   DELIVERY
   PICKUP
   NONE
+}
+
+enum DeliveryStatus {
+  NONE
+  WAITING_COURIER
+  ASSIGNED
+  PICKED_UP
+  DELIVERED
+  CANCELLED
+  EXPIRED
 }
 
 enum BookingStatus {
@@ -100,29 +116,30 @@ enum NotificationType {
 // ============= USERS & AUTH =============
 
 model User {
-  id                String     @id @default(cuid())
-  email             String?    @unique
-  password          String?
-  name              String?
-  phone             String?
-  phoneVerified     Boolean    @default(false)
-  phoneVerifiedAt   DateTime?
-  telegramId        BigInt?    @unique
-  username          String?
-  telegramLinkCode  String?    @unique
+  id                    String    @id @default(cuid())
+  email                 String?   @unique
+  password              String?
+  name                  String?
+  phone                 String?
+  phoneVerified         Boolean   @default(false)
+  phoneVerifiedAt       DateTime?
+  telegramId            BigInt?   @unique
+  username              String?
+  telegramLinkCode      String?   @unique
   telegramLinkExpiresAt DateTime?
-  
-  role              Role       @default(CUSTOMER)
-  businessId        String?    
-  business          Business?  @relation("BusinessUsers", fields: [businessId], references: [id], onDelete: SetNull)
-  ownedBusinesses   Business[] @relation("BusinessOwner")
-  customers         Customer[]
-  
-  isActive          Boolean    @default(true)
-  
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
-  
+
+  role            Role       @default(CUSTOMER)
+  businessId      String?
+  business        Business?  @relation("BusinessUsers", fields: [businessId], references: [id], onDelete: SetNull)
+  ownedBusinesses Business[] @relation("BusinessOwner")
+  customers       Customer[]
+  courierProfile  Courier?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([businessId])
   @@index([telegramId])
 }
@@ -130,100 +147,102 @@ model User {
 // ============= BUSINESS CORE =============
 
 model Business {
-  id                String        @id @default(cuid())
-  slug              String        @unique 
-  name              String        
-  type              BusinessType  @default(CUSTOM)
-  templateKey       String        @default("custom")
-  
-  description       String?       
-  logoUrl           String?
-  coverImageUrl     String?
-  
+  id          String       @id @default(cuid())
+  slug        String       @unique
+  name        String
+  type        BusinessType @default(CUSTOM)
+  templateKey String       @default("custom")
+
+  description   String?
+  logoUrl       String?
+  coverImageUrl String?
+
   // White-label settings
-  primaryColor      String        @default("#000000")
-  secondaryColor    String        @default("#FFFFFF")
-  backgroundColor   String        @default("#F5F5F5")
-  accentColor       String        @default("#3B82F6")
-  
+  primaryColor    String @default("#000000")
+  secondaryColor  String @default("#FFFFFF")
+  backgroundColor String @default("#F5F5F5")
+  accentColor     String @default("#3B82F6")
+
   // Business info
-  phone             String?
-  email             String?
-  address           String?       
-  latitude          Float?
-  longitude         Float?
-  
+  phone     String?
+  email     String?
+  address   String?
+  latitude  Float?
+  longitude Float?
+
   // Socials
-  telegramUrl       String?
-  whatsappUrl       String?
-  instagramUrl      String?
-  
+  telegramUrl  String?
+  whatsappUrl  String?
+  instagramUrl String?
+
   // Telegram Bot
-  telegramBotToken  String?
+  telegramBotToken    String?
   telegramBotUsername String?
-  telegramUsername  String?
+  telegramUsername    String?
   telegramAdminChatId BigInt?
-  
+
   // Settings
-  currency          String        @default("RUB")
-  language          String        @default("ru")
-  timezone          String        @default("Europe/Moscow")
-  
+  currency String @default("RUB")
+  language String @default("ru")
+  timezone String @default("Europe/Moscow")
+
   // Subscription
-  subscriptionStatus SubscriptionStatus @default(TRIAL)
-  subscriptionPlanId String?       
-  subscriptionPlan  SubscriptionPlan? @relation(fields: [subscriptionPlanId], references: [id])
+  subscriptionStatus    SubscriptionStatus @default(TRIAL)
+  subscriptionPlanId    String?
+  subscriptionPlan      SubscriptionPlan?  @relation(fields: [subscriptionPlanId], references: [id])
   subscriptionStartDate DateTime?
-  subscriptionEndDate DateTime?
-  
+  subscriptionEndDate   DateTime?
+
   // Features
-  modulesEnabled    String        @default("catalog,cart,profile")
-  
+  modulesEnabled String @default("catalog,cart,profile")
+
   // AI Settings
-  aiProvider        String?       @default("mock")
-  aiModel           String?
-  aiEnabled         Boolean       @default(true)
-  aiDailyLimit      Int?          @default(10)
-  aiMonthlyLimit    Int?          @default(300)
+  aiProvider     String? @default("mock")
+  aiModel        String?
+  aiEnabled      Boolean @default(true)
+  aiDailyLimit   Int?    @default(10)
+  aiMonthlyLimit Int?    @default(300)
 
   // Manual transfer payment settings
-  transferPaymentEnabled Boolean  @default(false)
-  transferBankName       String?
-  transferPaymentPhone   String?
-  transferRecipientName  String?
+  transferPaymentEnabled         Boolean @default(false)
+  transferBankName               String?
+  transferPaymentPhone           String?
+  transferRecipientName          String?
   transferPaymentCommentRequired Boolean @default(false)
-  transferPaymentInstructions String?
-  
-  isActive          Boolean       @default(true)
-  isOpen            Boolean       @default(true)
-  isDemo            Boolean       @default(false)
-  
+  transferPaymentInstructions    String?
+
+  isActive Boolean @default(true)
+  isOpen   Boolean @default(true)
+  isDemo   Boolean @default(false)
+
   // Relations
-  owner             User?      @relation("BusinessOwner", fields: [ownerId], references: [id])
-  ownerId           String?
-  
-  users             User[]     @relation("BusinessUsers")
-  categories        Category[]
-  items             Item[]
-  customers         Customer[]
-  orders            Order[]
-  orderAttempts     OrderAttempt[]
-  bookings          Booking[]
-  staff             Staff[]
-  workingHours      WorkingHours[]
-  settings          BusinessSettings?
-  notifications     Notification[]
-  aiUsageLogs       AIUsageLog[]
+  owner   User?   @relation("BusinessOwner", fields: [ownerId], references: [id])
+  ownerId String?
+
+  users              User[]             @relation("BusinessUsers")
+  categories         Category[]
+  items              Item[]
+  customers          Customer[]
+  orders             Order[]
+  orderAttempts      OrderAttempt[]
+  bookings           Booking[]
+  staff              Staff[]
+  workingHours       WorkingHours[]
+  settings           BusinessSettings?
+  notifications      Notification[]
+  aiUsageLogs        AIUsageLog[]
   favoriteBusinesses FavoriteBusiness[]
   favoriteItems      FavoriteItem[]
   marketingPosts     MarketingPost[]
   mediaAssets        MediaAsset[]
-  sellerInvites      SellerInvite[]   @relation("BusinessSellerInvites")
-  aiRequestLogs      AiRequestLog[]   @relation("BusinessAiRequestLogs")
-  
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  
+  sellerInvites      SellerInvite[]     @relation("BusinessSellerInvites")
+  aiRequestLogs      AiRequestLog[]     @relation("BusinessAiRequestLogs")
+  couriers           Courier[]
+  deliveryZones      DeliveryZone[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([slug])
   @@index([templateKey])
   @@index([subscriptionStatus])
@@ -232,8 +251,8 @@ model Business {
 }
 
 model BusinessTemplate {
-  id                String    @id @default(cuid())
-  key               String    @unique
+  id                String       @id @default(cuid())
+  key               String       @unique
   name              String
   description       String
   businessType      BusinessType
@@ -243,111 +262,113 @@ model BusinessTemplate {
   theme             String
   icon              String?
   preview           String?
-  isActive          Boolean   @default(true)
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  isActive          Boolean      @default(true)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 }
 
 // ============= SUBSCRIPTIONS =============
 
 model SubscriptionPlan {
-  id                String    @id @default(cuid())
-  name              String    
-  description       String?   
-  price             Float
-  
-  maxItems          Int       @default(50)
-  maxOrdersPerMonth Int       @default(200)
-  maxStaff          Int       @default(1)
-  
-  features          String    @default("[]")
-  
-  isActive          Boolean   @default(true)
-  
-  businesses        Business[]
-  
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  price       Float
+
+  maxItems          Int @default(50)
+  maxOrdersPerMonth Int @default(200)
+  maxStaff          Int @default(1)
+
+  features String @default("[]")
+
+  isActive Boolean @default(true)
+
+  businesses Business[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ============= BUSINESS SETTINGS =============
 
 model BusinessSettings {
-  id                String    @id @default(cuid())
-  businessId        String    @unique 
-  business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  
-  deliveryEnabled   Boolean   @default(false)
-  pickupEnabled     Boolean   @default(true)
-  bookingEnabled    Boolean   @default(false)
-  reviewsEnabled    Boolean   @default(false)
-  loyaltyEnabled    Boolean   @default(false)
-  
-  minOrderAmount    Float     @default(0)
-  deliveryFee       Float     @default(0)
-  deliveryTime      Int?
-  
+  id         String   @id @default(cuid())
+  businessId String   @unique
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  deliveryEnabled Boolean @default(false)
+  pickupEnabled   Boolean @default(true)
+  bookingEnabled  Boolean @default(false)
+  reviewsEnabled  Boolean @default(false)
+  loyaltyEnabled  Boolean @default(false)
+
+  minOrderAmount           Float @default(0)
+  deliveryFee              Float @default(0)
+  deliveryTime             Int?
+  pickupWaitHours          Int   @default(24)
+  courierAcceptanceMinutes Int   @default(30)
+
   notificationsEnabled Boolean @default(true)
-  reminderTime      Int       @default(120)
-  
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  reminderTime         Int     @default(120)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ============= CATALOG =============
 
 model Category {
-  id                String    @id @default(cuid())
-  businessId        String    
-  business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  
-  name              String    
-  description       String?   
-  imageUrl          String?
-  
-  sortOrder         Int       @default(0)
-  isActive          Boolean   @default(true)
-  
-  items             Item[]
-  
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  imageUrl    String?
+
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  items Item[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@unique([businessId, name])
   @@index([businessId])
 }
 
 model Item {
-  id                String    @id @default(cuid())
-  businessId        String    
-  business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  
-  categoryId        String?   
-  category          Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  
-  type              ItemType  @default(PRODUCT)
-  name              String    
-  description       String?   
-  
-  price             Float
-  oldPrice          Float?
-  
-  imageUrl          String?
-  
-  durationMinutes   Int?
-  stock             Int?
-  
-  isAvailable       Boolean   @default(true)
-  isPopular         Boolean   @default(false)
-  sortOrder         Int       @default(0)
-  
-  orderItems        OrderItem[]
-  bookings          Booking[]
-  favoriteItems     FavoriteItem[]
-  
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  type        ItemType @default(PRODUCT)
+  name        String
+  description String?
+
+  price    Float
+  oldPrice Float?
+
+  imageUrl String?
+
+  durationMinutes Int?
+  stock           Int?
+
+  isAvailable Boolean @default(true)
+  isPopular   Boolean @default(false)
+  sortOrder   Int     @default(0)
+
+  orderItems    OrderItem[]
+  bookings      Booking[]
+  favoriteItems FavoriteItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([businessId])
   @@index([categoryId])
 }
@@ -355,50 +376,50 @@ model Item {
 // ============= STAFF & SCHEDULE =============
 
 model Staff {
-  id                String    @id @default(cuid())
-  businessId        String    
-  business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  
-  name              String    
-  phone             String?
-  photoUrl          String?
-  role              String?   
-  
-  isActive          Boolean   @default(true)
-  
-  bookings          Booking[]
-  schedules         StaffSchedule[]
-  
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  name     String
+  phone    String?
+  photoUrl String?
+  role     String?
+
+  isActive Boolean @default(true)
+
+  bookings  Booking[]
+  schedules StaffSchedule[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([businessId])
 }
 
 model WorkingHours {
-  id                String    @id @default(cuid())
-  businessId        String    
-  business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  
-  dayOfWeek         Int
-  openTime          String
-  closeTime         String
-  isClosed          Boolean   @default(false)
-  
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  dayOfWeek Int
+  openTime  String
+  closeTime String
+  isClosed  Boolean @default(false)
+
   @@unique([businessId, dayOfWeek])
   @@index([businessId])
 }
 
 model StaffSchedule {
-  id                String    @id @default(cuid())
-  staffId           String    
-  staff             Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
-  
-  dayOfWeek         Int
-  startTime         String
-  endTime           String
-  isWorking         Boolean   @default(true)
-  
+  id      String @id @default(cuid())
+  staffId String
+  staff   Staff  @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  dayOfWeek Int
+  startTime String
+  endTime   String
+  isWorking Boolean @default(true)
+
   @@unique([staffId, dayOfWeek])
   @@index([staffId])
 }
@@ -406,53 +427,101 @@ model StaffSchedule {
 // ============= CUSTOMERS =============
 
 model Customer {
-  id                String    @id @default(cuid())
-  businessId        String?   
-  business          Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  
-  userId            String?
-  user              User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
-  
-  telegramUserId    BigInt
-  name              String?   
-  phone             String?
-  username          String?   
-  
-  address           String?   
-  phoneVerified     Boolean   @default(false)
-  verificationMethod String   @default("none")
-  
-  totalOrders       Int       @default(0)
-  totalSpent        Float     @default(0)
-  bonusBalance      Float     @default(0)
-  isBlocked         Boolean   @default(false)
-  blockReason       String?
-  
-  orders            Order[]
-  bookings          Booking[]
-  payments          Payment[]
+  id         String    @id @default(cuid())
+  businessId String?
+  business   Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  telegramUserId BigInt
+  name           String?
+  phone          String?
+  username       String?
+
+  address            String?
+  phoneVerified      Boolean @default(false)
+  verificationMethod String  @default("none")
+
+  totalOrders  Int     @default(0)
+  totalSpent   Float   @default(0)
+  bonusBalance Float   @default(0)
+  isBlocked    Boolean @default(false)
+  blockReason  String?
+
+  orders             Order[]
+  bookings           Booking[]
+  payments           Payment[]
   favoriteBusinesses FavoriteBusiness[]
   favoriteItems      FavoriteItem[]
-  
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@unique([businessId, telegramUserId])
   @@index([businessId])
   @@index([userId])
   @@index([isBlocked])
 }
 
+// ============= DELIVERY & COURIERS =============
+
+model Courier {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  name       String
+  phone      String
+  telegramId BigInt?
+  cityArea   String?
+  isActive   Boolean @default(true)
+
+  assignments DeliveryAssignment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, telegramId])
+  @@index([businessId])
+  @@index([businessId, isActive])
+  @@index([telegramId])
+}
+
+model DeliveryZone {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  name             String
+  cityArea         String
+  fee              Float   @default(0)
+  estimatedMinutes Int?
+  isActive         Boolean @default(true)
+
+  orders Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, name])
+  @@index([businessId])
+  @@index([businessId, isActive])
+}
+
 model FavoriteBusiness {
-  id                String    @id @default(cuid())
-  businessId        String
-  business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  customerId        String?
-  customer          Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  telegramUserId    BigInt?
-  createdAt         DateTime  @default(now())
+  telegramUserId BigInt?
+  createdAt      DateTime @default(now())
 
   @@unique([businessId, telegramUserId])
   @@index([businessId])
@@ -460,18 +529,18 @@ model FavoriteBusiness {
 }
 
 model FavoriteItem {
-  id                String    @id @default(cuid())
-  businessId        String
-  business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  itemId            String
-  item              Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  itemId String
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
-  customerId        String?
-  customer          Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  telegramUserId    BigInt?
-  createdAt         DateTime  @default(now())
+  telegramUserId BigInt?
+  createdAt      DateTime @default(now())
 
   @@unique([itemId, telegramUserId])
   @@index([businessId])
@@ -481,60 +550,93 @@ model FavoriteItem {
 // ============= ORDERS =============
 
 model Order {
-  id                String    @id @default(cuid())
-  businessId        String    
-  business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  
-  customerId        String?   
-  customer          Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  
-  customerName      String    
-  customerPhone     String
-  customerAddress   String?   
-  
-  items             OrderItem[]
-  totalPrice        Float     @default(0)
-  
-  status            OrderStatus @default(NEW)
-  deliveryType      DeliveryType @default(PICKUP)
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  paymentMethod     PaymentProvider @default(CASH)
-  paymentStatus     PaymentStatus @default(PENDING)
-  paymentProofUrl   String?
-  paymentProofAiStatus String?
-  paymentProofAiSummary String?
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  customerName    String
+  customerPhone   String
+  customerAddress String?
+
+  items         OrderItem[]
+  itemsSubtotal Float       @default(0)
+  deliveryFee   Float       @default(0)
+  totalPrice    Float       @default(0)
+
+  status                OrderStatus         @default(NEW)
+  deliveryType          DeliveryType        @default(PICKUP)
+  deliveryStatus        DeliveryStatus      @default(NONE)
+  deliveryZoneId        String?
+  deliveryZone          DeliveryZone?       @relation(fields: [deliveryZoneId], references: [id], onDelete: SetNull)
+  deliveryZoneName      String?
+  deliveryCityArea      String?
+  courierAssignedAt     DateTime?
+  courierPickupDeadline DateTime?
+  deliveryAssignment    DeliveryAssignment?
+
+  paymentMethod            PaymentProvider @default(CASH)
+  paymentStatus            PaymentStatus   @default(PENDING)
+  paymentProofUrl          String?
+  paymentProofAiStatus     String?
+  paymentProofAiSummary    String?
   paymentProofAiConfidence Int?
-  paymentReviewedAt DateTime?
-  paymentReviewedBy String?
-  paymentRejectReason String?
-  
-  comment           String?   
-  internalNotes     String?   
-  expiredAt         DateTime?
-  expireReason      String?
-  
-  payment           Payment?
-  
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  
+  paymentReviewedAt        DateTime?
+  paymentReviewedBy        String?
+  paymentRejectReason      String?
+
+  comment       String?
+  internalNotes String?
+  expiredAt     DateTime?
+  expireReason  String?
+
+  payment Payment?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([businessId])
   @@index([customerId])
   @@index([status])
   @@index([paymentMethod])
   @@index([paymentStatus])
   @@index([deliveryType, status, createdAt])
+  @@index([deliveryStatus, status, createdAt])
+  @@index([deliveryZoneId])
+}
+
+model DeliveryAssignment {
+  id        String  @id @default(cuid())
+  orderId   String  @unique
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  courierId String
+  courier   Courier @relation(fields: [courierId], references: [id], onDelete: Restrict)
+
+  status         DeliveryStatus @default(ASSIGNED)
+  assignedAt     DateTime       @default(now())
+  pickupDeadline DateTime
+  pickedUpAt     DateTime?
+  deliveredAt    DateTime?
+  releasedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([courierId, status])
+  @@index([status, pickupDeadline])
 }
 
 model OrderAttempt {
-  id              String   @id @default(cuid())
-  businessId      String?
-  business        Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  telegramUserId  BigInt
-  phone           String?
-  success         Boolean  @default(false)
-  reason          String?
-  createdAt       DateTime @default(now())
+  id             String    @id @default(cuid())
+  businessId     String?
+  business       Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  telegramUserId BigInt
+  phone          String?
+  success        Boolean   @default(false)
+  reason         String?
+  createdAt      DateTime  @default(now())
 
   @@index([businessId])
   @@index([telegramUserId, createdAt])
@@ -543,54 +645,54 @@ model OrderAttempt {
 }
 
 model OrderItem {
-  id                String    @id @default(cuid())
-  orderId           String    
-  order             Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  
-  itemId            String?   
-  item              Item?     @relation(fields: [itemId], references: [id], onDelete: SetNull)
-  
-  name              String
-  price             Float
-  quantity          Int       @default(1)
-  
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  itemId String?
+  item   Item?   @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  name     String
+  price    Float
+  quantity Int    @default(1)
+
   @@index([orderId])
 }
 
 // ============= BOOKINGS =============
 
 model Booking {
-  id                String    @id @default(cuid())
-  businessId        String    
-  business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  
-  customerId        String?   
-  customer          Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  
-  serviceId         String?   
-  service           Item?     @relation(fields: [serviceId], references: [id], onDelete: SetNull)
-  
-  staffId           String?   
-  staff             Staff?    @relation(fields: [staffId], references: [id], onDelete: SetNull)
-  
-  customerName      String    
-  customerPhone     String
-  
-  startTime         DateTime
-  endTime           DateTime
-  
-  status            BookingStatus @default(NEW)
-  comment           String?   
-  internalNotes     String?   
-  expiredAt         DateTime?
-  expireReason      String?
-  
-  reminderSent      Boolean   @default(false)
-  reminderSentAt    DateTime?
-  
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  serviceId String?
+  service   Item?   @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+
+  staffId String?
+  staff   Staff?  @relation(fields: [staffId], references: [id], onDelete: SetNull)
+
+  customerName  String
+  customerPhone String
+
+  startTime DateTime
+  endTime   DateTime
+
+  status        BookingStatus @default(NEW)
+  comment       String?
+  internalNotes String?
+  expiredAt     DateTime?
+  expireReason  String?
+
+  reminderSent   Boolean   @default(false)
+  reminderSentAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([businessId])
   @@index([customerId])
   @@index([staffId])
@@ -601,25 +703,25 @@ model Booking {
 // ============= PAYMENTS =============
 
 model Payment {
-  id                String    @id @default(cuid())
-  businessId        String    
-  
-  orderId           String?   @unique 
-  order             Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  
-  customerId        String?   
-  customer          Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  
-  provider          PaymentProvider @default(MANUAL)
-  amount            Float
-  status            PaymentStatus @default(PENDING)
-  
-  externalId        String?
-  metadata          String?
-  
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  
+  id         String @id @default(cuid())
+  businessId String
+
+  orderId String? @unique
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  provider PaymentProvider @default(MANUAL)
+  amount   Float
+  status   PaymentStatus   @default(PENDING)
+
+  externalId String?
+  metadata   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([orderId])
   @@index([customerId])
 }
@@ -627,22 +729,22 @@ model Payment {
 // ============= NOTIFICATIONS =============
 
 model Notification {
-  id                String    @id @default(cuid())
-  businessId        String    
-  business          Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  
-  type              NotificationType
-  recipientId       BigInt
-  
-  title             String
-  message           String    
-  
-  data              String?
-  sent              Boolean   @default(false)
-  sentAt            DateTime?
-  
-  createdAt         DateTime  @default(now())
-  
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  type        NotificationType
+  recipientId BigInt
+
+  title   String
+  message String
+
+  data   String?
+  sent   Boolean   @default(false)
+  sentAt DateTime?
+
+  createdAt DateTime @default(now())
+
   @@index([businessId])
   @@index([sent])
 }
@@ -650,55 +752,55 @@ model Notification {
 // ============= AI =============
 
 model AIUsageLog {
-  id              String   @id @default(cuid())
-  businessId      String
-  business        Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  provider        String
-  model           String
-  feature         String
-  promptChars     Int
-  outputChars     Int?
-  inputTokens     Int?
-  outputTokens    Int?
-  estimatedCost   Float?
-  status          String
+  provider      String
+  model         String
+  feature       String
+  promptChars   Int
+  outputChars   Int?
+  inputTokens   Int?
+  outputTokens  Int?
+  estimatedCost Float?
+  status        String
 
-  createdAt       DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([businessId])
   @@index([createdAt])
 }
 
 model AICache {
-  id              String   @id @default(cuid())
-  businessId      String
-  promptHash      String
-  feature         String
-  provider        String
-  model           String
-  response        String   
-  createdAt       DateTime @default(now())
+  id         String   @id @default(cuid())
+  businessId String
+  promptHash String
+  feature    String
+  provider   String
+  model      String
+  response   String
+  createdAt  DateTime @default(now())
 
   @@unique([businessId, feature, promptHash])
   @@index([businessId])
 }
 
 model MarketingPost {
-  id              String   @id @default(cuid())
-  businessId      String
-  business        Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  title           String
-  content         String
-  type            String
-  status          String   @default("draft")
-  scheduledAt     DateTime?
-  createdByAi     Boolean  @default(true)
-  provider        String?
-  model           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  title       String
+  content     String
+  type        String
+  status      String    @default("draft")
+  scheduledAt DateTime?
+  createdByAi Boolean   @default(true)
+  provider    String?
+  model       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([businessId])
   @@index([status])
@@ -706,66 +808,66 @@ model MarketingPost {
 }
 
 model MediaAsset {
-  id              String   @id @default(cuid())
-  businessId      String
-  business        Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  type            String
-  url             String
-  filename        String
-  mimeType        String
-  size            Int
-  width           Int?
-  height          Int?
+  type     String
+  url      String
+  filename String
+  mimeType String
+  size     Int
+  width    Int?
+  height   Int?
 
-  createdAt       DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([businessId])
   @@index([type])
 }
 
 model PhoneVerification {
-  id             String   @id @default(cuid())
-  customerId     String
-  phone          String
-  codeHash       String
-  status         String   // pending/verified/expired
-  provider       String   // telegram_contact/manual/mock_sms/sms
-  expiresAt      DateTime
-  createdAt      DateTime @default(now())
+  id         String   @id @default(cuid())
+  customerId String
+  phone      String
+  codeHash   String
+  status     String // pending/verified/expired
+  provider   String // telegram_contact/manual/mock_sms/sms
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
 
   @@index([customerId])
   @@index([phone])
 }
 
 model SellerInvite {
-  id               String       @id @default(cuid())
-  code             String       @unique
+  id               String    @id @default(cuid())
+  code             String    @unique
   businessId       String
-  business         Business     @relation("BusinessSellerInvites", fields: [businessId], references: [id], onDelete: Cascade)
-  role             Role         @default(BUSINESS_OWNER)
+  business         Business  @relation("BusinessSellerInvites", fields: [businessId], references: [id], onDelete: Cascade)
+  role             Role      @default(BUSINESS_OWNER)
   expiresAt        DateTime
   usedAt           DateTime?
   createdByAdminId String?
-  createdAt        DateTime     @default(now())
+  createdAt        DateTime  @default(now())
 
   @@index([businessId])
 }
 
 model AiRequestLog {
-  id          String   @id @default(cuid())
-  businessId  String
-  business    Business @relation("BusinessAiRequestLogs", fields: [businessId], references: [id], onDelete: Cascade)
-  userId      String?
-  type        String   // POST | PRODUCT_DESCRIPTION | PROMO | REPLY | IMAGE_PROMPT | IMAGE_GENERATION | VIDEO_PROMPT
-  prompt      String
-  result      String?
-  provider    String
-  model       String?
-  tokensUsed  Int?
-  status      String
-  error       String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation("BusinessAiRequestLogs", fields: [businessId], references: [id], onDelete: Cascade)
+  userId     String?
+  type       String // POST | PRODUCT_DESCRIPTION | PROMO | REPLY | IMAGE_PROMPT | IMAGE_GENERATION | VIDEO_PROMPT
+  prompt     String
+  result     String?
+  provider   String
+  model      String?
+  tokensUsed Int?
+  status     String
+  error      String?
+  createdAt  DateTime @default(now())
 
   @@index([businessId])
   @@index([createdAt])

@@ -10,9 +10,7 @@ function isAuthorized(request: NextRequest) {
 
   const auth = request.headers.get("authorization") || "";
   const bearer = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : "";
-  const querySecret = new URL(request.url).searchParams.get("secret") || "";
-
-  return bearer === secret || querySecret === secret;
+  return bearer === secret;
 }
 
 async function handler(request: NextRequest) {
@@ -26,6 +24,7 @@ async function handler(request: NextRequest) {
       ok: true,
       expiredBookings: result.expiredBookings,
       expiredPickupOrders: result.expiredPickupOrders,
+      releasedCourierAssignments: result.releasedCourierAssignments,
     });
   } catch (error) {
     console.error("[cron/expire] Expiration job failed:", error);

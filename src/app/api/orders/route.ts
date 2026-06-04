@@ -36,6 +36,14 @@ const checkoutOrderInclude = {
   business: { select: { name: true, slug: true } },
 } as const;
 
+const adminOrdersInclude = {
+  items: true,
+  business: { select: { name: true, slug: true } },
+  customer: true,
+  deliveryZone: true,
+  deliveryAssignment: { include: { courier: true } },
+} as const;
+
 const legacyCheckoutOrderSelect = {
   id: true,
   businessId: true,
@@ -54,8 +62,27 @@ const legacyCheckoutOrderSelect = {
   business: { select: { name: true, slug: true } },
 } as const;
 
+const adminOrdersLegacySelect = {
+  ...legacyCheckoutOrderSelect,
+  customer: true,
+} as const;
+
+const paymentCheckoutOrderSelect = {
+  ...legacyCheckoutOrderSelect,
+  paymentMethod: true,
+  paymentStatus: true,
+  paymentProofUrl: true,
+  paymentProofAiStatus: true,
+  paymentProofAiSummary: true,
+  paymentProofAiConfidence: true,
+  paymentReviewedAt: true,
+  paymentReviewedBy: true,
+  paymentRejectReason: true,
+} as const;
+
 type CurrentCheckoutOrder = Prisma.OrderGetPayload<{ include: typeof checkoutOrderInclude }>;
 type LegacyCheckoutOrder = Prisma.OrderGetPayload<{ select: typeof legacyCheckoutOrderSelect }>;
+type PaymentCheckoutOrder = Prisma.OrderGetPayload<{ select: typeof paymentCheckoutOrderSelect }>;
 
 const checkoutCustomerLegacySelect = {
   id: true,
@@ -182,6 +209,7 @@ export async function POST(request: NextRequest) {
       customerAddress,
       items,
       deliveryType,
+      deliveryZoneId,
       comment,
       telegramUserId,
       username,
@@ -271,6 +299,44 @@ export async function POST(request: NextRequest) {
     if (business.subscriptionStatus === "BLOCKED" || business.subscriptionStatus === "EXPIRED") {
       await recordOrderAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "BUSINESS_BLOCKED" });
       return orderError("BUSINESS_BLOCKED", "Заказы временно недоступны. Свяжитесь с продавцом.", 403);
+    }
+
+    const deliverySettings = await prisma.businessSettings.findUnique({
+      where: { businessId: business.id },
+      select: { deliveryEnabled: true, pickupEnabled: true, minOrderAmount: true, deliveryFee: true },
+    });
+    let deliveryZone: { id: string; name: string; cityArea: string; fee: number } | null = null;
+    let legacyDeliveryFee = 0;
+    if (normalizedDeliveryType === "DELIVERY") {
+      if (!deliverySettings?.deliveryEnabled) {
+        return orderError("DELIVERY_DISABLED", "Доставка у этого магазина выключена.");
+      }
+      try {
+        if (cleanString(deliveryZoneId)) {
+          deliveryZone = await prisma.deliveryZone.findFirst({
+            where: { id: cleanString(deliveryZoneId), businessId: business.id, isActive: true },
+            select: { id: true, name: true, cityArea: true, fee: true },
+          });
+          if (!deliveryZone) {
+            return orderError("DELIVERY_ZONE_NOT_FOUND", "Выбранная зона доставки недоступна.");
+          }
+        } else {
+          const activeZones = await prisma.deliveryZone.count({ where: { businessId: business.id, isActive: true } });
+          if (activeZones > 0) {
+            return orderError("DELIVERY_ZONE_REQUIRED", "Выберите город или район доставки.");
+          }
+          legacyDeliveryFee = deliverySettings.deliveryFee || 0;
+          usedCheckoutSchemaFallback = true;
+        }
+      } catch (error) {
+        const deliverySchemaError = classifyDatabaseError(error);
+        if (deliverySchemaError.type !== "missing_table" && deliverySchemaError.type !== "missing_column") throw error;
+        usedCheckoutSchemaFallback = true;
+        legacyDeliveryFee = deliverySettings.deliveryFee || 0;
+        warnPrismaSchemaDrift("Checkout used legacy delivery fee because delivery zones are not installed", error);
+      }
+    } else if (deliverySettings?.pickupEnabled === false) {
+      return orderError("PICKUP_DISABLED", "Самовывоз у этого магазина выключен.");
     }
 
     const requestedPaymentMethod = paymentMethod === "TRANSFER" || paymentMethod === "transfer" ? "TRANSFER" : "CASH";
@@ -430,7 +496,14 @@ export async function POST(request: NextRequest) {
     });
     if (rateLimited) return rateLimited;
 
-    const baseOrderData = {
+    const itemsSubtotal = totalPrice;
+    if (normalizedDeliveryType === "DELIVERY" && itemsSubtotal < (deliverySettings?.minOrderAmount || 0)) {
+      return orderError("MIN_DELIVERY_AMOUNT", `Минимальная сумма заказа для доставки: ${deliverySettings?.minOrderAmount || 0} ₽.`);
+    }
+    const calculatedDeliveryFee = normalizedDeliveryType === "DELIVERY" ? deliveryZone?.fee ?? legacyDeliveryFee : 0;
+    totalPrice = itemsSubtotal + calculatedDeliveryFee;
+
+    const legacyBaseOrderData = {
       businessId: business.id,
       customerId: customer.id,
       customerAddress: normalizedDeliveryType === "DELIVERY" ? cleanAddress : null,
@@ -444,7 +517,16 @@ export async function POST(request: NextRequest) {
         create: orderItems,
       },
     };
-    let orderResult: CurrentCheckoutOrder | LegacyCheckoutOrder;
+    const baseOrderData = {
+      ...legacyBaseOrderData,
+      itemsSubtotal,
+      deliveryFee: calculatedDeliveryFee,
+      deliveryStatus: "NONE" as const,
+      deliveryZoneId: deliveryZone?.id || null,
+      deliveryZoneName: deliveryZone?.name || null,
+      deliveryCityArea: deliveryZone?.cityArea || null,
+    };
+    let orderResult: CurrentCheckoutOrder | PaymentCheckoutOrder | LegacyCheckoutOrder;
 
     try {
       orderResult = await prisma.order.create({
@@ -453,18 +535,29 @@ export async function POST(request: NextRequest) {
           paymentMethod: requestedPaymentMethod,
           paymentStatus: requestedPaymentMethod === "TRANSFER" ? "AWAITING_REVIEW" : "PENDING",
           paymentProofUrl: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofUrl) : null,
-          paymentProofAiStatus: requestedPaymentMethod === "TRANSFER" ? "PENDING" : null,
+          paymentProofAiStatus: requestedPaymentMethod === "TRANSFER" && !/\.pdf(?:$|\?)/i.test(cleanString(paymentProofUrl)) ? "PENDING" : null,
         },
         include: checkoutOrderInclude,
       });
     } catch (error) {
-      if (requestedPaymentMethod !== "CASH" || !isPrismaMissingColumnError(error)) throw error;
+      if (!isPrismaMissingColumnError(error)) throw error;
       usedCheckoutSchemaFallback = true;
-      warnPrismaSchemaDrift("Cash checkout retried without new payment columns", error);
-      orderResult = await prisma.order.create({
-        data: baseOrderData,
-        select: legacyCheckoutOrderSelect,
-      });
+      warnPrismaSchemaDrift("Checkout retried without courier/delivery columns", error);
+      orderResult = requestedPaymentMethod === "TRANSFER"
+        ? await prisma.order.create({
+            data: {
+              ...legacyBaseOrderData,
+              paymentMethod: "TRANSFER",
+              paymentStatus: "AWAITING_REVIEW",
+              paymentProofUrl: cleanString(paymentProofUrl),
+              paymentProofAiStatus: null,
+            },
+            select: paymentCheckoutOrderSelect,
+          })
+        : await prisma.order.create({
+            data: legacyBaseOrderData,
+            select: legacyCheckoutOrderSelect,
+          });
     }
 
     const order = {
@@ -480,6 +573,12 @@ export async function POST(request: NextRequest) {
       paymentRejectReason: "paymentRejectReason" in orderResult ? orderResult.paymentRejectReason : null,
       expiredAt: "expiredAt" in orderResult ? orderResult.expiredAt : null,
       expireReason: "expireReason" in orderResult ? orderResult.expireReason : null,
+      itemsSubtotal: "itemsSubtotal" in orderResult ? orderResult.itemsSubtotal : orderResult.totalPrice,
+      deliveryFee: "deliveryFee" in orderResult ? orderResult.deliveryFee : 0,
+      deliveryStatus: "deliveryStatus" in orderResult ? orderResult.deliveryStatus : "NONE",
+      deliveryZoneId: "deliveryZoneId" in orderResult ? orderResult.deliveryZoneId : null,
+      deliveryZoneName: "deliveryZoneName" in orderResult ? orderResult.deliveryZoneName : null,
+      deliveryCityArea: "deliveryCityArea" in orderResult ? orderResult.deliveryCityArea : null,
     };
 
     await recordOrderAttempt({
@@ -502,7 +601,7 @@ export async function POST(request: NextRequest) {
       warnPrismaSchemaDrift("Order created, but customer counters could not be updated", error);
     }
 
-    if (requestedPaymentMethod === "TRANSFER" && order.paymentProofUrl) {
+    if (requestedPaymentMethod === "TRANSFER" && order.paymentProofUrl && !/\.pdf(?:$|\?)/i.test(order.paymentProofUrl)) {
       analyzePaymentProof({
         imageUrl: order.paymentProofUrl,
         orderTotal: order.totalPrice,
@@ -588,12 +687,26 @@ export async function GET(request: NextRequest) {
       where.customerId = customerId;
     }
 
-    const orders = await prisma.order.findMany({
-      where,
-      include: { items: true, business: { select: { name: true, slug: true } }, customer: true },
-      orderBy: { createdAt: "desc" },
-      take: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 20,
-    });
+    const take = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 20;
+    let orders;
+    try {
+      orders = await prisma.order.findMany({
+        where,
+        include: adminOrdersInclude,
+        orderBy: { createdAt: "desc" },
+        take,
+      });
+    } catch (error) {
+      const classification = classifyDatabaseError(error);
+      if (classification.type !== "missing_table" && classification.type !== "missing_column") throw error;
+      warnPrismaSchemaDrift("Seller orders retried without courier/delivery relations", error);
+      orders = await prisma.order.findMany({
+        where,
+        select: adminOrdersLegacySelect,
+        orderBy: { createdAt: "desc" },
+        take,
+      });
+    }
 
     return NextResponse.json(toJsonSafe(orders));
   } catch (error) {

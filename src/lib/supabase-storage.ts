@@ -44,11 +44,23 @@ export function assertUploadImage(file: File) {
   }
 }
 
+export function assertUploadPdf(file: File) {
+  if (file.type !== "application/pdf") {
+    throw new Error("Чек перевода должен быть в PDF формате.");
+  }
+
+  if (file.size > 10 * 1024 * 1024) {
+    throw new Error("PDF-чек должен быть до 10 MB.");
+  }
+}
+
 export function publicUploadErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "";
   if (
     message.startsWith("Можно загрузить") ||
     message.startsWith("Изображение должно") ||
+    message.startsWith("Чек перевода должен") ||
+    message.startsWith("PDF-чек должен") ||
     message.startsWith("Supabase Storage не настроен")
   ) {
     return message;
@@ -56,7 +68,7 @@ export function publicUploadErrorMessage(error: unknown) {
   if (message.startsWith("Не удалось подготовить bucket")) {
     return "Не удалось подготовить Supabase Storage. Создайте публичный bucket business-media или проверьте SUPABASE_SERVICE_ROLE_KEY.";
   }
-  return "Не удалось загрузить файл. Проверьте формат PNG/JPG/WEBP до 5 MB и попробуйте снова.";
+  return "Не удалось загрузить файл. Проверьте формат и размер файла, затем попробуйте снова.";
 }
 
 export function bucketForUploadType(type: string) {
@@ -89,9 +101,7 @@ async function ensureBucket(supabaseUrl: string, serviceRoleKey: string, bucket:
   }
 }
 
-export async function uploadImageToSupabaseStorage({ file, bucket, folder }: UploadOptions) {
-  assertUploadImage(file);
-
+async function uploadFileToSupabaseStorage({ file, bucket, folder }: UploadOptions) {
   const { supabaseUrl, serviceRoleKey } = requireSupabaseStorageEnv();
   await ensureBucket(supabaseUrl, serviceRoleKey, bucket);
 
@@ -120,4 +130,18 @@ export async function uploadImageToSupabaseStorage({ file, bucket, folder }: Upl
     publicUrl: `${supabaseUrl}/storage/v1/object/public/${bucket}/${storagePath}`,
     filename: storagePath,
   };
+}
+
+export async function uploadImageToSupabaseStorage(options: UploadOptions) {
+  assertUploadImage(options.file);
+  return uploadFileToSupabaseStorage(options);
+}
+
+export async function uploadPdfToSupabaseStorage(options: UploadOptions) {
+  assertUploadPdf(options.file);
+  const signature = Buffer.from(await options.file.slice(0, 5).arrayBuffer()).toString("ascii");
+  if (signature !== "%PDF-") {
+    throw new Error("Чек перевода должен быть настоящим PDF-файлом.");
+  }
+  return uploadFileToSupabaseStorage(options);
 }

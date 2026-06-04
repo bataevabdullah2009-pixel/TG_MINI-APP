@@ -95,7 +95,7 @@ export async function getAdminSession(request: NextRequest): Promise<AdminSessio
       ownedBusinesses: { select: { id: true, slug: true } },
     },
   });
-  if (!user || !user.isActive || user.role === "CUSTOMER") return null;
+  if (!user || !user.isActive || user.role === "CUSTOMER" || user.role === "COURIER") return null;
 
   const business = user.business || user.ownedBusinesses[0] || null;
   return {

@@ -22,6 +22,11 @@ interface Order {
   customerPhone: string;
   customerAddress?: string;
   totalPrice: number;
+  itemsSubtotal?: number;
+  deliveryFee?: number;
+  deliveryZoneName?: string;
+  deliveryCityArea?: string;
+  deliveryAssignment?: { courier?: { name: string; phone: string } };
   status: string;
   deliveryType: string;
   comment?: string;
@@ -34,13 +39,18 @@ const STATUS_STEPS = [
   { key: "NEW", label: "🆕 Принят", desc: "Заказ получен" },
   { key: "ACCEPTED", label: "✅ Подтверждён", desc: "Бизнес принял заказ" },
   { key: "PREPARING", label: "👨‍🍳 Готовится", desc: "Идёт подготовка" },
+  { key: "READY_FOR_PICKUP", label: "📦 Готов к самовывозу", desc: "Можно забирать" },
+  { key: "READY_FOR_DELIVERY", label: "🚚 Ожидает курьера", desc: "Ищем курьера" },
+  { key: "COURIER_ASSIGNED", label: "🛵 Курьер назначен", desc: "Курьер едет к продавцу" },
+  { key: "PICKED_UP", label: "🚚 В пути", desc: "Курьер забрал заказ" },
+  { key: "DELIVERED", label: "✅ Доставлен", desc: "Заказ доставлен" },
   { key: "READY", label: "📦 Готов", desc: "Можно забирать/ждите" },
   { key: "DELIVERING", label: "🚚 В пути", desc: "Курьер в дороге" },
   { key: "COMPLETED", label: "✔️ Завершён", desc: "Выполнен!" },
   { key: "EXPIRED", label: "⏱️ Истёк", desc: "Срок истёк" },
 ];
 
-const STATUS_ORDER = ["NEW", "ACCEPTED", "PREPARING", "READY", "DELIVERING", "COMPLETED", "EXPIRED"];
+const STATUS_ORDER = ["NEW", "ACCEPTED", "PREPARING", "READY", "READY_FOR_PICKUP", "READY_FOR_DELIVERY", "COURIER_ASSIGNED", "DELIVERING", "PICKED_UP", "DELIVERED", "COMPLETED", "EXPIRED"];
 
 export default function OrderStatusPage() {
   const params = useParams();
@@ -152,9 +162,9 @@ export default function OrderStatusPage() {
           <div className="bg-white rounded-2xl p-4 shadow-sm">
             <h2 className="font-bold mb-4">📍 Статус заказа</h2>
             <div className="space-y-3">
-              {STATUS_STEPS.filter((s) => order.deliveryType === "PICKUP"
-                ? s.key !== "DELIVERING"
-                : true
+              {STATUS_STEPS.filter((step) => order.deliveryType === "PICKUP"
+                ? !["READY_FOR_DELIVERY", "COURIER_ASSIGNED", "PICKED_UP", "DELIVERED", "DELIVERING"].includes(step.key)
+                : !["READY_FOR_PICKUP", "READY"].includes(step.key)
               ).map((step, idx) => {
                 const stepIdx = STATUS_ORDER.indexOf(step.key);
                 const isDone = stepIdx <= currentStepIdx;
@@ -210,6 +220,16 @@ export default function OrderStatusPage() {
               </div>
             ))}
             <div className="border-t pt-2 flex justify-between font-bold text-base">
+              <span>Товары</span>
+              <span>{formatPrice(order.itemsSubtotal || order.totalPrice - (order.deliveryFee || 0))}</span>
+            </div>
+            {order.deliveryType === "DELIVERY" && (
+              <div className="flex justify-between text-sm">
+                <span>Доставка {order.deliveryZoneName ? `(${order.deliveryZoneName})` : ""}</span>
+                <span>{formatPrice(order.deliveryFee || 0)}</span>
+              </div>
+            )}
+            <div className="border-t pt-2 flex justify-between font-bold text-base">
               <span>Итого</span>
               <span style={{ color: business.primaryColor }}>
                 {formatPrice(order.totalPrice)}
@@ -234,6 +254,12 @@ export default function OrderStatusPage() {
                 <span className="font-medium text-right max-w-[60%]">
                   {order.customerAddress}
                 </span>
+              </div>
+            )}
+            {order.deliveryAssignment?.courier && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Курьер</span>
+                <span className="font-medium text-right">{order.deliveryAssignment.courier.name}</span>
               </div>
             )}
             <div className="flex justify-between">

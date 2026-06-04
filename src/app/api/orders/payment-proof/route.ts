@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTelegramSessionUser } from "@/lib/auth-telegram";
 import { prisma } from "@/lib/prisma";
-import { bucketForUploadType, publicUploadErrorMessage, uploadImageToSupabaseStorage } from "@/lib/supabase-storage";
+import { bucketForUploadType, publicUploadErrorMessage, uploadPdfToSupabaseStorage } from "@/lib/supabase-storage";
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: "Нужна авторизация через Telegram." }, { status: 401 });
     }
 
-    const uploaded = await uploadImageToSupabaseStorage({
+    const uploaded = await uploadPdfToSupabaseStorage({
       file,
       bucket: bucketForUploadType("payment-proof"),
       folder: `${business.slug}/payment-proofs`,

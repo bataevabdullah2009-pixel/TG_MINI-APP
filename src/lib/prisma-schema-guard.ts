@@ -27,6 +27,9 @@ export type DatabaseErrorClassification = {
 };
 
 function patchForMessage(message: string) {
+  if (/Courier|DeliveryZone|DeliveryAssignment|DeliveryStatus|deliveryStatus|deliveryZone|itemsSubtotal|courierAssignedAt|courierPickupDeadline|pickupWaitHours|courierAcceptanceMinutes|READY_FOR_DELIVERY|COURIER_ASSIGNED|PICKED_UP|DELIVERED/i.test(message)) {
+    return "docs/manual-courier-direct-links.sql";
+  }
   if (/transferPayment|paymentProof|paymentMethod|paymentStatus|OrderAttempt|isBlocked|blockReason|AWAITING_REVIEW|REJECTED/i.test(message)) {
     return "docs/manual-hotfix-polza-checkout-payment-flow.sql";
   }
