@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { ClipboardList, Calendar, Check, X, Clock, HelpCircle } from "lucide-react";
 
 interface ClientOrdersProps {
-  telegramUserId: string;
+  telegramUserId?: string;
 }
 
 export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
@@ -15,9 +15,14 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!telegramUserId) return;
+    if (!telegramUserId) {
+      setLoading(false);
+      setError("История заказов доступна после загрузки Telegram-профиля.");
+      return;
+    }
 
     setLoading(true);
+    setError(null);
     const initData = typeof window !== "undefined"
       ? ((window as any).Telegram?.WebApp?.initData || sessionStorage.getItem("tgInitData") || "")
       : "";
@@ -28,7 +33,7 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
       .then((res) => res.json())
       .then((resData) => {
         if (resData.ok) {
-          setData({ orders: resData.orders || [], bookings: [] });
+          setData({ orders: resData.orders || [], bookings: resData.bookings || [] });
         } else {
           setError(resData.error || "Не удалось загрузить историю заказов");
         }

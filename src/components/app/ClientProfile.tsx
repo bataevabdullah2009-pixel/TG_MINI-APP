@@ -8,9 +8,10 @@ interface ClientProfileProps {
   session: any;
   onRefreshSession: () => void | Promise<void>;
   onSwitchMode?: (mode: "CUSTOMER" | "SELLER" | "MANAGER" | "SUPER_ADMIN") => void;
+  unavailableReason?: string | null;
 }
 
-export function ClientProfile({ session, onRefreshSession, onSwitchMode }: ClientProfileProps) {
+export function ClientProfile({ session, onRefreshSession, onSwitchMode, unavailableReason }: ClientProfileProps) {
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [pollingUntil, setPollingUntil] = useState<number | null>(null);
 
@@ -38,7 +39,7 @@ export function ClientProfile({ session, onRefreshSession, onSwitchMode }: Clien
         <div className="rounded-3xl bg-white p-5 text-center ring-1 ring-slate-100">
           <h1 className="text-lg font-black text-slate-900">Профиль временно недоступен</h1>
           <p className="mt-2 text-xs font-semibold text-slate-500">
-            Каталог доступен. Обновите профиль после применения SQL-патча к базе.
+            {unavailableReason || "Не удалось загрузить профиль. Причина записана в server logs; каталог остаётся доступен."}
           </p>
           <button
             onClick={() => onRefreshSession()}

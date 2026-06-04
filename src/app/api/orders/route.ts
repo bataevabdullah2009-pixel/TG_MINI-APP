@@ -1,16 +1,85 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession } from "@/lib/admin-auth";
 import { NotificationService } from "@/lib/notifications/notification-service";
 import { ensureTelegramUser } from "@/lib/auth/telegram-user-service";
 import { analyzePaymentProof } from "@/lib/ai/payment-proof-analyzer";
-import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift, toJsonSafe } from "@/lib/prisma-schema-guard";
+import { classifyDatabaseError, isBusinessIsDemoMissingColumnError, isPrismaMissingColumnError, warnPrismaSchemaDrift, toJsonSafe } from "@/lib/prisma-schema-guard";
 import { normalizeRuPhone, validateCustomerName } from "@/lib/phone/phone-utils";
 
 const ORDER_ERROR = "Не удалось оформить заказ. Проверьте данные и попробуйте снова.";
 const PHONE_VERIFICATION_ERROR = "Для оформления заказа подтвердите номер телефона.";
 const PHONE_MISMATCH_ERROR = "Номер телефона не совпадает с подтверждённым Telegram-номером.";
 const RATE_LIMIT_ERROR = "Слишком много попыток. Попробуйте позже.";
+
+const checkoutBusinessLegacySelect = {
+  id: true,
+  slug: true,
+  name: true,
+  isActive: true,
+  subscriptionStatus: true,
+} as const;
+
+const checkoutBusinessSelect = {
+  ...checkoutBusinessLegacySelect,
+  transferPaymentEnabled: true,
+  transferBankName: true,
+  transferPaymentPhone: true,
+  transferRecipientName: true,
+} as const;
+
+type CheckoutBusiness = Prisma.BusinessGetPayload<{ select: typeof checkoutBusinessSelect }>;
+
+const checkoutOrderInclude = {
+  items: true,
+  business: { select: { name: true, slug: true } },
+} as const;
+
+const legacyCheckoutOrderSelect = {
+  id: true,
+  businessId: true,
+  customerId: true,
+  customerName: true,
+  customerPhone: true,
+  customerAddress: true,
+  totalPrice: true,
+  status: true,
+  deliveryType: true,
+  comment: true,
+  internalNotes: true,
+  createdAt: true,
+  updatedAt: true,
+  items: true,
+  business: { select: { name: true, slug: true } },
+} as const;
+
+type CurrentCheckoutOrder = Prisma.OrderGetPayload<{ include: typeof checkoutOrderInclude }>;
+type LegacyCheckoutOrder = Prisma.OrderGetPayload<{ select: typeof legacyCheckoutOrderSelect }>;
+
+const checkoutCustomerLegacySelect = {
+  id: true,
+  phone: true,
+  phoneVerified: true,
+  verificationMethod: true,
+} as const;
+
+const checkoutCustomerSelect = {
+  ...checkoutCustomerLegacySelect,
+  isBlocked: true,
+  blockReason: true,
+} as const;
+
+type CheckoutCustomer = Prisma.CustomerGetPayload<{ select: typeof checkoutCustomerLegacySelect }> & {
+  isBlocked: boolean;
+  blockReason: string | null;
+};
+
+function withCheckoutCustomerDefaults(
+  customer: Prisma.CustomerGetPayload<{ select: typeof checkoutCustomerLegacySelect }>
+): CheckoutCustomer {
+  return { ...customer, isBlocked: false, blockReason: null };
+}
 
 function cleanString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -152,27 +221,46 @@ export async function POST(request: NextRequest) {
       return orderError("INVALID_PHONE", "Введите корректный номер телефона.");
     }
 
-    const normalizedDeliveryType = deliveryType === "DELIVERY" ? "DELIVERY" : "PICKUP";
+    const normalizedDeliveryType: "DELIVERY" | "PICKUP" = deliveryType === "DELIVERY" ? "DELIVERY" : "PICKUP";
     const cleanAddress = cleanString(customerAddress);
     if (normalizedDeliveryType === "DELIVERY" && cleanAddress.length < 5) {
       await recordOrderAttempt({ telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "ADDRESS_REQUIRED" });
       return orderError("ADDRESS_REQUIRED", "Укажите адрес доставки.");
     }
 
-    const business = await prisma.business.findFirst({
-      where: { OR: [{ id: businessValue }, { slug: businessValue }] },
-      select: {
-        id: true,
-        slug: true,
-        name: true,
-        isActive: true,
-        subscriptionStatus: true,
-        transferPaymentEnabled: true,
-        transferBankName: true,
-        transferPaymentPhone: true,
-        transferRecipientName: true,
-      },
-    });
+    let usedCheckoutSchemaFallback = false;
+    let business: CheckoutBusiness | null;
+    const businessWhere = {
+      OR: [
+        { id: businessValue },
+        { slug: businessValue },
+        { slug: { equals: businessValue, mode: "insensitive" as const } },
+      ],
+    };
+
+    try {
+      business = await prisma.business.findFirst({
+        where: businessWhere,
+        select: checkoutBusinessSelect,
+      });
+    } catch (error) {
+      if (!isPrismaMissingColumnError(error)) throw error;
+      usedCheckoutSchemaFallback = true;
+      warnPrismaSchemaDrift("Checkout retried without transfer payment business columns", error);
+      const legacyBusiness = await prisma.business.findFirst({
+        where: businessWhere,
+        select: checkoutBusinessLegacySelect,
+      });
+      business = legacyBusiness
+        ? {
+            ...legacyBusiness,
+            transferPaymentEnabled: false,
+            transferBankName: null,
+            transferPaymentPhone: null,
+            transferRecipientName: null,
+          }
+        : null;
+    }
 
     if (!business || !business.isActive) {
       await recordOrderAttempt({ telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "BUSINESS_NOT_FOUND" });
@@ -205,7 +293,10 @@ export async function POST(request: NextRequest) {
         return orderError("INVALID_ITEM", "В корзине есть некорректная позиция.");
       }
 
-      const dbItem = await prisma.item.findUnique({ where: { id: item.itemId } });
+      const dbItem = await prisma.item.findUnique({
+        where: { id: item.itemId },
+        select: { id: true, businessId: true, name: true, price: true, isAvailable: true },
+      });
       if (!dbItem || dbItem.businessId !== business.id || !dbItem.isAvailable) {
         await recordOrderAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "ITEM_UNAVAILABLE" });
         return orderError("ITEM_UNAVAILABLE", "Одна из позиций больше недоступна. Обновите корзину.");
@@ -226,29 +317,49 @@ export async function POST(request: NextRequest) {
       firstName: cleanCustomerName,
     });
 
-    let customer = await prisma.customer.upsert({
-      where: {
-        businessId_telegramUserId: {
-          businessId: business.id,
-          telegramUserId: telegramId,
-        },
-      },
-      update: {
-        userId: user.id,
-        name: cleanCustomerName,
-        username,
-        address: cleanAddress || undefined,
-      },
-      create: {
+    const customerWhere = {
+      businessId_telegramUserId: {
         businessId: business.id,
-        userId: user.id,
         telegramUserId: telegramId,
-        name: cleanCustomerName,
-        phone: normalizedPhone,
-        username,
-        address: cleanAddress || undefined,
       },
-    });
+    };
+    const customerUpdate = {
+      userId: user.id,
+      name: cleanCustomerName,
+      username,
+      address: cleanAddress || undefined,
+    };
+    const customerCreate = {
+      businessId: business.id,
+      userId: user.id,
+      telegramUserId: telegramId,
+      name: cleanCustomerName,
+      phone: normalizedPhone,
+      username,
+      address: cleanAddress || undefined,
+    };
+    let customer: CheckoutCustomer;
+
+    try {
+      customer = await prisma.customer.upsert({
+        where: customerWhere,
+        update: customerUpdate,
+        create: customerCreate,
+        select: checkoutCustomerSelect,
+      });
+    } catch (error) {
+      if (!isPrismaMissingColumnError(error, "Customer", "isBlocked") && !isPrismaMissingColumnError(error, "Customer", "blockReason")) {
+        throw error;
+      }
+      usedCheckoutSchemaFallback = true;
+      warnPrismaSchemaDrift("Checkout customer retried without blocking columns", error);
+      customer = withCheckoutCustomerDefaults(await prisma.customer.upsert({
+        where: customerWhere,
+        update: customerUpdate,
+        create: customerCreate,
+        select: checkoutCustomerLegacySelect,
+      }));
+    }
 
     const currentUser = await prisma.user.findUnique({
       where: { telegramId },
@@ -261,14 +372,28 @@ export async function POST(request: NextRequest) {
 
     const verifiedUserPhone = currentUser?.phoneVerified ? normalizeRuPhone(currentUser.phone) : null;
     if (verifiedUserPhone) {
-      customer = await prisma.customer.update({
-        where: { id: customer.id },
-        data: {
-          phone: verifiedUserPhone,
-          phoneVerified: true,
-          verificationMethod: customer.verificationMethod === "telegram_contact" ? "telegram_contact" : "global_user_phone",
-        },
-      });
+      const phoneUpdate = {
+        phone: verifiedUserPhone,
+        phoneVerified: true,
+        verificationMethod: customer.verificationMethod === "telegram_contact" ? "telegram_contact" : "global_user_phone",
+      };
+      try {
+        customer = await prisma.customer.update({
+          where: { id: customer.id },
+          data: phoneUpdate,
+          select: checkoutCustomerSelect,
+        });
+      } catch (error) {
+        if (!isPrismaMissingColumnError(error, "Customer", "isBlocked") && !isPrismaMissingColumnError(error, "Customer", "blockReason")) {
+          throw error;
+        }
+        usedCheckoutSchemaFallback = true;
+        customer = withCheckoutCustomerDefaults(await prisma.customer.update({
+          where: { id: customer.id },
+          data: phoneUpdate,
+          select: checkoutCustomerLegacySelect,
+        }));
+      }
     }
 
     console.log("[ORDER PHONE CHECK]", {
@@ -305,27 +430,57 @@ export async function POST(request: NextRequest) {
     });
     if (rateLimited) return rateLimited;
 
-    const order = await prisma.order.create({
-      data: {
-        businessId: business.id,
-        customerId: customer.id,
-        customerAddress: normalizedDeliveryType === "DELIVERY" ? cleanAddress : null,
-        customerName: cleanCustomerName,
-        customerPhone: verifiedCustomerPhone,
-        totalPrice,
-        status: "NEW",
-        deliveryType: normalizedDeliveryType,
-        paymentMethod: requestedPaymentMethod,
-        paymentStatus: requestedPaymentMethod === "TRANSFER" ? "AWAITING_REVIEW" : "PENDING",
-        paymentProofUrl: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofUrl) : null,
-        paymentProofAiStatus: requestedPaymentMethod === "TRANSFER" ? "PENDING" : null,
-        comment: cleanString(comment) || null,
-        items: {
-          create: orderItems,
-        },
+    const baseOrderData = {
+      businessId: business.id,
+      customerId: customer.id,
+      customerAddress: normalizedDeliveryType === "DELIVERY" ? cleanAddress : null,
+      customerName: cleanCustomerName,
+      customerPhone: verifiedCustomerPhone,
+      totalPrice,
+      status: "NEW" as const,
+      deliveryType: normalizedDeliveryType,
+      comment: cleanString(comment) || null,
+      items: {
+        create: orderItems,
       },
-      include: { items: true, business: { select: { name: true, slug: true } } },
-    });
+    };
+    let orderResult: CurrentCheckoutOrder | LegacyCheckoutOrder;
+
+    try {
+      orderResult = await prisma.order.create({
+        data: {
+          ...baseOrderData,
+          paymentMethod: requestedPaymentMethod,
+          paymentStatus: requestedPaymentMethod === "TRANSFER" ? "AWAITING_REVIEW" : "PENDING",
+          paymentProofUrl: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofUrl) : null,
+          paymentProofAiStatus: requestedPaymentMethod === "TRANSFER" ? "PENDING" : null,
+        },
+        include: checkoutOrderInclude,
+      });
+    } catch (error) {
+      if (requestedPaymentMethod !== "CASH" || !isPrismaMissingColumnError(error)) throw error;
+      usedCheckoutSchemaFallback = true;
+      warnPrismaSchemaDrift("Cash checkout retried without new payment columns", error);
+      orderResult = await prisma.order.create({
+        data: baseOrderData,
+        select: legacyCheckoutOrderSelect,
+      });
+    }
+
+    const order = {
+      ...orderResult,
+      paymentMethod: "paymentMethod" in orderResult ? orderResult.paymentMethod : "CASH",
+      paymentStatus: "paymentStatus" in orderResult ? orderResult.paymentStatus : "PENDING",
+      paymentProofUrl: "paymentProofUrl" in orderResult ? orderResult.paymentProofUrl : null,
+      paymentProofAiStatus: "paymentProofAiStatus" in orderResult ? orderResult.paymentProofAiStatus : null,
+      paymentProofAiSummary: "paymentProofAiSummary" in orderResult ? orderResult.paymentProofAiSummary : null,
+      paymentProofAiConfidence: "paymentProofAiConfidence" in orderResult ? orderResult.paymentProofAiConfidence : null,
+      paymentReviewedAt: "paymentReviewedAt" in orderResult ? orderResult.paymentReviewedAt : null,
+      paymentReviewedBy: "paymentReviewedBy" in orderResult ? orderResult.paymentReviewedBy : null,
+      paymentRejectReason: "paymentRejectReason" in orderResult ? orderResult.paymentRejectReason : null,
+      expiredAt: "expiredAt" in orderResult ? orderResult.expiredAt : null,
+      expireReason: "expireReason" in orderResult ? orderResult.expireReason : null,
+    };
 
     await recordOrderAttempt({
       businessId: business.id,
@@ -335,13 +490,17 @@ export async function POST(request: NextRequest) {
       reason: "ORDER_CREATED",
     });
 
-    await prisma.customer.update({
-      where: { id: customer.id },
-      data: {
-        totalOrders: { increment: 1 },
-        totalSpent: { increment: totalPrice },
-      },
-    });
+    try {
+      await prisma.customer.update({
+        where: { id: customer.id },
+        data: {
+          totalOrders: { increment: 1 },
+          totalSpent: { increment: totalPrice },
+        },
+      });
+    } catch (error) {
+      warnPrismaSchemaDrift("Order created, but customer counters could not be updated", error);
+    }
 
     if (requestedPaymentMethod === "TRANSFER" && order.paymentProofUrl) {
       analyzePaymentProof({
@@ -367,11 +526,19 @@ export async function POST(request: NextRequest) {
         .catch((error) => console.warn("[PAYMENT PROOF AI] background update failed:", error));
     }
 
-    await NotificationService.notifyBusinessOwnerNewOrder(order.id);
+    try {
+      await NotificationService.notifyBusinessOwnerNewOrder(order.id);
+    } catch (error) {
+      console.error("[ORDER NOTIFICATION] Order created, but seller notification failed:", error);
+    }
 
-    return NextResponse.json(toJsonSafe({ ...order, ok: true }), { status: 201 });
+    return NextResponse.json(toJsonSafe({ ...order, ok: true, schemaFallback: usedCheckoutSchemaFallback }), { status: 201 });
   } catch (error) {
     console.error("Error creating order:", error);
+    const classification = classifyDatabaseError(error);
+    if (classification.type !== "database_error") {
+      warnPrismaSchemaDrift("Order creation failed because production schema is behind", error);
+    }
     if (telegramId) {
       await recordOrderAttempt({
         businessId: resolvedBusinessId,
@@ -385,7 +552,10 @@ export async function POST(request: NextRequest) {
       warnPrismaSchemaDrift("Order creation hit Business.isDemo schema drift", error);
       return NextResponse.json({ ok: false, error: "Оформление заказа временно недоступно." }, { status: 503 });
     }
-    return NextResponse.json({ ok: false, error: ORDER_ERROR }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, code: classification.code, error: ORDER_ERROR },
+      { status: classification.type === "database_error" ? 500 : 503 }
+    );
   }
 }
 
@@ -429,9 +599,9 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error fetching orders:", error);
     if (isBusinessIsDemoMissingColumnError(error)) {
-      warnPrismaSchemaDrift("Orders loaded as an empty list while Business.isDemo is missing", error);
-      return NextResponse.json([]);
+      warnPrismaSchemaDrift("Orders query failed while Business.isDemo is missing", error);
     }
-    return NextResponse.json({ error: "Не удалось загрузить заказы." }, { status: 500 });
+    const classification = classifyDatabaseError(error);
+    return NextResponse.json({ code: classification.code, error: "Не удалось загрузить заказы." }, { status: 503 });
   }
 }

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession, jsonError } from "@/lib/admin-auth";
-import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { classifyDatabaseError, isBusinessIsDemoMissingColumnError, isPrismaMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
-const businessDetailSelect = {
+const businessDetailLegacySelect = {
   id: true,
   slug: true,
   name: true,
@@ -40,14 +40,7 @@ const businessDetailSelect = {
   aiEnabled: true,
   aiDailyLimit: true,
   aiMonthlyLimit: true,
-  transferPaymentEnabled: true,
-  transferBankName: true,
-  transferPaymentPhone: true,
-  transferRecipientName: true,
-  transferPaymentCommentRequired: true,
-  transferPaymentInstructions: true,
   isActive: true,
-  isOpen: true,
   ownerId: true,
   createdAt: true,
   updatedAt: true,
@@ -55,31 +48,87 @@ const businessDetailSelect = {
   categories: { where: { isActive: true } },
 } as const;
 
+const currentBusinessFieldsSelect = {
+  isOpen: true,
+  transferPaymentEnabled: true,
+  transferBankName: true,
+  transferPaymentPhone: true,
+  transferRecipientName: true,
+  transferPaymentCommentRequired: true,
+  transferPaymentInstructions: true,
+} as const;
+
+const businessDetailSelect = {
+  ...businessDetailLegacySelect,
+  ...currentBusinessFieldsSelect,
+} as const;
+
+function normalizeLookup(value: string) {
+  try {
+    return decodeURIComponent(value).trim().replace(/^\/+|\/+$/g, "");
+  } catch {
+    return value.trim().replace(/^\/+|\/+$/g, "");
+  }
+}
+
+function businessLookupWhere(value: string) {
+  const lookup = normalizeLookup(value);
+  return {
+    OR: [
+      { id: lookup },
+      { slug: lookup },
+      { slug: { equals: lookup, mode: "insensitive" as const } },
+    ],
+  };
+}
+
 export async function GET(
   _request: NextRequest,
   context: { params: Promise<{ slug: string }> }
 ) {
   try {
     const { slug } = await context.params;
-    const business = await prisma.business.findFirst({
-      where: { OR: [{ id: slug }, { slug }] },
-      select: businessDetailSelect,
-    });
+    let schemaFallback = false;
+    let business;
+
+    try {
+      business = await prisma.business.findFirst({
+        where: businessLookupWhere(slug),
+        select: businessDetailSelect,
+      });
+    } catch (error) {
+      if (!isPrismaMissingColumnError(error)) throw error;
+      schemaFallback = true;
+      warnPrismaSchemaDrift(`Business detail ${slug} retried without transfer payment columns`, error);
+      business = await prisma.business.findFirst({
+        where: businessLookupWhere(slug),
+        select: businessDetailLegacySelect,
+      });
+    }
 
     if (!business) {
-      return NextResponse.json({ error: "Бизнес не найден." }, { status: 404 });
+      return NextResponse.json({ ok: false, code: "BUSINESS_NOT_FOUND", error: "Бизнес не найден." }, { status: 404 });
     }
 
     return NextResponse.json({
       ...business,
+      isOpen: "isOpen" in business ? business.isOpen : true,
+      transferPaymentEnabled: "transferPaymentEnabled" in business ? business.transferPaymentEnabled : false,
+      transferBankName: "transferBankName" in business ? business.transferBankName : null,
+      transferPaymentPhone: "transferPaymentPhone" in business ? business.transferPaymentPhone : null,
+      transferRecipientName: "transferRecipientName" in business ? business.transferRecipientName : null,
+      transferPaymentCommentRequired: "transferPaymentCommentRequired" in business ? business.transferPaymentCommentRequired : false,
+      transferPaymentInstructions: "transferPaymentInstructions" in business ? business.transferPaymentInstructions : null,
       telegramAdminChatId: business.telegramAdminChatId?.toString() || null,
+      schemaFallback,
     });
   } catch (error) {
-    console.error("Error fetching business:", error);
-    if (isBusinessIsDemoMissingColumnError(error)) {
-      warnPrismaSchemaDrift("Business detail could not load Business.isDemo", error);
-    }
-    return NextResponse.json({ error: "Не удалось загрузить бизнес." }, { status: 500 });
+    const classification = classifyDatabaseError(error);
+    warnPrismaSchemaDrift("Business detail failed", error);
+    return NextResponse.json(
+      { ok: false, code: classification.code, error: "Не удалось загрузить бизнес из базы данных." },
+      { status: 503 }
+    );
   }
 }
 
@@ -95,7 +144,7 @@ export async function PATCH(
     const { slug } = await context.params;
     const body = await request.json();
     const business = await prisma.business.findFirst({
-      where: { OR: [{ id: slug }, { slug }] },
+      where: businessLookupWhere(slug),
       select: { id: true },
     });
 
@@ -135,8 +184,8 @@ export async function PATCH(
     });
   } catch (error) {
     console.error("PATCH /api/businesses/[slug] failed:", error);
-    if (isBusinessIsDemoMissingColumnError(error)) {
-      warnPrismaSchemaDrift("Business detail update failed while Business.isDemo is missing", error);
+    if (isBusinessIsDemoMissingColumnError(error) || isPrismaMissingColumnError(error)) {
+      warnPrismaSchemaDrift("Business detail update failed because production schema is behind", error);
     }
     return jsonError("Не удалось обновить бизнес.", 500);
   }

@@ -12,6 +12,19 @@ export interface TelegramAuthUser {
   language_code?: string;
 }
 
+type AdminSessionUser = {
+  id: string;
+  email: string | null;
+  name: string | null;
+  telegramId: bigint | null;
+  username: string | null;
+  role: "CUSTOMER" | "BUSINESS_OWNER" | "MANAGER" | "SUPER_ADMIN";
+  businessId: string | null;
+  isActive: boolean;
+  business: { id: string; slug: string; name: string } | null;
+  ownedBusinesses: Array<{ id: string; slug: string; name: string }>;
+};
+
 export function parseTelegramInitData(initData: string): TelegramAuthUser | null {
   try {
     const params = new URLSearchParams(initData);
@@ -88,21 +101,41 @@ export async function getTelegramSessionUser(initData: string, businessId?: stri
   });
 
   // Check if there is an Admin/Seller User (which is the same User object, check its role)
-  const adminUser = await prisma.user.findUnique({
-    where: { telegramId: telegramUserId },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      telegramId: true,
-      username: true,
-      role: true,
-      businessId: true,
-      isActive: true,
-      business: { select: { id: true, slug: true, name: true } },
-      ownedBusinesses: { select: { id: true, slug: true, name: true } },
-    },
-  });
+  let adminUser: AdminSessionUser | null;
+  try {
+    adminUser = await prisma.user.findUnique({
+      where: { telegramId: telegramUserId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        telegramId: true,
+        username: true,
+        role: true,
+        businessId: true,
+        isActive: true,
+        business: { select: { id: true, slug: true, name: true } },
+        ownedBusinesses: { select: { id: true, slug: true, name: true } },
+      },
+    });
+  } catch (error) {
+    if (!isPrismaMissingColumnError(error)) throw error;
+    warnPrismaSchemaDrift("Telegram session loaded without optional admin account fields", error);
+    const legacyAdminUser = await prisma.user.findUnique({
+      where: { telegramId: telegramUserId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        telegramId: true,
+        username: true,
+        role: true,
+      },
+    });
+    adminUser = legacyAdminUser
+      ? { ...legacyAdminUser, businessId: null, isActive: true, business: null, ownedBusinesses: [] }
+      : null;
+  }
 
   // 2. Fetch or create a Customer record for this Telegram user in the scope of the business (if businessId is provided and not "global")
   let customer = null;

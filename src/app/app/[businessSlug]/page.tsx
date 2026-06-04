@@ -61,6 +61,7 @@ export default function BusinessMiniAppPage() {
   const [cartPulse, setCartPulse] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<Item | null>(null);
@@ -86,19 +87,30 @@ export default function BusinessMiniAppPage() {
     tg?.ready?.();
     tg?.expand?.();
 
-    fetch(`/api/businesses/${slug}/catalog`)
+    setLoading(true);
+    setNotFound(false);
+    setLoadError("");
+    fetch(`/api/businesses/${encodeURIComponent(slug)}/catalog`)
       .then(async (res) => {
-        if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 404) {
           setNotFound(true);
           return null;
         }
-        return res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Не удалось загрузить каталог.");
+        }
+        return data;
       })
       .then((data) => {
         if (!data) return;
         setBusiness(data.business);
         setItems(data.items || []);
         setStaff(data.staff || []);
+      })
+      .catch((error) => {
+        console.error("[Storefront catalog load error]", error);
+        setLoadError(error instanceof Error ? error.message : "Не удалось загрузить каталог.");
       })
       .finally(() => setLoading(false));
   }, [slug]);
@@ -365,6 +377,25 @@ export default function BusinessMiniAppPage() {
 
   if (loading) {
     return <main className="grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-500">Загрузка Mini App...</main>;
+  }
+
+  if (loadError) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-slate-950 px-5 text-center text-white">
+        <div>
+          <h1 className="text-2xl font-black">Каталог временно недоступен</h1>
+          <p className="mt-2 text-sm text-white/60">{loadError}</p>
+          <div className="mt-6 flex justify-center gap-3">
+            <button type="button" onClick={() => window.location.reload()} className="rounded-full bg-white px-5 py-3 text-sm font-bold text-slate-950">
+              Повторить
+            </button>
+            <Link href="/app" className="rounded-full bg-white/10 px-5 py-3 text-sm font-bold text-white">
+              Вернуться в каталог
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
   }
 
   if (notFound || !business) {

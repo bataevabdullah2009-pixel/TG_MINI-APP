@@ -11,6 +11,19 @@ export interface EnsureCustomerForTelegramUserInput {
   businessId?: string | null;
 }
 
+const customerSessionSelect = {
+  id: true,
+  businessId: true,
+  userId: true,
+  telegramUserId: true,
+  name: true,
+  phone: true,
+  username: true,
+  address: true,
+  phoneVerified: true,
+  verificationMethod: true,
+} as const;
+
 export function normalizePhone(phone: string | null | undefined): string | null {
   if (!phone) return null;
   let cleaned = phone.replace(/[^\d+]/g, "");
@@ -70,6 +83,7 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
           telegramUserId,
         },
       },
+      select: customerSessionSelect,
     });
 
     if (existing) {
@@ -82,6 +96,7 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
           username: input.username || existing.username,
           name: [input.firstName, input.lastName].filter(Boolean).join(" ") || existing.name,
         },
+        select: customerSessionSelect,
       });
     }
 
@@ -96,6 +111,7 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
         phoneVerified: Boolean(verifiedUserPhone),
         verificationMethod: verifiedUserPhone ? "global_user_phone" : "none",
       },
+      select: customerSessionSelect,
     });
   } else {
     // Global customer lookup (where businessId is null)
@@ -104,6 +120,7 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
         telegramUserId,
         businessId: null,
       },
+      select: customerSessionSelect,
     });
 
     if (existing) {
@@ -116,6 +133,7 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
           username: input.username || existing.username,
           name: [input.firstName, input.lastName].filter(Boolean).join(" ") || existing.name,
         },
+        select: customerSessionSelect,
       });
     }
 
@@ -130,6 +148,7 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
         phoneVerified: Boolean(verifiedUserPhone),
         verificationMethod: verifiedUserPhone ? "global_user_phone" : "none",
       },
+      select: customerSessionSelect,
     });
   }
 }

@@ -37,6 +37,7 @@ interface ClientHomeProps {
   activeCategory: string;
   setActiveCategory: (c: string) => void;
   loading: boolean;
+  loadError?: string | null;
   favorites: string[];
   toggleFavorite: (slug: string) => void;
 }
@@ -48,6 +49,7 @@ export function ClientHome({
   activeCategory,
   setActiveCategory,
   loading,
+  loadError,
   favorites,
   toggleFavorite,
 }: ClientHomeProps) {
@@ -117,7 +119,15 @@ export function ClientHome({
             </div>
           )}
 
-          {!loading && filtered.length === 0 && (
+          {!loading && loadError && (
+            <div className="rounded-3xl bg-rose-50 p-8 text-center ring-1 ring-rose-200">
+              <Store className="mx-auto mb-3 text-rose-300" size={48} />
+              <h3 className="font-extrabold text-rose-800">Каталог временно недоступен</h3>
+              <p className="mt-1.5 text-xs text-rose-600">{loadError}</p>
+            </div>
+          )}
+
+          {!loading && !loadError && filtered.length === 0 && (
             <div className="rounded-3xl bg-white p-8 text-center ring-1 ring-slate-100">
               <Store className="mx-auto mb-3 text-slate-300" size={48} />
               <h3 className="font-extrabold text-slate-800">Ничего не найдено</h3>

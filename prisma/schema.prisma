@@ -228,6 +228,7 @@ model Business {
   @@index([templateKey])
   @@index([subscriptionStatus])
   @@index([isDemo])
+  @@index([transferPaymentEnabled])
 }
 
 model BusinessTemplate {

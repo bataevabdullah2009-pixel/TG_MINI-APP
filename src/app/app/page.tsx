@@ -31,6 +31,8 @@ export default function MarketplacePage() {
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   // Client tabs
   const [activeClientTab, setActiveClientTab] = useState<"HOME" | "FAVORITES" | "ORDERS" | "PROFILE">("HOME");
@@ -111,21 +113,18 @@ export default function MarketplacePage() {
 
     // Load global catalog businesses
     fetch(`/api/marketplace/businesses`)
-      .then((res) => res.json())
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Не удалось загрузить каталог.");
+        return data;
+      })
       .then((data) => {
-        if (data.error) {
-          console.warn("[Marketplace] Catalog API returned a fallback response:", data.error);
-        } else if (data.isDbEmpty && data.showTechnicalError) {
-          setError("База подключена, но демо-данные не загружены. Суперадмин может восстановить их в панели управления.");
-        }
+        setCatalogError(null);
         setBusinesses(data.businesses || []);
       })
       .catch((err) => {
         console.error("Error loading businesses:", err);
-        setBusinesses([]);
-        if ((err as any)?.showTechnicalError) {
-          setError("Не удалось подключиться к базе данных. Проверьте правильность DATABASE_URL и DIRECT_URL в панели Vercel.");
-        }
+        setCatalogError(err instanceof Error ? err.message : "Не удалось загрузить каталог.");
       });
   }, []);
 
@@ -152,6 +151,7 @@ export default function MarketplacePage() {
   const resolveUserSession = async (initData: string, modeOverride?: string) => {
     setLoading(true);
     setError(null);
+    setProfileError(null);
     try {
       sessionStorage.setItem("tgInitData", initData); // Save to sessionStorage
       const res = await fetch("/api/auth/telegram-session", {
@@ -167,6 +167,7 @@ export default function MarketplacePage() {
 
       const sessionData = resData.data;
       setSession(sessionData);
+      setProfileError(null);
 
       // Determine initial workspace mode
       if (modeOverride === "SELLER" && (sessionData.role === "BUSINESS_OWNER" || sessionData.role === "SUPER_ADMIN")) {
@@ -183,6 +184,7 @@ export default function MarketplacePage() {
     } catch (e: any) {
       console.warn("[Telegram session] Profile is unavailable, continuing with catalog:", e);
       setSession(null);
+      setProfileError(e instanceof Error ? e.message : "Не удалось загрузить профиль Telegram.");
       setActiveWorkspaceMode("CUSTOMER");
       setShowMockLogin(false);
       if ((e as any)?.showTechnicalError) {
@@ -419,10 +421,10 @@ export default function MarketplacePage() {
       )}
 
       {/* Dynamic Warning Notification */}
-      {error && (
+      {(error || catalogError) && (
         <div className="m-4 flex items-center gap-2.5 rounded-2xl bg-rose-50 p-4 text-xs font-black text-rose-700 ring-1 ring-rose-200">
           <AlertCircle size={16} className="shrink-0" />
-          <span>{error}</span>
+          <span>{error || catalogError}</span>
         </div>
       )}
 
@@ -440,6 +442,7 @@ export default function MarketplacePage() {
                 activeCategory={activeCategory}
                 setActiveCategory={setActiveCategory}
                 loading={loading}
+                loadError={catalogError}
                 favorites={favorites}
                 toggleFavorite={toggleFavorite}
               />
@@ -458,6 +461,7 @@ export default function MarketplacePage() {
                 session={session}
                 onRefreshSession={() => resolveUserSession(mockInitData || (window as any).Telegram?.WebApp?.initData || "")}
                 onSwitchMode={setActiveWorkspaceMode}
+                unavailableReason={profileError}
               />
             )}
           </>

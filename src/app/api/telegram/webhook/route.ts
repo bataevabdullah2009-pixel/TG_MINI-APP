@@ -268,7 +268,14 @@ export async function POST(request: NextRequest) {
           }
         } else {
           const targetBusiness = await prisma.business.findFirst({
-            where: { OR: [{ slug: payload }, { id: payload }] },
+            where: {
+              isActive: true,
+              OR: [
+                { slug: payload },
+                { id: payload },
+                { slug: { equals: payload, mode: "insensitive" } },
+              ],
+            },
             select: {
               id: true,
               slug: true,
@@ -408,6 +415,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    if (isCommand) {
+      await telegramBot.sendNotification(chatId, "Доступные команды: /start и /link CODE. Обычный вопрос отправьте без команды.", {
+        reply_markup: {
+          inline_keyboard: [[{ text: "Открыть Vitrina AI", web_app: { url: withTelegramWebAppCacheBust(getMiniAppUrl()) } }]],
+        },
+      });
+      return NextResponse.json({ ok: true });
+    }
+
     // 2. FAQ logic - resolve customer or business
     const customer = await prisma.customer.findFirst({
       where: { 
@@ -432,8 +448,26 @@ export async function POST(request: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
-    const activeBusiness = business || customer?.business;
-    const activeBusinessProvider = activeBusiness ? resolveAIProviderName(activeBusiness.aiProvider) : "mock";
+    const fallbackBusiness = business || customer?.business
+      ? null
+      : await prisma.business.findFirst({
+          where: { isActive: true, aiEnabled: true },
+          select: {
+            id: true,
+            slug: true,
+            name: true,
+            type: true,
+            description: true,
+            phone: true,
+            address: true,
+            aiProvider: true,
+            aiModel: true,
+          },
+          orderBy: { createdAt: "desc" },
+        });
+
+    const activeBusiness = business || customer?.business || fallbackBusiness;
+    const activeBusinessProvider = resolveAIProviderName(activeBusiness?.aiProvider);
     const activeBusinessModel = activeBusinessProvider === "polza"
       ? process.env.POLZA_TEXT_MODEL || activeBusiness?.aiModel || "z-ai/glm-4.7-flash"
       : activeBusiness?.aiModel || "";
@@ -449,6 +483,15 @@ export async function POST(request: NextRequest) {
         hasPolzaKey: Boolean(process.env.POLZA_AI_API_KEY),
         endpoint: activeBusinessProvider === "polza" ? getPolzaChatEndpoint() : null,
       });
+
+      if (activeBusinessProvider === "polza" && !process.env.POLZA_AI_API_KEY) {
+        console.error("[AI CONFIG ERROR] AI_PROVIDER=polza but POLZA_AI_API_KEY missing in Telegram webhook");
+        await telegramBot.sendNotification(
+          chatId,
+          "AI-помощник временно недоступен: на сервере не настроен ключ Polza AI. Администратор уже получил понятную ошибку в логах."
+        );
+        return NextResponse.json({ ok: true });
+      }
 
       console.log("Sending FAQ loading notification to Chat ID:", chatId);
       await telegramBot.sendNotification(chatId, "⏳ Думаю...");
@@ -469,9 +512,8 @@ export async function POST(request: NextRequest) {
       await telegramBot.sendNotification(chatId, answer);
       console.log("response sent");
     } else {
-      console.log("Customer or business not found, sending default message to Chat ID:", chatId);
-      const defaultText = "Пожалуйста, запустите бота заново с помощью команды /start и выберите заведение.";
-      await telegramBot.sendNotification(chatId, defaultText);
+      console.error("[TELEGRAM AI ERROR] No active business is available for AI chat");
+      await telegramBot.sendNotification(chatId, "AI-помощник временно недоступен: в базе нет активного бизнеса для контекста ответа.");
       console.log("response sent");
     }
 
@@ -489,6 +531,12 @@ export async function POST(request: NextRequest) {
     }
 
     console.error("Error details in telegram webhook:", error);
+    if (webhookChatId && webhookText && !webhookText.startsWith("/")) {
+      await telegramBot.sendNotification(
+        webhookChatId,
+        "Не удалось получить ответ от Polza AI. Ошибка записана в server logs; попробуйте ещё раз через минуту."
+      );
+    }
     return NextResponse.json({ ok: true });
   }
 }
