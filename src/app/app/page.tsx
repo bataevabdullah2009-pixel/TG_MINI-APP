@@ -11,6 +11,7 @@ import { SellerHome } from "@/components/app/SellerHome";
 import { ManagerWorkPanel } from "@/components/app/ManagerWorkPanel";
 import { SuperAdminHome } from "@/components/app/SuperAdminHome";
 import { getStoreSlugFromStartParam } from "@/lib/business-share-links";
+import { miniAppFetch } from "@/lib/miniAppFetch";
 
 type Business = {
   id: string;
@@ -30,6 +31,7 @@ type Business = {
 
 export default function MarketplacePage() {
   const router = useRouter();
+  const allowMockLogin = process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_IS_DEVELOPMENT === "true";
   const [session, setSession] = useState<any>(null);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [loading, setLoading] = useState(true);
@@ -116,9 +118,9 @@ export default function MarketplacePage() {
     if (initData) {
       resolveUserSession(initData, modeParam);
     } else {
-      // In development or browser mode, allow Mock Login
+      // Never block the production marketplace behind the browser-only role emulator.
       setLoading(false);
-      setShowMockLogin(true);
+      setShowMockLogin(allowMockLogin);
     }
 
     // Load global catalog businesses
@@ -136,13 +138,13 @@ export default function MarketplacePage() {
         console.error("Error loading businesses:", err);
         setCatalogError(err instanceof Error ? err.message : "Не удалось загрузить каталог.");
       });
-  }, [router]);
+  }, [allowMockLogin, router]);
 
   useEffect(() => {
     if (!session?.telegramUserId) return undefined;
 
     let cancelled = false;
-    fetch(`/api/favorites/business?telegramUserId=${encodeURIComponent(session.telegramUserId.toString())}`)
+    miniAppFetch(`/api/favorites/business?telegramUserId=${encodeURIComponent(session.telegramUserId.toString())}`)
       .then((res) => res.json())
       .then((resData) => {
         if (cancelled || !resData.ok) return;
@@ -257,7 +259,7 @@ export default function MarketplacePage() {
       const biz = businesses.find((b) => b.slug === slug);
       if (biz) {
         try {
-          const res = await fetch("/api/favorites/business", {
+          const res = await miniAppFetch("/api/favorites/business", {
             method: isFavorite ? "DELETE" : "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

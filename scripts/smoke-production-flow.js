@@ -119,7 +119,10 @@ async function main() {
   await check("checkout validates empty cart without crashing", async () => {
     const emptyOrder = await request("/api/orders", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(initData ? { "x-telegram-init-data": initData } : {}),
+      },
       body: JSON.stringify({
         businessId: businessSlug,
         telegramUserId: process.env.SMOKE_TELEGRAM_USER_ID || "999999999",
@@ -128,7 +131,8 @@ async function main() {
         items: [],
       }),
     });
-    assert(emptyOrder.response.status === 400, "orders endpoint must validate empty cart with 400", {
+    const expectedStatus = initData ? 400 : 401;
+    assert(emptyOrder.response.status === expectedStatus, `orders endpoint must return ${expectedStatus} for the smoke request`, {
       status: emptyOrder.response.status,
       body: emptyOrder.body,
     });
@@ -138,7 +142,10 @@ async function main() {
     await check("checkout creates order", async () => {
       const telegramUserId = process.env.SMOKE_TELEGRAM_USER_ID;
       const verifiedPhone = process.env.SMOKE_VERIFIED_PHONE;
-      assert(telegramUserId && verifiedPhone, "SMOKE_TELEGRAM_USER_ID and SMOKE_VERIFIED_PHONE are required for write smoke");
+      assert(
+        telegramUserId && verifiedPhone && initData,
+        "SMOKE_TELEGRAM_USER_ID, SMOKE_VERIFIED_PHONE and SMOKE_TELEGRAM_INIT_DATA are required for write smoke"
+      );
 
       const catalog = await request(`/api/businesses/${encodeURIComponent(businessSlug)}/catalog`);
       const item = catalog.body.items?.find((candidate) => candidate.type === "PRODUCT") || catalog.body.items?.[0];
@@ -146,7 +153,10 @@ async function main() {
 
       const order = await request(`/api/businesses/${encodeURIComponent(businessSlug)}/orders`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-telegram-init-data": initData,
+        },
         body: JSON.stringify({
           telegramUserId,
           customerName: process.env.SMOKE_CUSTOMER_NAME || "Smoke User",
@@ -171,7 +181,12 @@ async function main() {
       const chatId = Number(process.env.SMOKE_TELEGRAM_CHAT_ID);
       const webhook = await request("/api/telegram/webhook", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(process.env.TELEGRAM_WEBHOOK_SECRET
+            ? { "x-telegram-bot-api-secret-token": process.env.TELEGRAM_WEBHOOK_SECRET }
+            : {}),
+        },
         body: JSON.stringify({
           update_id: Date.now(),
           message: {

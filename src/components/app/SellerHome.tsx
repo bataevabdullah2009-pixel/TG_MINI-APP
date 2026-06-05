@@ -40,6 +40,13 @@ interface SellerHomeProps {
   businessId: string;
 }
 
+function paymentProofAiLabel(status: string) {
+  if (status === "PENDING") return "ИИ проверяет чек";
+  if (status === "LIKELY_VALID") return "Похоже на чек";
+  if (status === "AI_UNAVAILABLE") return "ИИ временно недоступен, чек отправлен продавцу";
+  return "Нужна ручная проверка";
+}
+
 export function SellerHome({ session, businessId }: SellerHomeProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<
@@ -96,6 +103,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   // Filters for orders and bookings
   const [orderFilter, setOrderFilter] = useState<string>("ALL");
   const [bookingFilter, setBookingFilter] = useState<string>("ALL");
+  const [couriers, setCouriers] = useState<any[]>([]);
+  const [assigningOrderId, setAssigningOrderId] = useState<string | null>(null);
 
   const syncBusinessState = (bData: any) => {
     setBusinessData(bData);
@@ -148,6 +157,12 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       if (custRes.ok) {
         const custData = await custRes.json();
         setCustomers(custData.data || []);
+      }
+
+      const courierRes = await miniAppFetch(`/api/admin/couriers?businessId=${encodeURIComponent(businessId)}`);
+      if (courierRes.ok) {
+        const courierData = await courierRes.json();
+        setCouriers((courierData.couriers || []).filter((courier: any) => courier.isActive));
       }
 
       // 4. Fetch Orders and Bookings
@@ -373,6 +388,25 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       }
     } catch (error) {
       showError("Не удалось отклонить оплату. Проверьте соединение и попробуйте снова.");
+    }
+  };
+
+  const handleAssignCourier = async (orderId: string, courierId: string) => {
+    try {
+      const res = await miniAppFetch(`/api/admin/orders/${orderId}/assign-courier`, {
+        method: "POST",
+        body: JSON.stringify({ courierId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        showError(data.error || "Не удалось назначить курьера.");
+        return;
+      }
+      setAssigningOrderId(null);
+      showSuccess("Курьер назначен и получил уведомление.");
+      fetchSellerData();
+    } catch {
+      showError("Не удалось назначить курьера. Проверьте соединение и попробуйте снова.");
     }
   };
 
@@ -771,7 +805,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                                   order.paymentProofAiStatus === "INVALID" ? "bg-rose-100 text-rose-700" :
                                   "bg-slate-100 text-slate-600"
                                 }`}>
-                                  {order.paymentProofAiStatus}
+                                  {paymentProofAiLabel(order.paymentProofAiStatus)}
                                 </span>
                                 {typeof order.paymentProofAiConfidence === "number" && (
                                   <span>{order.paymentProofAiConfidence}%</span>
@@ -928,8 +962,18 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           </button>
                         )}
                         {order.status === "READY_FOR_DELIVERY" && (
-                          <div className="w-full rounded-xl bg-cyan-50 p-2 text-center text-[10px] font-black text-cyan-700">
-                            Заказ виден активным курьерам
+                          <div className="grid w-full gap-2">
+                            <div className="rounded-xl bg-cyan-50 p-2 text-center text-[10px] font-black text-cyan-700">
+                              Заказ виден активным курьерам
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setAssigningOrderId(order.id)}
+                              disabled={couriers.length === 0}
+                              className="w-full rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-black text-white disabled:opacity-40"
+                            >
+                              Назначить курьера
+                            </button>
                           </div>
                         )}
                         {order.status === "COURIER_ASSIGNED" && (
@@ -1546,6 +1590,38 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
               + Создать новую категорию
             </button>
           </div>
+        </div>
+      )}
+
+      {assigningOrderId && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs">
+          <button type="button" className="absolute inset-0" aria-label="Закрыть" onClick={() => setAssigningOrderId(null)} />
+          <section className="relative w-full max-w-[480px] rounded-t-[32px] bg-white p-6 pb-10 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between border-b pb-3">
+              <div>
+                <h4 className="text-sm font-black text-slate-900">Назначить курьера</h4>
+                <p className="mt-1 text-[10px] font-bold text-slate-400">Курьер получит Telegram-уведомление и подтвердит доставку.</p>
+              </div>
+              <button type="button" onClick={() => setAssigningOrderId(null)} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black">Закрыть</button>
+            </div>
+            <div className="grid max-h-[55vh] gap-2 overflow-y-auto">
+              {couriers.map((courier) => (
+                <button
+                  key={courier.id}
+                  type="button"
+                  onClick={() => handleAssignCourier(assigningOrderId, courier.id)}
+                  className="flex items-center justify-between rounded-2xl bg-slate-50 p-4 text-left ring-1 ring-slate-100"
+                >
+                  <span>
+                    <span className="block text-xs font-black text-slate-900">{courier.name}</span>
+                    <span className="mt-1 block text-[10px] font-bold text-slate-400">{courier.cityArea || "Все зоны"} · {courier.phone}</span>
+                  </span>
+                  <Check size={15} className="text-indigo-600" />
+                </button>
+              ))}
+              {couriers.length === 0 && <p className="py-8 text-center text-xs font-bold text-slate-400">Нет активных курьеров.</p>}
+            </div>
+          </section>
         </div>
       )}
     </div>

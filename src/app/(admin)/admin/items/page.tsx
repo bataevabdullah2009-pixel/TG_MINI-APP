@@ -4,10 +4,11 @@ import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ImagePlus, Pencil, Plus, RefreshCw, Save, Sparkles, Trash2, X } from "lucide-react";
+import { AlertCircle, ImagePlus, Pencil, Plus, RefreshCw, Save, ShoppingBag, Sparkles, Trash2, X } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { formatPrice } from "@/lib/utils";
 import { AccessDeniedScreen } from "@/components/app/AccessDeniedScreen";
+import { BottomSheetPicker } from "@/components/ui/BottomSheetPicker";
 
 type Business = {
   id: string;
@@ -96,6 +97,7 @@ export default function AdminItemsPage() {
         feature: "product_card",
         contentType: "product_card",
         tone: "дружелюбный",
+        imageUrl: form.imageUrl || undefined,
         prompt: [
           `Идея товара: ${aiPrompt}`,
           form.name ? `Текущее название: ${form.name}` : "",
@@ -107,10 +109,10 @@ export default function AdminItemsPage() {
       });
       const textData = textRes.data;
 
-      if (textData.category && categories.length > 0) {
+      if (textData.categorySuggestion && categories.length > 0) {
         const foundCategory = categories.find(
-          (c) => c.name.toLowerCase().includes(textData.category.toLowerCase()) ||
-                 textData.category.toLowerCase().includes(c.name.toLowerCase())
+          (c) => c.name.toLowerCase().includes(textData.categorySuggestion.toLowerCase()) ||
+                 textData.categorySuggestion.toLowerCase().includes(c.name.toLowerCase())
         );
         if (foundCategory) {
           setForm((current) => ({ ...current, categoryId: foundCategory.id }));
@@ -119,35 +121,12 @@ export default function AdminItemsPage() {
 
       setForm((current) => ({
         ...current,
-        name: textData.name || current.name || aiPrompt,
-        description: textData.description || textData.marketingText || current.description,
+        name: textData.title || current.name || aiPrompt,
+        description: textData.description || textData.shortDescription || current.description,
       }));
 
-      if (textData.imagePrompt) {
-        try {
-          const imgRes = await fetch("/api/admin/ai/generate-image", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              businessId: business.id,
-              prompt: textData.imagePrompt,
-            }),
-          });
-          const imgData = await imgRes.json();
-          if (imgRes.ok && imgData.ok && imgData.data?.url) {
-            setForm((current) => ({ ...current, imageUrl: imgData.data.url }));
-            setToast("Карточка и изображение успешно созданы!");
-            setTimeout(() => setToast(""), 2500);
-          } else {
-            setAiError(`Текст создан, но изображение не создано: ${imgData.error || "Ошибка генерации фото"}`);
-          }
-        } catch (imgErr: any) {
-          setAiError(`Текст создан, но изображение не создано: ${imgErr.message || "Ошибка сети при генерации фото"}`);
-        }
-      } else {
-        setToast("Карточка товара успешно сгенерирована!");
-        setTimeout(() => setToast(""), 2500);
-      }
+      setToast("Карточка товара сгенерирована. Проверьте её перед сохранением.");
+      setTimeout(() => setToast(""), 2500);
     } catch (err: any) {
       setAiError(apiError(err));
     } finally {
@@ -522,7 +501,7 @@ export default function AdminItemsPage() {
                 {aiLoading && (
                   <div className="mt-3 flex animate-pulse items-center gap-2 text-xs font-bold text-indigo-600">
                     <div className="h-2 w-2 animate-bounce rounded-full bg-indigo-600" />
-                    Генерируем текст и изображение...
+                    Генерируем карточку товара...
                   </div>
                 )}
                 {aiError && (
@@ -537,16 +516,20 @@ export default function AdminItemsPage() {
               <Field label={form.type === "SERVICE" ? "Длительность, минут" : "Остаток"}><input type="number" min="0" value={form.type === "SERVICE" ? form.durationMinutes : form.stock} onChange={(e) => setForm({ ...form, [form.type === "SERVICE" ? "durationMinutes" : "stock"]: e.target.value })} className="field" /></Field>
               <Field label="Категория">
                 <div className="flex gap-2">
-                  <select
+                  <BottomSheetPicker
+                    title="Выберите категорию"
                     value={form.categoryId}
-                    onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
-                    className="field cursor-pointer"
-                  >
-                    <option value="">Без категории</option>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
+                    onChange={(categoryId) => setForm({ ...form, categoryId })}
+                    buttonClassName="field cursor-pointer"
+                    options={[
+                      { value: "", label: "Без категории", icon: <AlertCircle size={16} /> },
+                      ...categories.map((category) => ({
+                        value: category.id,
+                        label: category.name,
+                        icon: <ShoppingBag size={16} />,
+                      })),
+                    ]}
+                  />
                   <button
                     type="button"
                     onClick={() => form.categoryId && deleteCategory(form.categoryId)}

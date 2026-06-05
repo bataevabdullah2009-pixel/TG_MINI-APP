@@ -27,7 +27,7 @@ export async function releaseExpiredCourierAssignments(now = new Date()) {
         },
         data: {
           status: "READY_FOR_DELIVERY",
-          deliveryStatus: "WAITING_COURIER",
+          deliveryStatus: "NEW",
           courierAssignedAt: null,
           courierPickupDeadline: null,
         },
@@ -62,7 +62,7 @@ export async function claimDelivery(orderId: string, courierId: string, pickupDe
         id: orderId,
         businessId: courier.businessId,
         status: "READY_FOR_DELIVERY",
-        deliveryStatus: "WAITING_COURIER",
+        deliveryStatus: { in: ["NEW", "WAITING_COURIER"] },
       },
       data: {
         status: "COURIER_ASSIGNED",

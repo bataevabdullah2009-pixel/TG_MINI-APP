@@ -74,7 +74,7 @@ export async function PATCH(
 
     // 4. Update order details
     const deliveryStatus =
-      status === "READY_FOR_DELIVERY" ? "WAITING_COURIER" :
+      status === "READY_FOR_DELIVERY" ? "NEW" :
       status === "COURIER_ASSIGNED" ? "ASSIGNED" :
       status === "PICKED_UP" ? "PICKED_UP" :
       status === "DELIVERED" ? "DELIVERED" :
@@ -101,7 +101,7 @@ export async function PATCH(
       }
       if (status === "CANCELLED") {
         await prisma.deliveryAssignment.updateMany({
-          where: { orderId: updatedOrder.id, status: { in: ["ASSIGNED", "PICKED_UP"] } },
+          where: { orderId: updatedOrder.id, status: { in: ["ASSIGNED", "ACCEPTED_BY_COURIER", "PICKED_UP"] } },
           data: { status: "CANCELLED", releasedAt: new Date() },
         });
         await NotificationService.notifyCourierOrderCancelled(updatedOrder.id);

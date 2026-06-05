@@ -98,6 +98,13 @@ export class PolzaAIProvider implements AIProvider {
       { role: "user" as const, content: enforcePromptLength(user) },
     ];
 
+    console.info("[AI CONFIG] provider", {
+      provider: this.name,
+      model,
+      endpoint,
+      hasApiKey: Boolean(this.apiKey),
+    });
+
     let lastError: unknown;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
@@ -134,9 +141,16 @@ export class PolzaAIProvider implements AIProvider {
         }
 
         const data = (await res.json()) as PolzaResponse;
+        console.info("[POLZA AI] request ok", { model, endpoint, attempt });
         return extractPolzaText(data);
       } catch (error) {
         lastError = error;
+        console.error("[POLZA AI] request error", {
+          model,
+          endpoint,
+          attempt,
+          reason: error instanceof Error ? error.message : String(error),
+        });
         if (attempt < 2) {
           console.warn("[POLZA AI RETRY]", {
             model,
@@ -168,10 +182,9 @@ export class PolzaAIProvider implements AIProvider {
       const system = [
         "Ты помогаешь продавцу заполнить карточку товара в Telegram Mini App.",
         "Верни ТОЛЬКО валидный JSON. Без markdown, без ```json, без code fence, без пояснений и без текста вокруг JSON.",
-        "Схема строго такая: {\"name\":\"string\",\"description\":\"string\",\"category\":\"string\",\"marketingText\":\"string\",\"imagePrompt\":\"string\"}.",
-        "Все поля обязательны и должны быть непустыми строками.",
-        "Поля name, description, category и marketingText пиши на русском языке.",
-        "Поле imagePrompt пиши на английском языке для генерации предметного фото товара.",
+        "Схема строго такая: {\"title\":\"string\",\"shortDescription\":\"string\",\"description\":\"string\",\"categorySuggestion\":\"string\",\"tags\":[\"string\"],\"tgPost\":\"string\"}.",
+        "Все строковые поля обязательны и должны быть непустыми.",
+        "Пиши на русском языке.",
         "Не выдумывай цену и факты, которых нет во входных данных.",
       ].join(" ");
       const user = [

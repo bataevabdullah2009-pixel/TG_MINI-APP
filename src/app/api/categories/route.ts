@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
@@ -27,12 +28,17 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getAdminSession(request);
+    if (!session) return jsonError("Нужен вход в панель продавца.", 401);
+    if (session.role === "MANAGER") return jsonError("У менеджера нет доступа к категориям.", 403);
+
     const body = await request.json();
     const { name, businessId, sortOrder, isActive } = body;
 
     if (!name || !businessId) {
       return NextResponse.json({ error: "Название и ID бизнеса обязательны" }, { status: 400 });
     }
+    if (!canUseBusiness(session, businessId)) return jsonError("Нет доступа к категориям этого бизнеса.", 403);
 
     const category = await prisma.category.create({
       data: {
@@ -55,12 +61,19 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    const session = await getAdminSession(request);
+    if (!session) return jsonError("Нужен вход в панель продавца.", 401);
+    if (session.role === "MANAGER") return jsonError("У менеджера нет доступа к категориям.", 403);
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     
     if (!id) {
       return NextResponse.json({ error: "ID категории обязателен" }, { status: 400 });
     }
+    const existing = await prisma.category.findUnique({ where: { id }, select: { businessId: true } });
+    if (!existing) return jsonError("Категория не найдена.", 404);
+    if (!canUseBusiness(session, existing.businessId)) return jsonError("Нет доступа к категории.", 403);
 
     const body = await request.json();
     const { name, sortOrder, isActive } = body;
@@ -83,15 +96,20 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const session = await getAdminSession(request);
+    if (!session) return jsonError("Нужен вход в панель продавца.", 401);
+    if (session.role === "MANAGER") return jsonError("У менеджера нет доступа к категориям.", 403);
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
     if (!id) {
       return NextResponse.json({ error: "ID категории обязателен" }, { status: 400 });
     }
+    const existing = await prisma.category.findUnique({ where: { id }, select: { businessId: true } });
+    if (!existing) return jsonError("Категория не найдена.", 404);
+    if (!canUseBusiness(session, existing.businessId)) return jsonError("Нет доступа к категории.", 403);
 
-    // Delete items in category first or update them?
-    // Let's delete the category, Prisma onDelete cascade or setNull will trigger.
     await prisma.category.delete({
       where: { id },
     });

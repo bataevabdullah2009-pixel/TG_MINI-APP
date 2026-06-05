@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTelegramWebhookUrl } from "@/lib/production-url";
+import { buildTelegramSetWebhookUrl } from "@/lib/telegram-webhook-config";
 
 export async function GET(request: NextRequest) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -11,9 +12,7 @@ export async function GET(request: NextRequest) {
   try {
     const webhookUrl = getTelegramWebhookUrl();
     console.log(`Setting Telegram webhook to: ${webhookUrl}`);
-    const response = await fetch(
-      `https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}`
-    );
+    const response = await fetch(buildTelegramSetWebhookUrl(token, webhookUrl));
     const result = await response.json();
     console.log("setWebhook Response:", result);
     return NextResponse.json({

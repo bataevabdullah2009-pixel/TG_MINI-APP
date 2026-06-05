@@ -9,10 +9,11 @@ function money(value: number) {
 }
 
 function OrderCard({ order, action, loading }: { order: any; action: (id: string, action: string) => void; loading: string }) {
-  const assignedStatus = ["ASSIGNED", "PICKED_UP"].includes(order.deliveryAssignment?.status)
+  const assignedStatus = ["ASSIGNED", "ACCEPTED_BY_COURIER", "PICKED_UP"].includes(order.deliveryAssignment?.status)
     ? order.deliveryAssignment.status
     : null;
   const pending = loading === order.id;
+  const terminal = ["DELIVERED", "CANCELLED", "EXPIRED"].includes(order.deliveryStatus);
   return (
     <article className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
       <div className="flex items-start justify-between gap-3">
@@ -43,13 +44,18 @@ function OrderCard({ order, action, loading }: { order: any; action: (id: string
         </div>
       </div>
 
-      <div className="mt-4">
+      {!terminal && <div className="mt-4">
         {!assignedStatus && (
           <button disabled={pending} onClick={() => action(order.id, "TAKE")} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-xs font-black text-white disabled:opacity-50">
             <Truck size={16} /> Взять заказ
           </button>
         )}
         {assignedStatus === "ASSIGNED" && (
+          <button disabled={pending} onClick={() => action(order.id, "ACCEPT")} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-xs font-black text-white disabled:opacity-50">
+            <CheckCircle2 size={16} /> Принять доставку
+          </button>
+        )}
+        {assignedStatus === "ACCEPTED_BY_COURIER" && (
           <button disabled={pending} onClick={() => action(order.id, "PICKED_UP")} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-3 text-xs font-black text-white disabled:opacity-50">
             <PackageCheck size={16} /> Забрал у продавца
           </button>
@@ -59,13 +65,13 @@ function OrderCard({ order, action, loading }: { order: any; action: (id: string
             <CheckCircle2 size={16} /> Доставил клиенту
           </button>
         )}
-      </div>
+      </div>}
     </article>
   );
 }
 
 export function CourierDashboard() {
-  const [data, setData] = useState<any>({ available: [], assigned: [] });
+  const [data, setData] = useState<any>({ available: [], assigned: [], completed: [] });
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState("");
   const [error, setError] = useState("");
@@ -132,6 +138,7 @@ export function CourierDashboard() {
         <div className="space-y-5">
           <section><h2 className="mb-3 text-xs font-black uppercase tracking-widest text-slate-400">Мои доставки ({data.assigned?.length || 0})</h2><div className="grid gap-3">{data.assigned?.length ? data.assigned.map((order: any) => <OrderCard key={order.id} order={order} action={runAction} loading={actionLoading} />) : <div className="rounded-3xl bg-white p-6 text-center text-xs font-bold text-slate-400 ring-1 ring-slate-100">Нет активных доставок.</div>}</div></section>
           <section><h2 className="mb-3 text-xs font-black uppercase tracking-widest text-slate-400">Доступные ({data.available?.length || 0})</h2><div className="grid gap-3">{data.available?.length ? data.available.map((order: any) => <OrderCard key={order.id} order={order} action={runAction} loading={actionLoading} />) : <div className="rounded-3xl bg-white p-6 text-center text-xs font-bold text-slate-400 ring-1 ring-slate-100">Доступных доставок пока нет.</div>}</div></section>
+          <section><h2 className="mb-3 text-xs font-black uppercase tracking-widest text-slate-400">Завершённые ({data.completed?.length || 0})</h2><div className="grid gap-3">{data.completed?.length ? data.completed.map((order: any) => <OrderCard key={order.id} order={order} action={runAction} loading={actionLoading} />) : <div className="rounded-3xl bg-white p-6 text-center text-xs font-bold text-slate-400 ring-1 ring-slate-100">Завершённых доставок пока нет.</div>}</div></section>
         </div>
       )}
     </main>

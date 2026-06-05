@@ -194,7 +194,7 @@ export async function POST(request: NextRequest) {
           backgroundColor: body.backgroundColor || template.theme.backgroundColor,
           subscriptionStatus: "ACTIVE",
           isActive: true,
-          aiProvider: "mock",
+          aiProvider: process.env.AI_PROVIDER || (process.env.NODE_ENV === "production" ? "polza" : "mock"),
           aiEnabled: true,
           modulesEnabled:
             template.orderMode === "booking"

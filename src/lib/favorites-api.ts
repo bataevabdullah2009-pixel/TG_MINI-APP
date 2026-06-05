@@ -1,3 +1,5 @@
+import { getTelegramSessionUser } from "@/lib/auth-telegram";
+
 export const favoriteBusinessSelect = {
   id: true,
   slug: true,
@@ -11,6 +13,7 @@ export const favoriteBusinessSelect = {
   primaryColor: true,
   accentColor: true,
   isOpen: true,
+  isActive: true,
 } as const;
 
 export const favoriteItemInclude = {
@@ -28,21 +31,6 @@ type FavoriteIdentityValues = {
   userId?: unknown;
 };
 
-function telegramUserIdFromInitData(initData: string | null) {
-  if (!initData) return null;
-
-  try {
-    const params = new URLSearchParams(initData);
-    const user = params.get("user");
-    if (!user) return null;
-
-    const parsed = JSON.parse(user) as { id?: number | string };
-    return parsed.id === undefined ? null : parsed.id;
-  } catch {
-    return null;
-  }
-}
-
 function toBigInt(value: unknown) {
   if (value === undefined || value === null || value === "") return null;
 
@@ -53,9 +41,15 @@ function toBigInt(value: unknown) {
   }
 }
 
-export function resolveFavoriteTelegramUserId(request: Request, values: FavoriteIdentityValues = {}) {
-  const headerUserId = telegramUserIdFromInitData(request.headers.get("x-telegram-init-data"));
-  return toBigInt(headerUserId ?? values.telegramUserId ?? values.tgId ?? values.userId);
+export async function resolveFavoriteTelegramUserId(request: Request, values: FavoriteIdentityValues = {}) {
+  const initData = request.headers.get("x-telegram-init-data");
+  if (initData) {
+    const session = await getTelegramSessionUser(initData);
+    return toBigInt(session?.telegramUserId);
+  }
+
+  if (process.env.NODE_ENV === "production") return null;
+  return toBigInt(values.telegramUserId ?? values.tgId ?? values.userId);
 }
 
 export function identityValuesFromSearch(searchParams: URLSearchParams): FavoriteIdentityValues {

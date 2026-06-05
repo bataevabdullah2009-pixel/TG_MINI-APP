@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bike, Plus, Phone, User } from "lucide-react";
+import { Bike, Plus, Phone, Trash2, User } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
 
 export function SellerCouriers({ businessId, onMessage }: { businessId: string; onMessage: (message: string, error?: boolean) => void }) {
@@ -47,6 +47,15 @@ export function SellerCouriers({ businessId, onMessage }: { businessId: string; 
     setCouriers((current) => current.map((item) => item.id === courier.id ? data.courier : item));
   };
 
+  const deleteCourier = async (courier: any) => {
+    if (!window.confirm(`Удалить курьера «${courier.name}»? История завершённых доставок сохранится.`)) return;
+    const response = await miniAppFetch(`/api/admin/couriers/${courier.id}`, { method: "DELETE" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) return onMessage(data.error || "Не удалось удалить курьера.", true);
+    setCouriers((current) => current.filter((item) => item.id !== courier.id));
+    onMessage(data.archived ? "Курьер отключён, история доставок сохранена." : "Курьер удалён.");
+  };
+
   return (
     <div className="space-y-4">
       <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
@@ -67,7 +76,10 @@ export function SellerCouriers({ businessId, onMessage }: { businessId: string; 
             <article key={courier.id} className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-100">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0"><p className="flex items-center gap-1 text-xs font-black"><User size={13} /> {courier.name}</p><a href={`tel:${courier.phone}`} className="mt-1 flex items-center gap-1 text-[10px] font-bold text-indigo-600"><Phone size={11} /> {courier.phone}</a><p className="mt-1 text-[10px] font-bold text-slate-400">{courier.cityArea || "Все зоны"}{courier.telegramId ? ` · TG ${courier.telegramId}` : " · Telegram ID не указан"}</p></div>
-                <button onClick={() => toggleCourier(courier)} className={`shrink-0 rounded-full px-3 py-1 text-[9px] font-black ${courier.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"}`}>{courier.isActive ? "Активен" : "Не активен"}</button>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button onClick={() => toggleCourier(courier)} className={`rounded-full px-3 py-1 text-[9px] font-black ${courier.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"}`}>{courier.isActive ? "Активен" : "Не активен"}</button>
+                  <button onClick={() => deleteCourier(courier)} className="grid h-8 w-8 place-items-center rounded-xl bg-rose-50 text-rose-600" title="Удалить курьера"><Trash2 size={13} /></button>
+                </div>
               </div>
               {courier.assignments?.length > 0 && <p className="mt-2 rounded-xl bg-white p-2 text-[10px] font-bold text-slate-600">Активных заказов: {courier.assignments.length}</p>}
             </article>

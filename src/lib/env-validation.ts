@@ -44,6 +44,7 @@ export function validateEnv() {
       "NEXT_PUBLIC_APP_URL",
       "NEXT_PUBLIC_WEBAPP_URL",
       "TELEGRAM_WEBHOOK_URL",
+      "TELEGRAM_WEBHOOK_SECRET",
       "DIRECT_URL",
       "AI_PROVIDER",
       "POLZA_TEXT_MODEL",

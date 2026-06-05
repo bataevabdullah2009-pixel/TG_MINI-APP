@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { Star, Store, Heart, ShoppingBag, Eye } from "lucide-react";
+import { miniAppFetch } from "@/lib/miniAppFetch";
 
 interface ClientFavoritesProps {
   telegramUserId?: string;
@@ -26,8 +27,8 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
     setLoading(true);
     setError(null);
     Promise.all([
-      fetch(`/api/favorites/business?telegramUserId=${encodeURIComponent(telegramUserId)}`).then((res) => res.json()),
-      fetch(`/api/favorites/product?telegramUserId=${encodeURIComponent(telegramUserId)}`).then((res) => res.json()),
+      miniAppFetch(`/api/favorites/business?telegramUserId=${encodeURIComponent(telegramUserId)}`).then((res) => res.json()),
+      miniAppFetch(`/api/favorites/product?telegramUserId=${encodeURIComponent(telegramUserId)}`).then((res) => res.json()),
     ])
       .then(([businessRes, productRes]) => {
         if (!businessRes.ok) {
@@ -68,7 +69,7 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
     }
 
     try {
-      const res = await fetch(itemId ? "/api/favorites/product" : "/api/favorites/business", {
+      const res = await miniAppFetch(itemId ? "/api/favorites/product" : "/api/favorites/business", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -149,22 +150,24 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
                     <div
                       className="grid h-12 w-12 shrink-0 place-items-center rounded-xl p-1 text-lg font-black text-white"
                       style={{
-                        background: `linear-gradient(135deg, ${fav.business.primaryColor}, ${fav.business.accentColor})`,
+                        background: `linear-gradient(135deg, ${fav.business?.primaryColor || "#64748b"}, ${fav.business?.accentColor || "#94a3b8"})`,
                       }}
                     >
-                      {fav.business.logoUrl ? (
+                      {fav.business?.logoUrl ? (
                         <img
                           src={fav.business.logoUrl}
-                          alt=""
+                          alt={fav.business.name || "Магазин"}
                           className="h-full w-full rounded-lg bg-white/90 object-contain"
                         />
                       ) : (
-                        fav.business.name[0]
+                        fav.business?.name?.[0] || "?"
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h4 className="truncate text-sm font-extrabold text-slate-900">{fav.business.name}</h4>
-                      <p className="text-[10px] font-bold text-slate-400 mt-0.5">📍 {fav.business.address || "Адрес не указан"}</p>
+                      <h4 className="truncate text-sm font-extrabold text-slate-900">{fav.business?.name || "Недоступно"}</h4>
+                      <p className="text-[10px] font-bold text-slate-400 mt-0.5">
+                        {fav.business?.isActive === false ? "Недоступно" : `📍 ${fav.business?.address || "Адрес не указан"}`}
+                      </p>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <button
@@ -173,12 +176,18 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
                       >
                         <Heart size={14} fill="currentColor" />
                       </button>
-                      <Link
-                        href={`/app/${fav.business.slug}`}
-                        className="grid h-8 w-8 place-items-center rounded-xl bg-slate-900 text-white hover:bg-indigo-600 transition"
-                      >
-                        <Eye size={14} />
-                      </Link>
+                      {fav.business?.slug && fav.business?.isActive !== false ? (
+                        <Link
+                          href={`/app/${fav.business.slug}`}
+                          className="grid h-8 w-8 place-items-center rounded-xl bg-slate-900 text-white hover:bg-indigo-600 transition"
+                        >
+                          <Eye size={14} />
+                        </Link>
+                      ) : (
+                        <span className="grid h-8 w-8 place-items-center rounded-xl bg-slate-100 text-slate-400">
+                          <Eye size={14} />
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))
@@ -201,13 +210,19 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
                     key={fav.id}
                     className="flex items-center gap-3.5 rounded-3xl bg-white p-3 shadow-sm ring-1 ring-slate-100"
                   >
-                    <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-slate-50 border text-slate-400 text-xl font-bold">
-                      📦
+                    <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-slate-50 border text-slate-400 text-xl font-bold">
+                      {fav.item?.imageUrl ? (
+                        <img src={fav.item.imageUrl} alt={fav.item.name || "Товар"} className="h-full w-full object-cover" />
+                      ) : "📦"}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h4 className="truncate text-sm font-extrabold text-slate-900">{fav.item.name}</h4>
-                      <p className="text-[10px] font-black text-indigo-600 mt-0.5">{fav.item.price} ₽</p>
-                      <span className="text-[9px] font-semibold text-slate-400">Магазин: {fav.business.name}</span>
+                      <h4 className="truncate text-sm font-extrabold text-slate-900">{fav.item?.name || "Недоступно"}</h4>
+                      {fav.item?.isAvailable === false || fav.business?.isActive === false ? (
+                        <p className="text-[10px] font-black text-rose-600 mt-0.5">Недоступно</p>
+                      ) : (
+                        <p className="text-[10px] font-black text-indigo-600 mt-0.5">{fav.item?.price} ₽</p>
+                      )}
+                      <span className="text-[9px] font-semibold text-slate-400">Магазин: {fav.business?.name || "Недоступно"}</span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <button
@@ -216,12 +231,18 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
                       >
                         <Heart size={14} fill="currentColor" />
                       </button>
-                      <Link
-                        href={`/app/${fav.business.slug}`}
-                        className="grid h-8 w-8 place-items-center rounded-xl bg-slate-900 text-white hover:bg-indigo-600 transition"
-                      >
-                        <Eye size={14} />
-                      </Link>
+                      {fav.business?.slug && fav.item?.isAvailable !== false && fav.business?.isActive !== false ? (
+                        <Link
+                          href={`/app/${fav.business.slug}?item=${encodeURIComponent(fav.itemId)}`}
+                          className="grid h-8 w-8 place-items-center rounded-xl bg-slate-900 text-white hover:bg-indigo-600 transition"
+                        >
+                          <Eye size={14} />
+                        </Link>
+                      ) : (
+                        <span className="grid h-8 w-8 place-items-center rounded-xl bg-slate-100 text-slate-400">
+                          <Eye size={14} />
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))

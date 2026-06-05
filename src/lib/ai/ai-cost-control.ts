@@ -35,13 +35,14 @@ export async function getAiRouting(businessId: string) {
   const limits = planLimits[plan];
   const envProvider = process.env.AI_PROVIDER?.trim().toLowerCase();
   const businessProvider = business.aiProvider?.trim().toLowerCase();
-  const preferredProvider = envProvider || (businessProvider && businessProvider !== "mock" ? businessProvider : limits.provider);
+  const defaultProvider = process.env.NODE_ENV === "production" ? "polza" : limits.provider;
+  const preferredProvider = envProvider || (businessProvider && businessProvider !== "mock" ? businessProvider : defaultProvider);
   const hasOpenRouter = Boolean(process.env.OPENROUTER_API_KEY);
   const hasPolza = Boolean(process.env.POLZA_AI_API_KEY);
 
   const provider = preferredProvider.toLowerCase();
   const providerConfigured =
-    provider === "mock" ||
+    (provider === "mock" && process.env.NODE_ENV !== "production") ||
     (provider === "openrouter" && hasOpenRouter) ||
     (provider === "polza" && hasPolza);
 

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { Sparkles, Copy, Save, Check, RefreshCw, AlertTriangle, Plus, ClipboardList, Send, Star, ShieldAlert } from "lucide-react";
 import { MediaUpload } from "./MediaUpload";
+import { BottomSheetPicker } from "@/components/ui/BottomSheetPicker";
 
 interface AiCenterProps {
   businessId: string;
@@ -96,6 +97,7 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
           feature: targetFeature,
           contentType: targetFeature,
           tone,
+          imageUrl: pcImage || undefined,
         }),
       });
 
@@ -110,18 +112,18 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
       }
 
       if (activeSubTab === "product_card") {
-        const categoryName = String(data.category || "");
+        const categoryName = String(data.categorySuggestion || "");
         const matchedCategory = categories.find((category: any) => category.name?.toLowerCase() === categoryName.toLowerCase());
         const parsed = {
-          name: data.name || pcName,
+          name: data.title || pcName,
           price: parseFloat(pcPrice),
           category: matchedCategory?.id || pcCategory,
           categoryName,
           description: data.description || "",
-          marketingText: data.marketingText || "",
-          imagePrompt: data.imagePrompt || "",
-          telegramPost: data.marketingText || "",
-          shortCopy: data.marketingText ? data.marketingText.slice(0, 80) : "",
+          marketingText: data.shortDescription || "",
+          tags: Array.isArray(data.tags) ? data.tags : [],
+          telegramPost: data.tgPost || "",
+          shortCopy: data.shortDescription || "",
           hallucinationAlert: categoryName && !matchedCategory
             ? `AI предложил категорию "${categoryName}", но такой категории нет. Текущая категория оставлена без изменений.`
             : null,
@@ -361,17 +363,19 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
             <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
               Тон голоса
             </label>
-            <select
+            <BottomSheetPicker
+              title="Выберите тон текста"
               value={tone}
-              onChange={(e) => setTone(e.target.value)}
-              className="w-full text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 p-2.5 outline-none cursor-pointer"
-            >
-              <option value="дружелюбный">😊 Дружелюбный</option>
-              <option value="профессиональный">💼 Профессиональный</option>
-              <option value="убедительный">🔥 Продающий</option>
-              <option value="креативный">⚡ Креативный</option>
-              <option value="краткий">⏱️ Краткий</option>
-            </select>
+              onChange={setTone}
+              buttonClassName="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-bold outline-none"
+              options={[
+                { value: "дружелюбный", label: "Дружелюбный" },
+                { value: "профессиональный", label: "Профессиональный" },
+                { value: "убедительный", label: "Продающий" },
+                { value: "креативный", label: "Креативный" },
+                { value: "краткий", label: "Краткий" },
+              ]}
+            />
           </div>
 
           <div className="flex items-end">
@@ -440,12 +444,14 @@ export function AiCenter({ businessId, businessType, categories, onItemCreated }
                   </pre>
                 </div>
 
-                <div>
-                  <span className="block text-[9px] font-black text-slate-400 uppercase">Промпт для изображения</span>
-                  <p className="text-slate-600 font-medium leading-relaxed bg-white rounded-xl p-3 border border-slate-100">
-                    {generatedResult.imagePrompt}
-                  </p>
-                </div>
+                {generatedResult.tags?.length > 0 && (
+                  <div>
+                    <span className="block text-[9px] font-black text-slate-400 uppercase">Теги</span>
+                    <p className="text-slate-600 font-medium leading-relaxed bg-white rounded-xl p-3 border border-slate-100">
+                      {generatedResult.tags.join(", ")}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Premium Operations */}

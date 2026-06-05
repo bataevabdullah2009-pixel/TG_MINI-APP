@@ -18,6 +18,10 @@ export function normalizeRuPhone(phone: unknown): string | null {
   return /^\+7\d{10}$/.test(normalized) ? normalized : null;
 }
 
+export function isStrictRuPhoneInput(phone: unknown): phone is string {
+  return typeof phone === "string" && /^\+7\d{10}$/.test(phone.trim());
+}
+
 export function phonesEqual(left: unknown, right: unknown) {
   const normalizedLeft = normalizeRuPhone(left);
   const normalizedRight = normalizeRuPhone(right);

@@ -2,6 +2,7 @@
 
 import type { FormEvent, ReactNode } from "react";
 import { ArrowLeft, Banknote, CheckCircle2, CreditCard, MapPin, MessageSquare, PackageCheck, Phone, ShoppingBag, Store, Truck, Upload, User } from "lucide-react";
+import { BottomSheetPicker } from "@/components/ui/BottomSheetPicker";
 
 type CheckoutItem = {
   item: {
@@ -54,6 +55,7 @@ type Props = {
   paymentMethod: "CASH" | "TRANSFER";
   setPaymentMethod: (value: "CASH" | "TRANSFER") => void;
   paymentProofUrl: string;
+  paymentProofFileName: string;
   paymentProofUploading: boolean;
   onPaymentProofUpload: (file: File) => void;
   checkoutError: string;
@@ -74,6 +76,7 @@ export function FullScreenCheckout({
   paymentMethod,
   setPaymentMethod,
   paymentProofUrl,
+  paymentProofFileName,
   paymentProofUploading,
   onPaymentProofUpload,
   checkoutError,
@@ -92,6 +95,14 @@ export function FullScreenCheckout({
   const orderTotal = cartTotal + deliveryFee;
   const pickupEnabled = business.settings?.pickupEnabled !== false;
   const deliveryEnabled = business.settings?.deliveryEnabled === true && zones.length > 0;
+  const canSubmit =
+    cart.length > 0 &&
+    form.firstName.trim().length > 1 &&
+    /^\+7\d{10}$/.test(form.phone.trim()) &&
+    !needsPhoneVerification &&
+    (pickupEnabled || deliveryEnabled) &&
+    (form.deliveryType !== "DELIVERY" || (Boolean(form.deliveryZoneId) && form.address.trim().length >= 5)) &&
+    (paymentMethod !== "TRANSFER" || (Boolean(paymentProofUrl) && !paymentProofUploading));
 
   return (
     <div className="fixed inset-0 z-50 bg-white text-slate-950">
@@ -239,10 +250,10 @@ export function FullScreenCheckout({
                   </p>
                   <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-emerald-700 px-3 py-3 text-xs font-black text-white active:scale-[0.98]">
                     <Upload size={16} />
-                    {paymentProofUploading ? "Загружаем PDF-чек..." : paymentProofUrl ? "PDF-чек загружен" : "Загрузить PDF-чек перевода"}
+                    {paymentProofUploading ? "Загружаем чек..." : paymentProofUrl ? `Чек загружен: ${paymentProofFileName || "готово"}` : "Загрузить чек перевода"}
                     <input
                       type="file"
-                      accept="application/pdf,.pdf"
+                      accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
                       className="hidden"
                       disabled={paymentProofUploading}
                       onChange={(event) => {
@@ -267,15 +278,24 @@ export function FullScreenCheckout({
                 </Field>
               </div>
               <Field icon={<Phone size={17} />} label="Телефон">
-                <input required value={form.phone} onChange={(event) => updateForm({ phone: event.target.value })} placeholder="+7 (999) 999-99-99" className="checkout-field" />
+                <input required value={form.phone} onChange={(event) => updateForm({ phone: event.target.value })} placeholder="+79991234567" className="checkout-field" />
               </Field>
               {form.deliveryType === "DELIVERY" && (
                 <>
                   <Field icon={<MapPin size={17} />} label="Город / район доставки">
-                    <select required value={form.deliveryZoneId} onChange={(event) => updateForm({ deliveryZoneId: event.target.value })} className="checkout-field">
-                      <option value="">Выберите зону</option>
-                      {zones.map((zone) => <option key={zone.id} value={zone.id}>{zone.name} — {formatPrice(zone.fee)}</option>)}
-                    </select>
+                    <BottomSheetPicker
+                      title="Выберите зону доставки"
+                      value={form.deliveryZoneId}
+                      onChange={(deliveryZoneId) => updateForm({ deliveryZoneId })}
+                      placeholder="Выберите зону"
+                      buttonClassName="checkout-field"
+                      options={zones.map((zone) => ({
+                        value: zone.id,
+                        label: zone.name,
+                        description: `Доставка ${formatPrice(zone.fee)}`,
+                        icon: <MapPin size={18} />,
+                      }))}
+                    />
                   </Field>
                   <Field icon={<MapPin size={17} />} label="Адрес доставки">
                     <input required value={form.address} onChange={(event) => updateForm({ address: event.target.value })} className="checkout-field" />
@@ -289,7 +309,14 @@ export function FullScreenCheckout({
 
             {needsPhoneVerification && (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
-                Подтвердите номер телефона, чтобы оформить заказ.
+                <p>Подтвердите номер телефона, чтобы оформить заказ.</p>
+                <button
+                  type="button"
+                  onClick={onVerifyPhone}
+                  className="mt-3 rounded-xl bg-amber-600 px-3 py-2 text-xs font-black text-white"
+                >
+                  Подтвердить телефон
+                </button>
               </div>
             )}
 
@@ -314,7 +341,7 @@ export function FullScreenCheckout({
           <div className="mx-auto max-w-3xl">
             <button
               type="submit"
-              disabled={cart.length === 0 || (!pickupEnabled && !deliveryEnabled) || (form.deliveryType === "DELIVERY" && !form.deliveryZoneId) || (paymentMethod === "TRANSFER" && (!paymentProofUrl || paymentProofUploading))}
+              disabled={!canSubmit}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-4 text-sm font-black text-white shadow-xl shadow-slate-900/15 disabled:opacity-50"
             >
               <CheckCircle2 size={18} />

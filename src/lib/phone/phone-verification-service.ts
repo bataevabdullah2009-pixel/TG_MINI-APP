@@ -1,7 +1,7 @@
 import * as crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { trySyncUserPhone } from "@/lib/auth/telegram-user-service";
-import { normalizeRuPhone } from "@/lib/phone/phone-utils";
+import { isStrictRuPhoneInput, normalizeRuPhone } from "@/lib/phone/phone-utils";
 
 function codeHash(code: string) {
   return crypto.createHash("sha256").update(code).digest("hex");
@@ -75,6 +75,9 @@ export class PhoneVerificationService {
     provider: "telegram_contact" | "manual" | "mock_sms" | "sms"
   ): Promise<{ success: boolean; verificationId?: string; error?: string; code?: string }> {
     try {
+      if (provider !== "telegram_contact" && !isStrictRuPhoneInput(phone)) {
+        return { success: false, code: "INVALID_PHONE", error: "Введите номер в формате +7XXXXXXXXXX." };
+      }
       const normalizedPhone = normalizeRuPhone(phone);
       if (!normalizedPhone) {
         return { success: false, code: "INVALID_PHONE", error: "Введите корректный номер телефона." };
@@ -129,6 +132,9 @@ export class PhoneVerificationService {
     code: string
   ): Promise<{ success: boolean; error?: string; phone?: string }> {
     try {
+      if (!isStrictRuPhoneInput(phone)) {
+        return { success: false, error: "Введите номер в формате +7XXXXXXXXXX." };
+      }
       const normalizedPhone = normalizeRuPhone(phone);
       if (!normalizedPhone) {
         return { success: false, error: "Введите корректный номер телефона." };

@@ -5,8 +5,9 @@ import { getAdminSession } from "@/lib/admin-auth";
 import { NotificationService } from "@/lib/notifications/notification-service";
 import { ensureTelegramUser } from "@/lib/auth/telegram-user-service";
 import { analyzePaymentProof } from "@/lib/ai/payment-proof-analyzer";
+import { getTelegramSessionUser, parseTelegramInitData } from "@/lib/auth-telegram";
 import { classifyDatabaseError, isBusinessIsDemoMissingColumnError, isPrismaMissingColumnError, warnPrismaSchemaDrift, toJsonSafe } from "@/lib/prisma-schema-guard";
-import { normalizeRuPhone, validateCustomerName } from "@/lib/phone/phone-utils";
+import { isStrictRuPhoneInput, normalizeRuPhone, validateCustomerName } from "@/lib/phone/phone-utils";
 
 const ORDER_ERROR = "Не удалось оформить заказ. Проверьте данные и попробуйте снова.";
 const PHONE_VERIFICATION_ERROR = "Для оформления заказа подтвердите номер телефона.";
@@ -126,6 +127,7 @@ async function recordOrderAttempt(input: {
   businessId?: string;
   telegramUserId: bigint;
   phone?: string | null;
+  ipAddress?: string | null;
   success: boolean;
   reason?: string;
 }) {
@@ -135,6 +137,7 @@ async function recordOrderAttempt(input: {
         businessId: input.businessId,
         telegramUserId: input.telegramUserId,
         phone: input.phone || null,
+        ipAddress: input.ipAddress || null,
         success: input.success,
         reason: input.reason || null,
       },
@@ -148,40 +151,39 @@ async function enforceOrderRateLimit(input: {
   businessId: string;
   telegramUserId: bigint;
   phone: string;
+  ipAddress?: string | null;
 }) {
   try {
-    const now = Date.now();
-    const tenMinutesAgo = new Date(now - 10 * 60 * 1000);
-    const hourAgo = new Date(now - 60 * 60 * 1000);
-
-    const [checkoutAttempts, recentTelegramOrders, recentPhoneOrders] = await Promise.all([
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const [telegramAttempts, phoneAttempts, ipAttempts] = await Promise.all([
       prisma.orderAttempt.count({
         where: {
           telegramUserId: input.telegramUserId,
-          createdAt: { gte: tenMinutesAgo },
-        },
-      }),
-      prisma.orderAttempt.count({
-        where: {
-          telegramUserId: input.telegramUserId,
-          success: true,
           createdAt: { gte: tenMinutesAgo },
         },
       }),
       prisma.orderAttempt.count({
         where: {
           phone: input.phone,
-          success: true,
-          createdAt: { gte: hourAgo },
+          createdAt: { gte: tenMinutesAgo },
         },
       }),
+      input.ipAddress
+        ? prisma.orderAttempt.count({
+            where: {
+              ipAddress: input.ipAddress,
+              createdAt: { gte: tenMinutesAgo },
+            },
+          })
+        : Promise.resolve(0),
     ]);
 
-    if (checkoutAttempts >= 10 || recentTelegramOrders >= 3 || recentPhoneOrders >= 5) {
+    if (telegramAttempts >= 5 || phoneAttempts >= 5 || ipAttempts >= 5) {
       await recordOrderAttempt({
         businessId: input.businessId,
         telegramUserId: input.telegramUserId,
         phone: input.phone,
+        ipAddress: input.ipAddress,
         success: false,
         reason: "RATE_LIMITED",
       });
@@ -194,10 +196,28 @@ async function enforceOrderRateLimit(input: {
   return null;
 }
 
+function getClientIp(request: NextRequest) {
+  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip")?.trim() || null;
+}
+
+function isAllowedPaymentProofUrl(value: string) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/+$/, "");
+  if (!supabaseUrl) return true;
+  const bucket = process.env.SUPABASE_STORAGE_PAYMENT_PROOFS_BUCKET || "payment-proofs";
+  return value.startsWith(`${supabaseUrl}/storage/v1/object/public/${bucket}/`);
+}
+
 export async function POST(request: NextRequest) {
   let telegramId: bigint | null = null;
+  let telegramAuthenticated = false;
+  let authenticatedUsername: string | null = null;
   let normalizedPhone: string | null = null;
   let resolvedBusinessId: string | undefined;
+  const requestIpAddress = getClientIp(request);
+  const recordAttempt = (input: Omit<Parameters<typeof recordOrderAttempt>[0], "ipAddress">) =>
+    telegramAuthenticated
+      ? recordOrderAttempt({ ...input, ipAddress: requestIpAddress })
+      : Promise.resolve();
 
   try {
     const body = await request.json();
@@ -212,9 +232,10 @@ export async function POST(request: NextRequest) {
       deliveryZoneId,
       comment,
       telegramUserId,
-      username,
       paymentMethod,
       paymentProofUrl,
+      paymentProofFileName,
+      paymentProofMimeType,
     } = body;
 
     const businessValue = businessId || businessSlug;
@@ -232,27 +253,41 @@ export async function POST(request: NextRequest) {
       return orderError("INVALID_TELEGRAM_USER", "Не удалось определить Telegram-пользователя.");
     }
 
+    const initData = request.headers.get("x-telegram-init-data") || "";
+    const initUser = parseTelegramInitData(initData);
+    try {
+      if (!initUser || BigInt(initUser.id) !== telegramId) {
+        return orderError("TELEGRAM_AUTH_INVALID", "Нужна авторизация через Telegram Mini App.", 401);
+      }
+    } catch {
+      return orderError("TELEGRAM_AUTH_INVALID", "Нужна авторизация через Telegram Mini App.", 401);
+    }
+
     if (!Array.isArray(items) || items.length === 0) {
-      await recordOrderAttempt({ telegramUserId: telegramId, success: false, reason: "EMPTY_CART" });
+      await recordAttempt({ telegramUserId: telegramId, success: false, reason: "EMPTY_CART" });
       return orderError("EMPTY_CART", "Корзина пустая. Добавьте товары перед оформлением заказа.");
     }
 
     const cleanCustomerName = validateCustomerName(customerName);
     if (!cleanCustomerName) {
-      await recordOrderAttempt({ telegramUserId: telegramId, success: false, reason: "INVALID_NAME" });
+      await recordAttempt({ telegramUserId: telegramId, success: false, reason: "INVALID_NAME" });
       return orderError("INVALID_NAME", "Введите настоящее имя без цифр и символов.");
     }
 
+    if (!isStrictRuPhoneInput(customerPhone)) {
+      await recordAttempt({ telegramUserId: telegramId, success: false, reason: "INVALID_PHONE" });
+      return orderError("INVALID_PHONE", "Введите номер в формате +7XXXXXXXXXX.");
+    }
     normalizedPhone = normalizeRuPhone(customerPhone);
     if (!normalizedPhone) {
-      await recordOrderAttempt({ telegramUserId: telegramId, success: false, reason: "INVALID_PHONE" });
+      await recordAttempt({ telegramUserId: telegramId, success: false, reason: "INVALID_PHONE" });
       return orderError("INVALID_PHONE", "Введите корректный номер телефона.");
     }
 
     const normalizedDeliveryType: "DELIVERY" | "PICKUP" = deliveryType === "DELIVERY" ? "DELIVERY" : "PICKUP";
     const cleanAddress = cleanString(customerAddress);
     if (normalizedDeliveryType === "DELIVERY" && cleanAddress.length < 5) {
-      await recordOrderAttempt({ telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "ADDRESS_REQUIRED" });
+      await recordAttempt({ telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "ADDRESS_REQUIRED" });
       return orderError("ADDRESS_REQUIRED", "Укажите адрес доставки.");
     }
 
@@ -291,13 +326,20 @@ export async function POST(request: NextRequest) {
     }
 
     if (!business || !business.isActive) {
-      await recordOrderAttempt({ telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "BUSINESS_NOT_FOUND" });
+      await recordAttempt({ telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "BUSINESS_NOT_FOUND" });
       return orderError("BUSINESS_NOT_FOUND", "Бизнес не найден или временно недоступен.", 404);
     }
     resolvedBusinessId = business.id;
 
+    const telegramSession = await getTelegramSessionUser(initData, business.id);
+    if (!telegramSession || BigInt(telegramSession.telegramUserId) !== telegramId) {
+      return orderError("TELEGRAM_AUTH_INVALID", "Нужна авторизация через Telegram Mini App.", 401);
+    }
+    telegramAuthenticated = true;
+    authenticatedUsername = telegramSession.username;
+
     if (business.subscriptionStatus === "BLOCKED" || business.subscriptionStatus === "EXPIRED") {
-      await recordOrderAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "BUSINESS_BLOCKED" });
+      await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "BUSINESS_BLOCKED" });
       return orderError("BUSINESS_BLOCKED", "Заказы временно недоступны. Свяжитесь с продавцом.", 403);
     }
 
@@ -347,6 +389,9 @@ export async function POST(request: NextRequest) {
       if (!cleanString(paymentProofUrl)) {
         return orderError("PAYMENT_PROOF_REQUIRED", "Загрузите чек перевода.");
       }
+      if (!isAllowedPaymentProofUrl(cleanString(paymentProofUrl))) {
+        return orderError("PAYMENT_PROOF_INVALID_URL", "Загрузите чек через форму оформления заказа.");
+      }
     }
 
     let totalPrice = 0;
@@ -355,7 +400,7 @@ export async function POST(request: NextRequest) {
     for (const item of items) {
       const quantity = toPositiveInt(item.quantity);
       if (!item.itemId || quantity <= 0) {
-        await recordOrderAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "INVALID_ITEM" });
+        await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "INVALID_ITEM" });
         return orderError("INVALID_ITEM", "В корзине есть некорректная позиция.");
       }
 
@@ -364,7 +409,7 @@ export async function POST(request: NextRequest) {
         select: { id: true, businessId: true, name: true, price: true, isAvailable: true },
       });
       if (!dbItem || dbItem.businessId !== business.id || !dbItem.isAvailable) {
-        await recordOrderAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "ITEM_UNAVAILABLE" });
+        await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "ITEM_UNAVAILABLE" });
         return orderError("ITEM_UNAVAILABLE", "Одна из позиций больше недоступна. Обновите корзину.");
       }
 
@@ -379,7 +424,7 @@ export async function POST(request: NextRequest) {
 
     const user = await ensureTelegramUser({
       telegramId,
-      username: username || null,
+      username: authenticatedUsername,
       firstName: cleanCustomerName,
     });
 
@@ -392,7 +437,7 @@ export async function POST(request: NextRequest) {
     const customerUpdate = {
       userId: user.id,
       name: cleanCustomerName,
-      username,
+      username: authenticatedUsername,
       address: cleanAddress || undefined,
     };
     const customerCreate = {
@@ -401,7 +446,7 @@ export async function POST(request: NextRequest) {
       telegramUserId: telegramId,
       name: cleanCustomerName,
       phone: normalizedPhone,
-      username,
+      username: authenticatedUsername,
       address: cleanAddress || undefined,
     };
     let customer: CheckoutCustomer;
@@ -474,18 +519,18 @@ export async function POST(request: NextRequest) {
     });
 
     if (customer.isBlocked) {
-      await recordOrderAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "CUSTOMER_BLOCKED" });
+      await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "CUSTOMER_BLOCKED" });
       return orderError("CUSTOMER_BLOCKED", "Ваш аккаунт временно ограничен.", 403);
     }
 
     const verifiedCustomerPhone = customer.phoneVerified ? normalizeRuPhone(customer.phone) : null;
     if (!verifiedCustomerPhone) {
-      await recordOrderAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "PHONE_NOT_VERIFIED" });
+      await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "PHONE_NOT_VERIFIED" });
       return orderError("PHONE_NOT_VERIFIED", PHONE_VERIFICATION_ERROR, 403);
     }
 
     if (normalizedPhone !== verifiedCustomerPhone) {
-      await recordOrderAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "PHONE_MISMATCH" });
+      await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "PHONE_MISMATCH" });
       return orderError("PHONE_MISMATCH", PHONE_MISMATCH_ERROR, 403);
     }
 
@@ -493,6 +538,7 @@ export async function POST(request: NextRequest) {
       businessId: business.id,
       telegramUserId: telegramId,
       phone: verifiedCustomerPhone,
+      ipAddress: requestIpAddress,
     });
     if (rateLimited) return rateLimited;
 
@@ -521,7 +567,7 @@ export async function POST(request: NextRequest) {
       ...legacyBaseOrderData,
       itemsSubtotal,
       deliveryFee: calculatedDeliveryFee,
-      deliveryStatus: "NONE" as const,
+      deliveryStatus: normalizedDeliveryType === "DELIVERY" ? "NEW" as const : "NONE" as const,
       deliveryZoneId: deliveryZone?.id || null,
       deliveryZoneName: deliveryZone?.name || null,
       deliveryCityArea: deliveryZone?.cityArea || null,
@@ -535,7 +581,11 @@ export async function POST(request: NextRequest) {
           paymentMethod: requestedPaymentMethod,
           paymentStatus: requestedPaymentMethod === "TRANSFER" ? "AWAITING_REVIEW" : "PENDING",
           paymentProofUrl: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofUrl) : null,
-          paymentProofAiStatus: requestedPaymentMethod === "TRANSFER" && !/\.pdf(?:$|\?)/i.test(cleanString(paymentProofUrl)) ? "PENDING" : null,
+          paymentProofFileName: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofFileName) || null : null,
+          paymentProofMimeType: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofMimeType) || null : null,
+          paymentProofAiStatus: requestedPaymentMethod === "TRANSFER"
+            ? cleanString(paymentProofMimeType).startsWith("image/") ? "PENDING" : "MANUAL_REVIEW"
+            : null,
         },
         include: checkoutOrderInclude,
       });
@@ -565,6 +615,8 @@ export async function POST(request: NextRequest) {
       paymentMethod: "paymentMethod" in orderResult ? orderResult.paymentMethod : "CASH",
       paymentStatus: "paymentStatus" in orderResult ? orderResult.paymentStatus : "PENDING",
       paymentProofUrl: "paymentProofUrl" in orderResult ? orderResult.paymentProofUrl : null,
+      paymentProofFileName: "paymentProofFileName" in orderResult ? orderResult.paymentProofFileName : null,
+      paymentProofMimeType: "paymentProofMimeType" in orderResult ? orderResult.paymentProofMimeType : null,
       paymentProofAiStatus: "paymentProofAiStatus" in orderResult ? orderResult.paymentProofAiStatus : null,
       paymentProofAiSummary: "paymentProofAiSummary" in orderResult ? orderResult.paymentProofAiSummary : null,
       paymentProofAiConfidence: "paymentProofAiConfidence" in orderResult ? orderResult.paymentProofAiConfidence : null,
@@ -581,7 +633,7 @@ export async function POST(request: NextRequest) {
       deliveryCityArea: "deliveryCityArea" in orderResult ? orderResult.deliveryCityArea : null,
     };
 
-    await recordOrderAttempt({
+    await recordAttempt({
       businessId: business.id,
       telegramUserId: telegramId,
       phone: verifiedCustomerPhone,
@@ -601,7 +653,7 @@ export async function POST(request: NextRequest) {
       warnPrismaSchemaDrift("Order created, but customer counters could not be updated", error);
     }
 
-    if (requestedPaymentMethod === "TRANSFER" && order.paymentProofUrl && !/\.pdf(?:$|\?)/i.test(order.paymentProofUrl)) {
+    if (requestedPaymentMethod === "TRANSFER" && order.paymentProofUrl && order.paymentProofMimeType?.startsWith("image/")) {
       analyzePaymentProof({
         imageUrl: order.paymentProofUrl,
         orderTotal: order.totalPrice,
@@ -639,7 +691,7 @@ export async function POST(request: NextRequest) {
       warnPrismaSchemaDrift("Order creation failed because production schema is behind", error);
     }
     if (telegramId) {
-      await recordOrderAttempt({
+      await recordAttempt({
         businessId: resolvedBusinessId,
         telegramUserId: telegramId,
         phone: normalizedPhone,

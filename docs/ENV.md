@@ -39,6 +39,11 @@ Run `npm run env:diagnose` before deploy. It reports missing variables and unsaf
 - Example format: `https://your-vercel-domain.vercel.app/api/telegram/webhook`.
 - Source: `NEXT_PUBLIC_APP_URL + /api/telegram/webhook`.
 
+`TELEGRAM_WEBHOOK_SECRET`
+- Required in production. Random server-only value used by Telegram's `secret_token` webhook protection.
+- Allowed characters: `A-Z`, `a-z`, `0-9`, `_`, `-`; maximum 256 characters.
+- After setting or rotating it, run `npm run telegram:webhook:set` and reconnect each business bot webhook.
+
 `JWT_SECRET`
 - Long random server-only secret for auth tokens.
 - Source: password manager or generated random string.
@@ -89,11 +94,12 @@ Run `npm run env:diagnose` before deploy. It reports missing variables and unsaf
 - Source: Telegram chat id after bot interaction.
 
 `VALIDATE_TELEGRAM_DATA`
-- Set to `true` in production when Telegram initData signature validation is required.
+- Production always validates Telegram initData signatures.
+- Set to `true` to enforce the same validation in preview and local environments.
 
 `AI_PROVIDER`
 - `mock`, `openrouter` or `polza`.
-- Use `polza` for real Polza AI generation. Use `mock` only for explicit local/mock mode.
+- Production requires `polza` for real Polza AI generation. Use `mock` only for explicit local/mock mode.
 
 `NEXT_PUBLIC_ENABLE_ADVANCED_AI`
 - Public feature flag for extra AI tabs.
@@ -116,7 +122,7 @@ Run `npm run env:diagnose` before deploy. It reports missing variables and unsaf
 - Optional app name for OpenRouter requests.
 
 `POLZA_AI_API_KEY`
-- Required only when `AI_PROVIDER=polza`.
+- Required in production when `AI_PROVIDER=polza`.
 - Source: Polza AI dashboard.
 
 `POLZA_BASE_URL`
@@ -163,6 +169,11 @@ Run `npm run env:diagnose` before deploy. It reports missing variables and unsaf
 `SUPABASE_STORAGE_BUSINESS_COVERS_BUCKET`
 - Legacy optional variable. Current upload routes use `SUPABASE_STORAGE_BUSINESS_MEDIA_BUCKET` for covers too.
 
+`SUPABASE_STORAGE_PAYMENT_PROOFS_BUCKET`
+- Bucket for JPG, JPEG, PNG, WEBP and PDF transfer receipts.
+- Default: `payment-proofs`.
+- Create it by applying the entire `docs/production-stability.sql` file in Supabase SQL Editor.
+
 ## Upload storage
 
 Current upload routes use Supabase Storage server-side:
@@ -172,7 +183,8 @@ Current upload routes use Supabase Storage server-side:
 - `/api/admin/media/upload`
 
 Required variables for uploads are `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and server-only `SUPABASE_SERVICE_ROLE_KEY`.
-The active bucket is `SUPABASE_STORAGE_BUSINESS_MEDIA_BUCKET`, defaulting to public bucket `business-media`.
+Business media uses `SUPABASE_STORAGE_BUSINESS_MEDIA_BUCKET`, defaulting to public bucket `business-media`.
+Transfer receipts use `SUPABASE_STORAGE_PAYMENT_PROOFS_BUCKET`, defaulting to public bucket `payment-proofs`.
 
 `BLOB_READ_WRITE_TOKEN` is not required for the current upload implementation.
 
@@ -219,7 +231,7 @@ POLZA_VISION_MODEL="google/gemini-3.1-flash-image-preview"
 AI_MAX_OUTPUT_TOKENS="1200"
 AI_TEMPERATURE="0.3"
 SMS_PROVIDER="mock"
-PHONE_TEST_CODE_ENABLED="true"
+PHONE_TEST_CODE_ENABLED="false"
 ```
 
 ## Production URL rules

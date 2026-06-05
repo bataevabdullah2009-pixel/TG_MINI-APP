@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { X, Phone, Lock, CheckCircle, ShieldAlert } from "lucide-react";
+import { miniAppFetch } from "@/lib/miniAppFetch";
 
 interface PhoneVerificationScreenProps {
   businessId: string;
@@ -64,14 +65,16 @@ export function PhoneVerificationScreen({
     }
 
     try {
-      tg.requestContact((shared: any) => {
-        if (shared && shared.response) {
-          // Success, we got contact
-          verifyTelegramContact(shared.response);
+      tg.requestContact((sent: boolean) => {
+        if (sent) {
+          void waitForTelegramContactVerification();
         } else {
-          // Fallback or user declined
-          setError("Контакт не предоставлен. Введите телефон вручную.");
-          setStep("MANUAL_INPUT");
+          setError(
+            verificationConfig.canRequestCode
+              ? "Контакт не предоставлен. Введите телефон вручную."
+              : verificationConfig.message || "Подтвердите номер через Telegram contact в боте."
+          );
+          if (verificationConfig.canRequestCode) setStep("MANUAL_INPUT");
         }
       });
     } catch (e) {
@@ -81,33 +84,31 @@ export function PhoneVerificationScreen({
     }
   };
 
-  const verifyTelegramContact = async (contactPayload: any) => {
-    if (!verificationConfig.canRequestCode) {
-      setError(verificationConfig.message || "Подтвердите номер через Telegram contact в боте.");
-      return;
-    }
-
+  const waitForTelegramContactVerification = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/auth/phone/verify-contact", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone: contactPayload.phone_number || contactPayload.phone || "",
-          initData: (window as any).Telegram?.WebApp?.initData || "",
-          businessId,
-        }),
-      });
+      for (let attempt = 0; attempt < 15; attempt += 1) {
+        const res = await miniAppFetch("/api/auth/phone/verify-contact", {
+          method: "POST",
+          body: JSON.stringify({ businessId }),
+        });
+        const data = await res.json().catch(() => ({}));
 
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Не удалось сохранить контакт");
+        if (res.ok && data.ok && data.phone) {
+          onVerified(data.phone);
+          return;
+        }
+        if (res.status !== 202 && !data.pending) {
+          throw new Error(data.error || "Не удалось проверить Telegram contact");
+        }
+
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
       }
 
-      onVerified(data.phone || contactPayload.phone_number || contactPayload.phone);
+      throw new Error("Контакт отправлен, но подтверждение ещё не получено. Нажмите кнопку ещё раз через несколько секунд.");
     } catch (e: any) {
-      setError(e.message || "Ошибка верификации контакта");
+      setError(e.message || "Ошибка проверки Telegram contact");
     } finally {
       setLoading(false);
     }
@@ -115,8 +116,8 @@ export function PhoneVerificationScreen({
 
   const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!phone || phone.length < 10) {
-      setError("Введите корректный номер телефона");
+    if (!/^\+7\d{10}$/.test(phone.trim())) {
+      setError("Введите номер в формате +7XXXXXXXXXX");
       return;
     }
 
@@ -270,7 +271,7 @@ export function PhoneVerificationScreen({
                 <input
                   type="tel"
                   required
-                  placeholder="+7 (999) 123-45-67"
+                  placeholder="+79991234567"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3.5 pl-11 pr-4 text-sm font-bold text-slate-900 outline-none focus:border-blue-500 focus:bg-white transition-all"

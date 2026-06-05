@@ -83,7 +83,7 @@ const chat = await callPolza(
 );
 
 const productRaw = await callPolza(
-  "Верни только строгий JSON без markdown: {\"name\":\"string\",\"description\":\"string\",\"category\":\"string\",\"marketingText\":\"string\",\"imagePrompt\":\"string\"}. Все поля обязательны.",
+  "Верни только строгий JSON без markdown: {\"title\":\"string\",\"shortDescription\":\"string\",\"description\":\"string\",\"categorySuggestion\":\"string\",\"tags\":[\"string\"],\"tgPost\":\"string\"}. Все поля обязательны.",
   "Создай карточку товара: шоколадный торт ручной работы, вес 1 кг.",
   900,
   { type: "json_object" }
@@ -94,7 +94,7 @@ try {
   product = repairParse(productRaw);
 } catch {
   const repairedRaw = await callPolza(
-    "Преобразуй исходный ответ в строгий JSON. Верни только JSON без markdown: {\"name\":\"string\",\"description\":\"string\",\"category\":\"string\",\"marketingText\":\"string\",\"imagePrompt\":\"string\"}. Все поля обязательны.",
+    "Преобразуй исходный ответ в строгий JSON. Верни только JSON без markdown: {\"title\":\"string\",\"shortDescription\":\"string\",\"description\":\"string\",\"categorySuggestion\":\"string\",\"tags\":[\"string\"],\"tgPost\":\"string\"}. Все поля обязательны.",
     `Исходный ответ:\n${productRaw}`,
     900,
     { type: "json_object" }
@@ -102,11 +102,14 @@ try {
   product = repairParse(repairedRaw);
   repaired = true;
 }
-const requiredFields = ["name", "description", "category", "marketingText", "imagePrompt"];
+const requiredFields = ["title", "shortDescription", "description", "categorySuggestion", "tgPost"];
 for (const field of requiredFields) {
   if (typeof product[field] !== "string" || !product[field].trim()) {
     throw new Error(`Polza product card is missing required field: ${field}`);
   }
+}
+if (!Array.isArray(product.tags) || product.tags.some((tag) => typeof tag !== "string")) {
+  throw new Error("Polza product card is missing string tags array");
 }
 
 console.log(JSON.stringify({
@@ -115,6 +118,6 @@ console.log(JSON.stringify({
   model,
   endpointHost: new URL(endpoint).host,
   chatChars: chat.length,
-  productCardFields: requiredFields,
+  productCardFields: [...requiredFields, "tags"],
   repaired,
 }, null, 2));

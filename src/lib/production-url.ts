@@ -38,6 +38,12 @@ function assertProductionUrl(label: string, value: string) {
     );
   }
 
+  if (process.env.NODE_ENV === "production" && process.env.VERCEL_ENV === "preview") {
+    throw new Error(
+      `[URL CONFIG] ${label} cannot use a Vercel Preview deployment for production Telegram routing.`
+    );
+  }
+
   if (process.env.NODE_ENV === "production" && isBlockedProductionUrl(parsed)) {
     throw new Error(
       `[URL CONFIG] ${label} points to "${value}". Production Telegram URLs must use a deployed HTTPS domain, not ngrok, localhost, or 127.0.0.1.`

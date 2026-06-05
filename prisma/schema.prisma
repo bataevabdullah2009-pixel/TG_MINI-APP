@@ -68,8 +68,10 @@ enum DeliveryType {
 
 enum DeliveryStatus {
   NONE
+  NEW
   WAITING_COURIER
   ASSIGNED
+  ACCEPTED_BY_COURIER
   PICKED_UP
   DELIVERED
   CANCELLED
@@ -98,6 +100,7 @@ enum PaymentStatus {
   PENDING
   AWAITING_REVIEW
   PAID
+  PAYMENT_REJECTED
   REJECTED
   FAILED
   REFUNDED
@@ -197,7 +200,7 @@ model Business {
   modulesEnabled String @default("catalog,cart,profile")
 
   // AI Settings
-  aiProvider     String? @default("mock")
+  aiProvider     String? @default("polza")
   aiModel        String?
   aiEnabled      Boolean @default(true)
   aiDailyLimit   Int?    @default(10)
@@ -580,6 +583,8 @@ model Order {
   paymentMethod            PaymentProvider @default(CASH)
   paymentStatus            PaymentStatus   @default(PENDING)
   paymentProofUrl          String?
+  paymentProofFileName     String?
+  paymentProofMimeType     String?
   paymentProofAiStatus     String?
   paymentProofAiSummary    String?
   paymentProofAiConfidence Int?
@@ -634,6 +639,7 @@ model OrderAttempt {
   business       Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
   telegramUserId BigInt
   phone          String?
+  ipAddress      String?
   success        Boolean   @default(false)
   reason         String?
   createdAt      DateTime  @default(now())
@@ -641,6 +647,7 @@ model OrderAttempt {
   @@index([businessId])
   @@index([telegramUserId, createdAt])
   @@index([phone, createdAt])
+  @@index([ipAddress, createdAt])
   @@index([success, createdAt])
 }
 

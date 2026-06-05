@@ -22,6 +22,12 @@ class ApiClient {
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
+      const initData = typeof window !== "undefined"
+        ? (window as any).Telegram?.WebApp?.initData || sessionStorage.getItem("tgInitData") || ""
+        : "";
+      if (initData && !config.headers["x-telegram-init-data"]) {
+        config.headers["x-telegram-init-data"] = initData;
+      }
       return config;
     });
 

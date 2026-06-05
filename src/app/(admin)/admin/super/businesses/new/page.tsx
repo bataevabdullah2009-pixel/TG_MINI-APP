@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { BottomSheetPicker } from "@/components/ui/BottomSheetPicker";
 
 export default function OnboardWizard() {
   const router = useRouter();
@@ -204,18 +205,20 @@ export default function OnboardWizard() {
                 
                 <div className="mt-4">
                   <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Отраслевой шаблон (Mini App UI)</label>
-                  <select
+                  <BottomSheetPicker
+                    title="Выберите тип бизнеса"
                     value={type}
-                    onChange={(e) => setType(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl bg-slate-950/80 border border-slate-850 text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all duration-300"
-                  >
-                    <option value="CAFE">🍔 Кафе и Фастфуд (Витрина + Корзина + Доставка)</option>
-                    <option value="BARBERSHOP">💈 Барбершоп и Салон (Услуги + Календарь онлайн-записи)</option>
-                    <option value="SHOP">🛍️ Локальный Магазин одежды/техники (Каталог + Корзина + Склад)</option>
-                    <option value="GROCERY">🍏 Продовольственный маркет (Весовой инкремент + Корзина)</option>
-                    <option value="HARDWARE_STORE">🔧 Хозмаг и Строительный (Поиск + ИИ-консультант)</option>
-                    <option value="CARWASH">🚗 Автомойка и Сервис (Услуги + Выбор боксов + Автозапись)</option>
-                  </select>
+                    onChange={setType}
+                    buttonClassName="rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-xs text-white"
+                    options={[
+                      { value: "CAFE", label: "Кафе и фастфуд", description: "Витрина, корзина и доставка" },
+                      { value: "BARBERSHOP", label: "Барбершоп и салон", description: "Услуги и календарь записи" },
+                      { value: "SHOP", label: "Локальный магазин", description: "Каталог, корзина и склад" },
+                      { value: "GROCERY", label: "Продовольственный маркет", description: "Каталог и корзина" },
+                      { value: "HARDWARE_STORE", label: "Хозмаг и строительный", description: "Поиск и AI-консультант" },
+                      { value: "CARWASH", label: "Автомойка и сервис", description: "Услуги и онлайн-запись" },
+                    ]}
+                  />
                 </div>
               </div>
 

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { getTelegramWebhookUrl } from "@/lib/production-url";
 import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { buildTelegramSetWebhookUrl } from "@/lib/telegram-webhook-config";
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,9 +32,7 @@ export async function POST(request: NextRequest) {
     
     console.log(`Setting Telegram webhook for business ${business.name} to URL: ${webhookUrl}`);
     
-    const response = await fetch(
-      `https://api.telegram.org/bot${business.telegramBotToken}/setWebhook?url=${encodeURIComponent(webhookUrl)}`
-    );
+    const response = await fetch(buildTelegramSetWebhookUrl(business.telegramBotToken, webhookUrl));
     
     const result = await response.json();
     console.log("setWebhook Response from Telegram:", result);

@@ -47,7 +47,7 @@ function unauthorized() {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const telegramUserId = resolveFavoriteTelegramUserId(request, identityValuesFromSearch(searchParams));
+    const telegramUserId = await resolveFavoriteTelegramUserId(request, identityValuesFromSearch(searchParams));
     if (!telegramUserId) return unauthorized();
 
     const targetBusiness = await resolveBusiness({}, searchParams);
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await readBody(request);
     const { searchParams } = new URL(request.url);
-    const telegramUserId = resolveFavoriteTelegramUserId(request, { ...identityValuesFromSearch(searchParams), ...body });
+    const telegramUserId = await resolveFavoriteTelegramUserId(request, { ...identityValuesFromSearch(searchParams), ...body });
     if (!telegramUserId) return unauthorized();
 
     const business = await resolveBusiness(body, searchParams);
@@ -125,7 +125,7 @@ export async function DELETE(request: NextRequest) {
   try {
     const body = await readBody(request);
     const { searchParams } = new URL(request.url);
-    const telegramUserId = resolveFavoriteTelegramUserId(request, { ...identityValuesFromSearch(searchParams), ...body });
+    const telegramUserId = await resolveFavoriteTelegramUserId(request, { ...identityValuesFromSearch(searchParams), ...body });
     if (!telegramUserId) return unauthorized();
 
     const business = await resolveBusiness(body, searchParams);

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { telegramBot } from "@/lib/telegram-bot-service";
 import { AIService, resolveAIProviderName } from "@/lib/ai/ai-service";
@@ -8,6 +9,28 @@ import { ensureCustomerForTelegramUser } from "@/lib/customer/customer-service";
 import { getMiniAppUrl } from "@/lib/production-url";
 import { looksLikeSellerLinkAttempt, parseSellerLinkText } from "@/lib/seller-link";
 import { normalizeRuPhone } from "@/lib/phone/phone-utils";
+import { getTelegramWebhookSecret } from "@/lib/telegram-webhook-config";
+
+function telegramWebhookAuth(request: NextRequest) {
+  let expected = "";
+  try {
+    expected = getTelegramWebhookSecret();
+  } catch (error) {
+    console.error("[TELEGRAM WEBHOOK] Invalid webhook secret configuration:", error);
+    return { ok: false, status: 503 };
+  }
+  if (!expected) {
+    return { ok: true, status: 200 };
+  }
+
+  const received = request.headers.get("x-telegram-bot-api-secret-token") || "";
+  const expectedBuffer = Buffer.from(expected);
+  const receivedBuffer = Buffer.from(received);
+  return {
+    ok: expectedBuffer.length === receivedBuffer.length && crypto.timingSafeEqual(expectedBuffer, receivedBuffer),
+    status: 401,
+  };
+}
 
 function withTelegramWebAppCacheBust(url: string) {
   const parsed = new URL(url);
@@ -24,6 +47,14 @@ type TelegramMessageFrom = {
 
 function sellerPanelUrl() {
   return withTelegramWebAppCacheBust(`${getMiniAppUrl()}?mode=seller`);
+}
+
+function catalogSearchQuery(text: string) {
+  const normalized = text.toLowerCase().replace(/[?!.,;:]/g, " ").replace(/\s+/g, " ").trim();
+  const markers = ["есть ли у вас ", "у вас есть ", "есть ли ", "есть "];
+  const marker = markers.find((candidate) => normalized.includes(candidate));
+  if (!marker) return null;
+  return normalized.split(marker)[1]?.replace(/\b(в наличии|сейчас|товар)\b/g, "").trim() || null;
 }
 
 async function handleSellerLinkCode(text: string, chatId: string | number, from?: TelegramMessageFrom | null) {
@@ -105,6 +136,11 @@ export async function POST(request: NextRequest) {
   let webhookText = "";
 
   try {
+    const webhookAuthorization = telegramWebhookAuth(request);
+    if (!webhookAuthorization.ok) {
+      return NextResponse.json({ ok: false, error: "Telegram webhook authentication failed." }, { status: webhookAuthorization.status });
+    }
+
     const { searchParams } = new URL(request.url);
     const queryBusinessId = searchParams.get("businessId");
 
@@ -135,7 +171,7 @@ export async function POST(request: NextRequest) {
       const contact = body.message.contact;
       
       // Security check: only allow verifying own phone
-      if (contact.user_id && contact.user_id !== from.id) {
+      if (!from?.id || !contact.user_id || String(contact.user_id) !== String(from.id)) {
         await telegramBot.sendNotification(chatId, "❌ Ошибка: вы можете подтвердить только собственный номер телефона.");
         return NextResponse.json({ ok: true });
       }
@@ -235,7 +271,7 @@ export async function POST(request: NextRequest) {
         buttonText = "SaaS Панель";
         message = "Добро пожаловать в SaaS Панель управления! 👑\n\nНажмите на кнопку ниже, чтобы открыть кабинет...";
       } else if (payload === "demo-cafe" || payload === "cafe") {
-        targetUrl = miniAppUrl;
+        targetUrl = getMiniAppUrl("/app/demo-cafe");
 
         buttonText = "Открыть Demo Cafe";
         message = "Добро пожаловать в <b>Demo Cafe</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.";
@@ -290,7 +326,7 @@ export async function POST(request: NextRequest) {
           });
           if (targetBusiness) {
             business = targetBusiness;
-            targetUrl = miniAppUrl;
+            targetUrl = getMiniAppUrl(`/app/${targetBusiness.slug}`);
             buttonText = `Открыть ${targetBusiness.name}`;
             message = `Добро пожаловать в <b>${targetBusiness.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
           } else {
@@ -301,7 +337,7 @@ export async function POST(request: NextRequest) {
           }
         }
       } else if (business) {
-        targetUrl = miniAppUrl;
+        targetUrl = getMiniAppUrl(`/app/${business.slug}`);
 
         buttonText = `Открыть ${business.name}`;
         message = `Добро пожаловать в <b>${business.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
@@ -448,36 +484,36 @@ export async function POST(request: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
-    const fallbackBusiness = business || customer?.business
-      ? null
-      : await prisma.business.findFirst({
-          where: { isActive: true, aiEnabled: true },
-          select: {
-            id: true,
-            slug: true,
-            name: true,
-            type: true,
-            description: true,
-            phone: true,
-            address: true,
-            aiProvider: true,
-            aiModel: true,
-          },
-          orderBy: { createdAt: "desc" },
-        });
-
-    const activeBusiness = business || customer?.business || fallbackBusiness;
+    const activeBusiness = business || customer?.business;
     const activeBusinessProvider = resolveAIProviderName(activeBusiness?.aiProvider);
     const activeBusinessModel = activeBusinessProvider === "polza"
       ? process.env.POLZA_TEXT_MODEL || activeBusiness?.aiModel || "z-ai/glm-4.7-flash"
       : activeBusiness?.aiModel || "";
 
     if (activeBusiness) {
-      const knowledgeBase = `Название: ${activeBusiness.name}. Описание: ${activeBusiness.description || "нет"}. Телефон: ${activeBusiness.phone || "нет"}. Адрес: ${activeBusiness.address || "нет"}.`;
+      const catalogItems = await prisma.item.findMany({
+        where: { businessId: activeBusiness.id, isAvailable: true, type: "PRODUCT" },
+        select: { id: true, name: true, price: true },
+        orderBy: [{ isPopular: "desc" }, { sortOrder: "asc" }],
+        take: 100,
+      });
+      const storeUrl = getMiniAppUrl(`/app/${activeBusiness.slug}`);
+      const knowledgeBase = [
+        `Название: ${activeBusiness.name}.`,
+        `Описание: ${activeBusiness.description || "нет"}.`,
+        `Телефон: ${activeBusiness.phone || "нет"}.`,
+        `Адрес: ${activeBusiness.address || "нет"}.`,
+        `Текущий каталог: ${catalogItems.map((item) => `${item.name} — ${item.price} ₽`).join("; ") || "товаров нет"}.`,
+        `Mini App: ${storeUrl}.`,
+        "Не выдумывай товары. Если товара нет в текущем каталоге, честно скажи, что его нет.",
+      ].join(" ");
       
-      console.log("[TELEGRAM AI DEBUG]", {
-        activeBusinessId: activeBusiness.id,
-        activeBusinessName: activeBusiness.name,
+      console.info("[BUSINESS CONTEXT] slug/name/id", {
+        slug: activeBusiness.slug,
+        name: activeBusiness.name,
+        id: activeBusiness.id,
+      });
+      console.info("[AI CONFIG] provider", {
         provider: activeBusinessProvider,
         model: activeBusinessModel,
         hasPolzaKey: Boolean(process.env.POLZA_AI_API_KEY),
@@ -488,8 +524,26 @@ export async function POST(request: NextRequest) {
         console.error("[AI CONFIG ERROR] AI_PROVIDER=polza but POLZA_AI_API_KEY missing in Telegram webhook");
         await telegramBot.sendNotification(
           chatId,
-          "AI-помощник временно недоступен: на сервере не настроен ключ Polza AI. Администратор уже получил понятную ошибку в логах."
+          "ИИ временно недоступен. Попробуйте позже."
         );
+        return NextResponse.json({ ok: true });
+      }
+
+      const searchQuery = catalogSearchQuery(text);
+      if (searchQuery) {
+        const matches = catalogItems.filter((item) => {
+          const itemName = item.name.toLowerCase();
+          return itemName.includes(searchQuery) || searchQuery.includes(itemName);
+        });
+        if (matches.length > 0) {
+          await telegramBot.sendNotification(
+            chatId,
+            `Есть: ${matches.slice(0, 5).map((item) => `${item.name} — ${item.price} ₽`).join(", ")}. Откройте Mini App, чтобы добавить товар в корзину.`,
+            { reply_markup: { inline_keyboard: [[{ text: `Открыть ${activeBusiness.name}`, web_app: { url: storeUrl } }]] } }
+          );
+        } else {
+          await telegramBot.sendNotification(chatId, `В каталоге ${activeBusiness.name} такого товара сейчас нет.`);
+        }
         return NextResponse.json({ ok: true });
       }
 
@@ -512,8 +566,8 @@ export async function POST(request: NextRequest) {
       await telegramBot.sendNotification(chatId, answer);
       console.log("response sent");
     } else {
-      console.error("[TELEGRAM AI ERROR] No active business is available for AI chat");
-      await telegramBot.sendNotification(chatId, "AI-помощник временно недоступен: в базе нет активного бизнеса для контекста ответа.");
+      console.error("[BUSINESS CONTEXT] slug/name/id", { slug: null, name: null, id: null });
+      await telegramBot.sendNotification(chatId, "Сначала откройте нужный магазин в Mini App. Без выбранного бизнеса я не буду выдумывать товары и ответы.");
       console.log("response sent");
     }
 
@@ -534,7 +588,7 @@ export async function POST(request: NextRequest) {
     if (webhookChatId && webhookText && !webhookText.startsWith("/")) {
       await telegramBot.sendNotification(
         webhookChatId,
-        "Не удалось получить ответ от Polza AI. Ошибка записана в server logs; попробуйте ещё раз через минуту."
+        "ИИ временно недоступен. Попробуйте позже."
       );
     }
     return NextResponse.json({ ok: true });

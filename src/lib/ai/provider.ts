@@ -30,4 +30,11 @@ export interface AIProvider {
     user: string;
     model?: string;
   }): Promise<string>;
+
+  analyzeImageJson?(input: {
+    imageUrl: string;
+    system: string;
+    user: string;
+    model?: string;
+  }): Promise<string>;
 }

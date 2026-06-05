@@ -37,7 +37,7 @@ export async function POST(
     const updated = await prisma.order.update({
       where: { id: order.id },
       data: {
-        paymentStatus: "REJECTED",
+        paymentStatus: "PAYMENT_REJECTED",
         status: "CANCELLED",
         paymentReviewedAt: new Date(),
         paymentReviewedBy: session.id,
@@ -48,7 +48,7 @@ export async function POST(
 
     if (order.customer?.telegramUserId) {
       telegramBot
-        .sendNotification(order.customer.telegramUserId.toString(), "❌ Оплата не подтверждена. Свяжитесь с продавцом.")
+        .sendNotification(order.customer.telegramUserId.toString(), `❌ Оплата отклонена продавцом. ${reason}`)
         .catch((error) => console.warn("[PAYMENT REJECT] customer telegram notification failed:", error));
     }
 

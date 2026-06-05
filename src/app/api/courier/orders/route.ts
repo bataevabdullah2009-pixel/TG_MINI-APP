@@ -24,12 +24,12 @@ export async function GET(request: NextRequest) {
     console.warn("[COURIER] Could not release expired assignments before listing:", error)
   );
 
-  const [availableRaw, assigned] = await Promise.all([
+  const [availableRaw, assigned, completed] = await Promise.all([
     prisma.order.findMany({
       where: {
         businessId: access.courier.businessId,
         status: "READY_FOR_DELIVERY",
-        deliveryStatus: "WAITING_COURIER",
+        deliveryStatus: { in: ["NEW", "WAITING_COURIER"] },
         deliveryType: "DELIVERY",
       },
       include: courierOrderInclude,
@@ -40,12 +40,25 @@ export async function GET(request: NextRequest) {
         deliveryAssignment: {
           is: {
             courierId: access.courier.id,
-            status: { in: ["ASSIGNED", "PICKED_UP"] },
+            status: { in: ["ASSIGNED", "ACCEPTED_BY_COURIER", "PICKED_UP"] },
           },
         },
       },
       include: courierOrderInclude,
       orderBy: { updatedAt: "desc" },
+    }),
+    prisma.order.findMany({
+      where: {
+        deliveryAssignment: {
+          is: {
+            courierId: access.courier.id,
+            status: { in: ["DELIVERED", "CANCELLED"] },
+          },
+        },
+      },
+      include: courierOrderInclude,
+      orderBy: { updatedAt: "desc" },
+      take: 50,
     }),
   ]);
 
@@ -54,5 +67,5 @@ export async function GET(request: NextRequest) {
     ? availableRaw.filter((order) => (order.deliveryCityArea || "").toLowerCase().includes(courierArea))
     : availableRaw;
 
-  return NextResponse.json(toJsonSafe({ ok: true, courier: access.courier, available, assigned }));
+  return NextResponse.json(toJsonSafe({ ok: true, courier: access.courier, available, assigned, completed }));
 }
