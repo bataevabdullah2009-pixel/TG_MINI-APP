@@ -74,10 +74,10 @@ export async function PATCH(
 
     // 4. Update order details
     const deliveryStatus =
-      status === "READY_FOR_DELIVERY" ? "NEW" :
+      status === "READY_FOR_DELIVERY" ? "WAITING_COURIER" :
       status === "COURIER_ASSIGNED" ? "ASSIGNED" :
       status === "PICKED_UP" ? "PICKED_UP" :
-      status === "DELIVERED" ? "DELIVERED" :
+      status === "DELIVERED" || (status === "COMPLETED" && order.deliveryType === "DELIVERY") ? "DELIVERED" :
       status === "CANCELLED" ? "CANCELLED" :
       status === "EXPIRED" ? "EXPIRED" :
       status === "READY_FOR_PICKUP" ? "NONE" :

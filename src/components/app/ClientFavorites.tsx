@@ -233,7 +233,7 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
                       </button>
                       {fav.business?.slug && fav.item?.isAvailable !== false && fav.business?.isActive !== false ? (
                         <Link
-                          href={`/app/${fav.business.slug}?item=${encodeURIComponent(fav.itemId)}`}
+                          href={`/app/${fav.business.slug}?product=${encodeURIComponent(fav.itemId)}`}
                           className="grid h-8 w-8 place-items-center rounded-xl bg-slate-900 text-white hover:bg-indigo-600 transition"
                         >
                           <Eye size={14} />

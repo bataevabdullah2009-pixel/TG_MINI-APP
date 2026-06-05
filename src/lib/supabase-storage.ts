@@ -98,6 +98,9 @@ export function publicUploadErrorMessage(error: unknown) {
   if (message.startsWith("Не удалось подготовить bucket")) {
     return "Не удалось подготовить Supabase Storage. Проверьте storage bucket и SUPABASE_SERVICE_ROLE_KEY.";
   }
+  if (message.startsWith("Supabase Storage error:")) {
+    return `Ошибка storage: ${message.replace("Supabase Storage error:", "").trim()}`;
+  }
   return "Не удалось загрузить файл. Проверьте формат и размер файла, затем попробуйте снова.";
 }
 
@@ -190,7 +193,13 @@ async function uploadFileToSupabaseStorage({ file, bucket, folder }: UploadOptio
 
   if (!uploadResponse.ok) {
     const message = await uploadResponse.text();
-    throw new Error(`Не удалось загрузить файл в Supabase Storage: ${message}`);
+    console.error("[SUPABASE STORAGE] upload failed", {
+      bucket,
+      storagePath,
+      status: uploadResponse.status,
+      responsePreview: message.slice(0, 500),
+    });
+    throw new Error(`Supabase Storage error: ${message.slice(0, 500)}`);
   }
 
   return {

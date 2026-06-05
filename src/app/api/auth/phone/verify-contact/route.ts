@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getTelegramSessionUser } from "@/lib/auth-telegram";
+import { trySyncUserPhone } from "@/lib/auth/telegram-user-service";
 import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 import { prisma } from "@/lib/prisma";
 
@@ -22,13 +23,11 @@ export async function POST(req: Request) {
 
     const user = await prisma.user.findUnique({
       where: { telegramId: BigInt(session.telegramUserId) },
-      select: { phone: true, phoneVerified: true },
+      select: { id: true, phone: true, phoneVerified: true },
     });
-    const verifiedPhone = session.customer.phoneVerified
-      ? normalizeRuPhone(session.customer.phone)
-      : user?.phoneVerified
-        ? normalizeRuPhone(user.phone)
-        : null;
+    const customerVerifiedPhone = session.customer.phoneVerified ? normalizeRuPhone(session.customer.phone) : null;
+    const userVerifiedPhone = user?.phoneVerified ? normalizeRuPhone(user.phone) : null;
+    const verifiedPhone = userVerifiedPhone || customerVerifiedPhone;
 
     if (!verifiedPhone) {
       return NextResponse.json(
@@ -43,9 +42,16 @@ export async function POST(req: Request) {
         data: {
           phone: verifiedPhone,
           phoneVerified: true,
-          verificationMethod: session.customer.phoneVerified ? session.customer.verificationMethod : "global_user_phone",
+          verificationMethod: customerVerifiedPhone ? session.customer.verificationMethod : "global_user_phone",
         },
         select: { id: true },
+      });
+    }
+
+    if (user?.id && (!user.phoneVerified || normalizeRuPhone(user.phone) !== verifiedPhone)) {
+      await trySyncUserPhone(user.id, verifiedPhone, {
+        verified: true,
+        context: "verify-contact sync verified phone to user",
       });
     }
 

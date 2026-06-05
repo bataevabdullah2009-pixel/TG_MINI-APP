@@ -54,6 +54,7 @@ export default function BusinessMiniAppPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const slug = String(params.businessSlug || "");
+  const targetProductId = searchParams.get("product") || searchParams.get("item");
   const [business, setBusiness] = useState<Business | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -86,6 +87,14 @@ export default function BusinessMiniAppPage() {
   const [paymentProofFileName, setPaymentProofFileName] = useState("");
   const [paymentProofMimeType, setPaymentProofMimeType] = useState("");
   const [paymentProofUploading, setPaymentProofUploading] = useState(false);
+  const businessId = business?.id || "";
+  const businessTemplateKey = business?.templateKey || "";
+  const businessTemplate = businessTemplateKey ? templateUi[businessTemplateKey] : undefined;
+  const businessTemplateMode = businessTemplate?.mode;
+  const transferPaymentEnabled = business?.transferPaymentEnabled;
+  const deliveryEnabled = business?.settings?.deliveryEnabled;
+  const pickupEnabled = business?.settings?.pickupEnabled;
+  const deliveryZonesLength = business?.deliveryZones?.length || 0;
 
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp;
@@ -121,15 +130,19 @@ export default function BusinessMiniAppPage() {
   }, [slug]);
 
   useEffect(() => {
-    const itemId = searchParams.get("item");
-    if (!itemId || items.length === 0) return;
+    if (!targetProductId || items.length === 0) return;
 
-    const item = items.find((candidate) => candidate.id === itemId);
-    if (item) setSelectedPreviewItem(item);
-  }, [items, searchParams]);
+    const item = items.find((candidate) => candidate.id === targetProductId);
+    if (item) {
+      setSelectedPreviewItem(item);
+    } else {
+      setFavoriteToast("Товар больше недоступен");
+      window.setTimeout(() => setFavoriteToast(""), 4000);
+    }
+  }, [items, targetProductId]);
 
   useEffect(() => {
-    if (!business) return undefined;
+    if (!businessId) return undefined;
 
     const user = telegramUser();
     if (!user?.id) return undefined;
@@ -155,10 +168,10 @@ export default function BusinessMiniAppPage() {
     return () => {
       cancelled = true;
     };
-  }, [business, slug]);
+  }, [businessId, slug]);
 
   useEffect(() => {
-    if (!business) return undefined;
+    if (!businessId) return undefined;
     const initData = (window as any).Telegram?.WebApp?.initData || sessionStorage.getItem("tgInitData") || "";
     if (!initData) {
       setNeedsPhoneVerification(true);
@@ -194,7 +207,7 @@ export default function BusinessMiniAppPage() {
     return () => {
       cancelled = true;
     };
-  }, [business, slug]);
+  }, [businessId, slug]);
 
   useEffect(() => {
     const saved = localStorage.getItem(`vitrina:${slug}:catalog-view`);
@@ -202,35 +215,35 @@ export default function BusinessMiniAppPage() {
   }, [slug]);
 
   useEffect(() => {
-    if (!business || templateUi[business.templateKey]?.mode !== "booking") return;
+    if (!businessId || businessTemplateMode !== "booking") return;
     fetch(`/api/businesses/${slug}/slots?date=${selectedDate}${selectedStaffId ? `&staffId=${selectedStaffId}` : ""}`)
       .then((res) => res.json())
       .then((data) => {
         setSlots(data.slots || []);
         setSelectedTime("");
       });
-  }, [business, slug, selectedDate, selectedStaffId]);
+  }, [businessId, businessTemplateMode, slug, selectedDate, selectedStaffId]);
 
   useEffect(() => {
-    if (!business?.transferPaymentEnabled) {
+    if (!transferPaymentEnabled) {
       setPaymentMethod("CASH");
       setPaymentProofUrl("");
       setPaymentProofFileName("");
       setPaymentProofMimeType("");
     }
-  }, [business?.transferPaymentEnabled]);
+  }, [transferPaymentEnabled]);
 
   useEffect(() => {
-    if (!business?.settings) return;
-    const deliveryAvailable = business.settings.deliveryEnabled && Boolean(business.deliveryZones?.length);
-    if (!business.settings.pickupEnabled && deliveryAvailable) {
+    if (deliveryEnabled === undefined || pickupEnabled === undefined) return;
+    const deliveryAvailable = deliveryEnabled && Boolean(deliveryZonesLength);
+    if (!pickupEnabled && deliveryAvailable) {
       setForm((current) => ({ ...current, deliveryType: "DELIVERY" }));
-    } else if (business.settings.pickupEnabled && !deliveryAvailable) {
+    } else if (pickupEnabled && !deliveryAvailable) {
       setForm((current) => ({ ...current, deliveryType: "PICKUP", deliveryZoneId: "" }));
     }
-  }, [business]);
+  }, [deliveryEnabled, pickupEnabled, deliveryZonesLength]);
 
-  const ui = business ? templateUi[business.templateKey] || templateUi.cafe : templateUi.cafe;
+  const ui = business ? businessTemplate || templateUi.cafe : templateUi.cafe;
   const mode = ui.mode;
   const categories = useMemo(() => ["Все", ...Array.from(new Set(items.map((item) => item.category?.name || "Основное")))], [items]);
   const filtered = items.filter((item) => {

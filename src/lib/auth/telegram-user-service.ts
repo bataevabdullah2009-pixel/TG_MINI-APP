@@ -8,6 +8,7 @@ export interface EnsureTelegramUserInput {
   firstName?: string | null;
   lastName?: string | null;
   phone?: string | null;
+  phoneVerified?: boolean;
 }
 
 const LEGACY_USER_SELECT = {
@@ -215,6 +216,7 @@ export async function ensureTelegramUser(input: EnsureTelegramUserInput): Promis
 
   if (input.phone) {
     const synced = await trySyncUserPhone(user.id, input.phone, {
+      verified: input.phoneVerified ? true : undefined,
       context: existing ? "ensureTelegramUser existing user" : "ensureTelegramUser new user",
     });
     if (synced) {

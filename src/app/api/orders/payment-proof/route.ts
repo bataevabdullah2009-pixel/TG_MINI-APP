@@ -8,6 +8,22 @@ import {
   uploadPaymentProofToSupabaseStorage,
 } from "@/lib/supabase-storage";
 
+function uploadErrorStatus(message: string) {
+  if (
+    message.includes("формате JPG") ||
+    message.includes("10 MB") ||
+    message.includes("не похож") ||
+    message.includes("настоящий JPG") ||
+    message.includes("настоящим PDF")
+  ) {
+    return 400;
+  }
+  if (message.includes("Ошибка storage") || message.includes("Supabase Storage")) {
+    return 502;
+  }
+  return 500;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const initData = request.headers.get("x-telegram-init-data") || "";
@@ -21,6 +37,9 @@ export async function POST(request: NextRequest) {
 
     if (!(file instanceof File)) {
       return NextResponse.json({ ok: false, error: "Файл чека не передан." }, { status: 400 });
+    }
+    if (!businessValue) {
+      return NextResponse.json({ ok: false, error: "Бизнес для загрузки чека не выбран." }, { status: 400 });
     }
 
     const business = await prisma.business.findFirst({
@@ -41,6 +60,12 @@ export async function POST(request: NextRequest) {
     }
 
     const mimeType = normalizePaymentProofMimeType(file);
+    console.info("[PAYMENT_PROOF_UPLOAD]", {
+      businessId: business.id,
+      fileName: file.name,
+      mimeType,
+      size: file.size,
+    });
     const uploaded = await uploadPaymentProofToSupabaseStorage({
       file,
       bucket: bucketForUploadType("payment-proof"),
@@ -70,7 +95,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("POST /api/orders/payment-proof failed:", error);
     const message = publicUploadErrorMessage(error);
-    const status = /Чек должен быть|Файл чека должен быть|Файл не похож/.test(message) ? 400 : 500;
-    return NextResponse.json({ ok: false, error: message }, { status });
+    return NextResponse.json({ ok: false, error: message }, { status: uploadErrorStatus(message) });
   }
 }

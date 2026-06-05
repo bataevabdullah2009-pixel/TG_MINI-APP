@@ -1,1 +1,1 @@
-export { PATCH } from "@/app/api/orders/[id]/route";
+export { PATCH } from "@/app/api/admin/orders/[id]/route";

@@ -8,6 +8,7 @@ export interface EnsureCustomerForTelegramUserInput {
   firstName?: string | null;
   lastName?: string | null;
   phone?: string | null;
+  phoneVerified?: boolean;
   businessId?: string | null;
 }
 
@@ -47,6 +48,7 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
     firstName: input.firstName,
     lastName: input.lastName,
     phone: input.phone,
+    phoneVerified: input.phoneVerified,
   });
 
   // Normalize phone number

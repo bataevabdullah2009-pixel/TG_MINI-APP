@@ -125,12 +125,13 @@ export function PhoneVerificationScreen({
     setError(null);
 
     try {
+      const initData = (window as any).Telegram?.WebApp?.initData || sessionStorage.getItem("tgInitData") || "";
       const res = await fetch("/api/auth/phone/send-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           phone,
-          initData: (window as any).Telegram?.WebApp?.initData || "",
+          initData,
           businessId,
         }),
       });
@@ -164,13 +165,14 @@ export function PhoneVerificationScreen({
     setError(null);
 
     try {
+      const initData = (window as any).Telegram?.WebApp?.initData || sessionStorage.getItem("tgInitData") || "";
       const res = await fetch("/api/auth/phone/verify-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           phone,
           code,
-          initData: (window as any).Telegram?.WebApp?.initData || "",
+          initData,
           businessId,
         }),
       });

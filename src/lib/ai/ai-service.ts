@@ -13,6 +13,8 @@ export class AIConfigurationError extends Error {
   }
 }
 
+export const AI_MANAGER_HANDOFF_MESSAGE = "ИИ временно недоступен, но я передал вопрос менеджеру.";
+
 export function resolveAIProviderName(providerName?: string | null) {
   const envProvider = process.env.AI_PROVIDER?.trim().toLowerCase();
   if (envProvider) return envProvider;
@@ -136,17 +138,19 @@ export class AIService {
       await incrementAiUsage(businessId, "faq", provider.name, modelConfig, JSON.stringify(input).length, "SUCCESS", response.length);
       return response;
     } catch (error) {
+      const failedProviderName = provider?.name || resolveAIProviderName(providerConfig);
       console.error("AI Error:", error);
+      if (failedProviderName === "polza") {
+        console.error("[POLZA_AI_ERROR]", {
+          businessId,
+          model: modelConfig,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
       if (provider) {
         await incrementAiUsage(businessId, "faq", provider.name, modelConfig, JSON.stringify(input).length, "FAILED");
       }
-      if (
-        error instanceof AIConfigurationError ||
-        String((error as Error)?.message || "").includes("POLZA_AI_API_KEY missing")
-      ) {
-        return "ИИ временно недоступен. Попробуйте позже.";
-      }
-      return "ИИ временно недоступен. Попробуйте позже.";
+      return AI_MANAGER_HANDOFF_MESSAGE;
     }
   }
 
