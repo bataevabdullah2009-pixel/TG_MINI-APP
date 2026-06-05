@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { telegramBot } from "@/lib/telegram-bot-service";
-import { AIService, resolveAIProviderName } from "@/lib/ai/ai-service";
+import { AI_MANAGER_HANDOFF_MESSAGE, AIService, resolveAIProviderName } from "@/lib/ai/ai-service";
 import { getPolzaChatEndpoint } from "@/lib/ai/polza-provider";
 import { ensureTelegramUser, trySyncUserPhone } from "@/lib/auth/telegram-user-service";
 import { ensureCustomerForTelegramUser } from "@/lib/customer/customer-service";
@@ -10,6 +10,34 @@ import { getMiniAppUrl } from "@/lib/production-url";
 import { looksLikeSellerLinkAttempt, parseSellerLinkText } from "@/lib/seller-link";
 import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 import { getTelegramWebhookSecret } from "@/lib/telegram-webhook-config";
+
+type TelegramBusinessContext = {
+  id: string;
+  slug: string;
+  name: string;
+  type: string;
+  description: string | null;
+  phone: string | null;
+  address: string | null;
+  aiProvider: string | null;
+  aiModel: string | null;
+  telegramAdminChatId?: bigint | null;
+  owner?: { telegramId: bigint | null } | null;
+};
+
+const telegramBusinessContextSelect = {
+  id: true,
+  slug: true,
+  name: true,
+  type: true,
+  description: true,
+  phone: true,
+  address: true,
+  aiProvider: true,
+  aiModel: true,
+  telegramAdminChatId: true,
+  owner: { select: { telegramId: true } },
+} as const;
 
 function telegramWebhookAuth(request: NextRequest) {
   let expected = "";
@@ -47,6 +75,53 @@ type TelegramMessageFrom = {
 
 function sellerPanelUrl() {
   return withTelegramWebAppCacheBust(`${getMiniAppUrl()}?mode=seller`);
+}
+
+function safeMiniAppUrl(path = "/app") {
+  try {
+    return getMiniAppUrl(path);
+  } catch (error) {
+    console.error("[URL CONFIG] Telegram Mini App URL unavailable:", error);
+    return null;
+  }
+}
+
+function managerChatIdForBusiness(business: TelegramBusinessContext) {
+  return (
+    business.telegramAdminChatId?.toString() ||
+    business.owner?.telegramId?.toString() ||
+    process.env.TELEGRAM_ADMIN_CHAT_ID ||
+    null
+  );
+}
+
+function escapeTelegramHtml(message: string) {
+  return message.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+async function notifyManagerAboutAiFailure(
+  business: TelegramBusinessContext,
+  from: TelegramMessageFrom | null | undefined,
+  question: string
+) {
+  const chatId = managerChatIdForBusiness(business);
+  if (!chatId) {
+    console.warn("[TELEGRAM_AI_MANAGER_HANDOFF_SKIPPED]", {
+      businessId: business.id,
+      reason: "manager_chat_id_missing",
+    });
+    return;
+  }
+
+  await telegramBot.sendNotification(
+    chatId,
+    [
+      "<b>AI question requires manager attention</b>",
+      `Business: ${escapeTelegramHtml(business.name)}`,
+      `Customer: ${escapeTelegramHtml(from?.username ? `@${from.username}` : String(from?.id || "unknown"))}`,
+      `Question: ${escapeTelegramHtml(question.slice(0, 1000))}`,
+    ].join("\n")
+  );
 }
 
 function catalogSearchQuery(text: string) {
@@ -147,7 +222,11 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     
     if (!body.message || (!body.message.text && !body.message.contact)) {
-      console.log("No message text or contact in webhook body");
+      console.info("[TELEGRAM_WEBHOOK_RECEIVED]", {
+        updateId: body.update_id || null,
+        ignored: true,
+        reason: "message_text_or_contact_missing",
+      });
       return NextResponse.json({ ok: true });
     }
 
@@ -157,14 +236,15 @@ export async function POST(request: NextRequest) {
     webhookChatId = chatId;
     webhookText = text;
 
-    // Add dynamic and safe logging for debugging in Vercel Logs
-    console.log("====== [TELEGRAM WEBHOOK ENTRY] ======");
-    console.log(`Update ID: ${body.update_id || "N/A"}`);
-    console.log(`From User: ${from ? `@${from.username} (${from.id})` : "N/A"}`);
-    console.log(`Chat ID: ${chatId || "N/A"}`);
-    console.log(`Text content: "${text}"`);
-    console.log(`Query Business ID: ${queryBusinessId || "None"}`);
-    console.log("======================================");
+    console.info("[TELEGRAM_WEBHOOK_RECEIVED]", {
+      updateId: body.update_id || null,
+      chatId,
+      fromUserId: from?.id || null,
+      fromUsername: from?.username || null,
+      hasText: Boolean(text),
+      hasContact: Boolean(body.message.contact),
+      queryBusinessId: queryBusinessId || null,
+    });
 
     // Handle shared contact (Task 3)
     if (body.message.contact) {
@@ -177,7 +257,11 @@ export async function POST(request: NextRequest) {
       }
 
       const telegramId = String(from.id);
-      const phone = normalizeRuPhone(contact.phone_number) || contact.phone_number;
+      const phone = normalizeRuPhone(contact.phone_number);
+      if (!phone) {
+        await telegramBot.sendNotification(chatId, "Поддерживается подтверждение номера РФ в формате +7XXXXXXXXXX.");
+        return NextResponse.json({ ok: true });
+      }
 
       // 1. Ensure User exists and is synchronized
       const user = await ensureTelegramUser({
@@ -186,6 +270,7 @@ export async function POST(request: NextRequest) {
         firstName: from.first_name,
         lastName: from.last_name,
         phone,
+        phoneVerified: true,
       });
 
       // 2. Ensure Customer exists
@@ -196,6 +281,7 @@ export async function POST(request: NextRequest) {
         firstName: from.first_name,
         lastName: from.last_name,
         phone,
+        phoneVerified: true,
         businessId: effectiveBusinessId,
       });
 
@@ -229,27 +315,24 @@ export async function POST(request: NextRequest) {
     }
 
     // 1. Resolve Business
-    let business = null;
+    let business: TelegramBusinessContext | null = null;
     if (queryBusinessId) {
       business = await prisma.business.findUnique({
         where: { id: queryBusinessId },
-        select: {
-          id: true,
-          slug: true,
-          name: true,
-          type: true,
-          description: true,
-          phone: true,
-          address: true,
-          aiProvider: true,
-          aiModel: true,
-        },
+        select: telegramBusinessContextSelect,
       });
     }
 
     if (command === "/start") {
       const payload = text.split(" ")[1]?.trim();
-      const miniAppUrl = getMiniAppUrl();
+      const miniAppUrl = safeMiniAppUrl();
+      if (!miniAppUrl) {
+        await telegramBot.sendNotification(
+          chatId,
+          "Vitrina AI временно недоступна: ссылка Mini App не настроена. Менеджер уже увидит ошибку в логах."
+        );
+        return NextResponse.json({ ok: true });
+      }
       
       // Determine target URL for the Mini App
       let targetUrl = miniAppUrl;
@@ -271,7 +354,7 @@ export async function POST(request: NextRequest) {
         buttonText = "SaaS Панель";
         message = "Добро пожаловать в SaaS Панель управления! 👑\n\nНажмите на кнопку ниже, чтобы открыть кабинет...";
       } else if (payload === "demo-cafe" || payload === "cafe") {
-        targetUrl = getMiniAppUrl("/app/demo-cafe");
+        targetUrl = `${miniAppUrl}/demo-cafe`;
 
         buttonText = "Открыть Demo Cafe";
         message = "Добро пожаловать в <b>Demo Cafe</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.";
@@ -312,21 +395,11 @@ export async function POST(request: NextRequest) {
                 { slug: { equals: payload, mode: "insensitive" } },
               ],
             },
-            select: {
-              id: true,
-              slug: true,
-              name: true,
-              type: true,
-              description: true,
-              phone: true,
-              address: true,
-              aiProvider: true,
-              aiModel: true,
-            },
+            select: telegramBusinessContextSelect,
           });
           if (targetBusiness) {
             business = targetBusiness;
-            targetUrl = getMiniAppUrl(`/app/${targetBusiness.slug}`);
+            targetUrl = `${miniAppUrl}/${targetBusiness.slug}`;
             buttonText = `Открыть ${targetBusiness.name}`;
             message = `Добро пожаловать в <b>${targetBusiness.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
           } else {
@@ -337,7 +410,7 @@ export async function POST(request: NextRequest) {
           }
         }
       } else if (business) {
-        targetUrl = getMiniAppUrl(`/app/${business.slug}`);
+        targetUrl = `${miniAppUrl}/${business.slug}`;
 
         buttonText = `Открыть ${business.name}`;
         message = `Добро пожаловать в <b>${business.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
@@ -468,17 +541,7 @@ export async function POST(request: NextRequest) {
       },
       include: {
         business: {
-          select: {
-            id: true,
-            slug: true,
-            name: true,
-            type: true,
-            description: true,
-            phone: true,
-            address: true,
-            aiProvider: true,
-            aiModel: true,
-          },
+          select: telegramBusinessContextSelect,
         },
       },
       orderBy: { createdAt: "desc" },
@@ -521,10 +584,17 @@ export async function POST(request: NextRequest) {
       });
 
       if (activeBusinessProvider === "polza" && !process.env.POLZA_AI_API_KEY) {
-        console.error("[AI CONFIG ERROR] AI_PROVIDER=polza but POLZA_AI_API_KEY missing in Telegram webhook");
+        console.error("[POLZA_AI_ERROR]", {
+          businessId: activeBusiness.id,
+          model: activeBusinessModel,
+          reason: "POLZA_AI_API_KEY missing",
+        });
+        await notifyManagerAboutAiFailure(activeBusiness, from, text).catch((error) =>
+          console.warn("[TELEGRAM_AI_MANAGER_HANDOFF_FAILED]", error)
+        );
         await telegramBot.sendNotification(
           chatId,
-          "ИИ временно недоступен. Попробуйте позже."
+          AI_MANAGER_HANDOFF_MESSAGE
         );
         return NextResponse.json({ ok: true });
       }
@@ -547,8 +617,15 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true });
       }
 
-      console.log("Sending FAQ loading notification to Chat ID:", chatId);
       await telegramBot.sendNotification(chatId, "⏳ Думаю...");
+      console.info("[TELEGRAM_AI_REQUEST]", {
+        chatId,
+        businessId: activeBusiness.id,
+        businessSlug: activeBusiness.slug,
+        provider: activeBusinessProvider,
+        model: activeBusinessModel,
+        questionLength: text.length,
+      });
       
       const answer = await AIService.generateFAQAnswer(
         activeBusiness.id,
@@ -562,13 +639,16 @@ export async function POST(request: NextRequest) {
         }
       );
 
-      console.log("Sending FAQ answer to Chat ID:", chatId);
+      if (answer === AI_MANAGER_HANDOFF_MESSAGE) {
+        await notifyManagerAboutAiFailure(activeBusiness, from, text).catch((error) =>
+          console.warn("[TELEGRAM_AI_MANAGER_HANDOFF_FAILED]", error)
+        );
+      }
+
       await telegramBot.sendNotification(chatId, answer);
-      console.log("response sent");
     } else {
       console.error("[BUSINESS CONTEXT] slug/name/id", { slug: null, name: null, id: null });
       await telegramBot.sendNotification(chatId, "Сначала откройте нужный магазин в Mini App. Без выбранного бизнеса я не буду выдумывать товары и ответы.");
-      console.log("response sent");
     }
 
     return NextResponse.json({ ok: true });
@@ -585,10 +665,14 @@ export async function POST(request: NextRequest) {
     }
 
     console.error("Error details in telegram webhook:", error);
+    console.error("[POLZA_AI_ERROR]", {
+      chatId: webhookChatId,
+      reason: error instanceof Error ? error.message : String(error),
+    });
     if (webhookChatId && webhookText && !webhookText.startsWith("/")) {
       await telegramBot.sendNotification(
         webhookChatId,
-        "ИИ временно недоступен. Попробуйте позже."
+        AI_MANAGER_HANDOFF_MESSAGE
       );
     }
     return NextResponse.json({ ok: true });

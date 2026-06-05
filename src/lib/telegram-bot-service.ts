@@ -9,10 +9,10 @@ export class TelegramBotService {
     this.baseUrl = `https://api.telegram.org/bot${this.token}`;
   }
 
-  async sendNotification(chatId: string | number, message: string, options?: any) {
+  async sendNotification(chatId: string | number, message: string, options?: any): Promise<boolean> {
     if (!this.token || !chatId) {
       console.warn("Telegram notification skipped: token or chatId missing.");
-      return;
+      return false;
     }
 
     try {
@@ -31,12 +31,22 @@ export class TelegramBotService {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`Telegram API error (${response.status}):`, errorText);
-      } else {
-        console.log(`Telegram notification sent to ${chatId}`);
+        console.error("[TELEGRAM_RESPONSE_FAILED]", {
+          chatId,
+          status: response.status,
+          responsePreview: errorText.slice(0, 500),
+        });
+        return false;
       }
+      console.info("[TELEGRAM_RESPONSE_SENT]", {
+        chatId,
+        status: response.status,
+        messageLength: message.length,
+      });
+      return true;
     } catch (error) {
       console.error(`Failed to send notification to ${chatId}:`, error);
+      return false;
     }
   }
 
