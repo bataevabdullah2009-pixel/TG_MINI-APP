@@ -2,7 +2,7 @@ import crypto from "crypto";
 import path from "path";
 
 export const uploadImageTypes = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
-export const paymentProofTypes = new Set([...uploadImageTypes, "application/pdf"]);
+export const paymentProofTypes = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
 export const uploadBuckets = {
   businessMedia: "business-media",
   paymentProofs: "payment-proofs",
@@ -12,6 +12,9 @@ type UploadOptions = {
   file: File;
   bucket: string;
   folder: string;
+  storagePath?: string;
+  contentType?: string;
+  errorLogLabel?: string;
 };
 
 function requireSupabaseStorageEnv() {
@@ -34,6 +37,37 @@ function cleanPathPart(value: string) {
     .replace(/[^a-z0-9а-яё_-]+/gi, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 64) || "file";
+}
+
+function cleanAsciiPathPart(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64) || "file";
+}
+
+function paymentProofBusinessSlug(folder: string) {
+  const parts = folder.split(/[\\/]/).map((part) => part.trim()).filter(Boolean);
+  const businessPart = parts.find((part) => part !== uploadBuckets.paymentProofs && part !== "payment-proofs") || folder;
+  return cleanAsciiPathPart(businessPart);
+}
+
+function paymentProofExtension(file: File, mimeType: string) {
+  const ext = path.extname(file.name).toLowerCase();
+  if (mimeType === "application/pdf") return ".pdf";
+  if (mimeType === "image/png") return ".png";
+  if (mimeType === "image/webp") return ".webp";
+  if (mimeType === "image/jpeg") return ext === ".jpeg" ? ".jpeg" : ".jpg";
+  return "";
+}
+
+function paymentProofStoragePath(file: File, folder: string, mimeType: string) {
+  const ext = paymentProofExtension(file, mimeType);
+  if (!ext) {
+    throw new Error("Чек должен быть в формате JPG, JPEG, PNG, WEBP или PDF.");
+  }
+  return `${uploadBuckets.paymentProofs}/${paymentProofBusinessSlug(folder)}/${crypto.randomUUID()}${ext}`;
 }
 
 export function assertUploadImage(file: File) {
@@ -99,7 +133,7 @@ export function publicUploadErrorMessage(error: unknown) {
     return "Не удалось подготовить Supabase Storage. Проверьте storage bucket и SUPABASE_SERVICE_ROLE_KEY.";
   }
   if (message.startsWith("Supabase Storage error:")) {
-    return `Ошибка storage: ${message.replace("Supabase Storage error:", "").trim()}`;
+    return "Не удалось загрузить файл в Storage. Проверьте формат файла и попробуйте снова.";
   }
   return "Не удалось загрузить файл. Проверьте формат и размер файла, затем попробуйте снова.";
 }
@@ -171,13 +205,13 @@ async function ensureBucket(supabaseUrl: string, serviceRoleKey: string, bucket:
   }
 }
 
-async function uploadFileToSupabaseStorage({ file, bucket, folder }: UploadOptions) {
+async function uploadFileToSupabaseStorage({ file, bucket, folder, storagePath: explicitStoragePath, contentType, errorLogLabel }: UploadOptions) {
   const { supabaseUrl, serviceRoleKey } = requireSupabaseStorageEnv();
   await ensureBucket(supabaseUrl, serviceRoleKey, bucket);
 
   const ext = path.extname(file.name).toLowerCase() || ".jpg";
   const base = cleanPathPart(path.basename(file.name, ext));
-  const storagePath = `${cleanPathPart(folder)}/${Date.now()}-${crypto.randomBytes(8).toString("hex")}-${base}${ext}`;
+  const storagePath = explicitStoragePath || `${cleanPathPart(folder)}/${Date.now()}-${crypto.randomBytes(8).toString("hex")}-${base}${ext}`;
   const bytes = Buffer.from(await file.arrayBuffer());
 
   const uploadResponse = await fetch(`${supabaseUrl}/storage/v1/object/${bucket}/${storagePath}`, {
@@ -185,7 +219,7 @@ async function uploadFileToSupabaseStorage({ file, bucket, folder }: UploadOptio
     headers: {
       apikey: serviceRoleKey,
       Authorization: `Bearer ${serviceRoleKey}`,
-      "Content-Type": file.type,
+      "Content-Type": contentType || file.type || "application/octet-stream",
       "x-upsert": "true",
     },
     body: bytes,
@@ -193,7 +227,7 @@ async function uploadFileToSupabaseStorage({ file, bucket, folder }: UploadOptio
 
   if (!uploadResponse.ok) {
     const message = await uploadResponse.text();
-    console.error("[SUPABASE STORAGE] upload failed", {
+    console.error(errorLogLabel || "[SUPABASE STORAGE] upload failed", {
       bucket,
       storagePath,
       status: uploadResponse.status,
@@ -243,5 +277,8 @@ export async function uploadPaymentProofToSupabaseStorage(options: UploadOptions
   return uploadFileToSupabaseStorage({
     ...options,
     file: new File([await options.file.arrayBuffer()], options.file.name, { type: mimeType }),
+    storagePath: paymentProofStoragePath(options.file, options.folder, mimeType),
+    contentType: mimeType,
+    errorLogLabel: "[PAYMENT_PROOF_STORAGE_ERROR]",
   });
 }

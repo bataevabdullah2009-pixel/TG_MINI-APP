@@ -17,7 +17,13 @@ export const AI_MANAGER_HANDOFF_MESSAGE = "ИИ временно недосту�
 
 export function resolveAIProviderName(providerName?: string | null) {
   const envProvider = process.env.AI_PROVIDER?.trim().toLowerCase();
-  if (envProvider) return envProvider;
+  if (envProvider) {
+    if (process.env.NODE_ENV === "production" && envProvider === "mock") {
+      console.error("[AI CONFIG ERROR] AI_PROVIDER=mock is ignored in production; routing to polza.");
+      return "polza";
+    }
+    return envProvider;
+  }
 
   const businessProvider = providerName?.trim().toLowerCase();
   if (businessProvider && businessProvider !== "mock") return businessProvider;

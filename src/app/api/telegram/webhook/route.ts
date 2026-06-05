@@ -48,16 +48,25 @@ function telegramWebhookAuth(request: NextRequest) {
     return { ok: false, status: 503 };
   }
   if (!expected) {
+    console.warn("[TELEGRAM_WEBHOOK_SECRET_MISSING]", {
+      reason: "TELEGRAM_WEBHOOK_SECRET is not set; accepting Telegram webhook without secret token check.",
+    });
     return { ok: true, status: 200 };
   }
 
   const received = request.headers.get("x-telegram-bot-api-secret-token") || "";
   const expectedBuffer = Buffer.from(expected);
   const receivedBuffer = Buffer.from(received);
-  return {
-    ok: expectedBuffer.length === receivedBuffer.length && crypto.timingSafeEqual(expectedBuffer, receivedBuffer),
-    status: 401,
-  };
+  const ok = expectedBuffer.length === receivedBuffer.length && crypto.timingSafeEqual(expectedBuffer, receivedBuffer);
+  if (!ok) {
+    console.warn("[TELEGRAM_WEBHOOK_SECRET_MISMATCH]", {
+      hasReceivedSecret: Boolean(received),
+    });
+    return { ok: false, status: 401 };
+  }
+
+  console.info("[TELEGRAM_WEBHOOK_SECRET_OK]");
+  return { ok: true, status: 200 };
 }
 
 function withTelegramWebAppCacheBust(url: string) {
@@ -97,6 +106,10 @@ function managerChatIdForBusiness(business: TelegramBusinessContext) {
 
 function escapeTelegramHtml(message: string) {
   return message.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function logTelegramResponseSent(context: Record<string, unknown>) {
+  console.info("[TELEGRAM_RESPONSE_SENT]", context);
 }
 
 async function notifyManagerAboutAiFailure(
@@ -463,7 +476,12 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      console.log("response sent");
+      console.info("[TELEGRAM_START_BUTTON_SENT]", {
+        chatId,
+        payload: payload || null,
+        targetUrl,
+      });
+      logTelegramResponseSent({ chatId, type: "start", targetUrl });
       return NextResponse.json({ ok: true });
     }
 
@@ -530,6 +548,7 @@ export async function POST(request: NextRequest) {
           inline_keyboard: [[{ text: "Открыть Vitrina AI", web_app: { url: withTelegramWebAppCacheBust(getMiniAppUrl()) } }]],
         },
       });
+      logTelegramResponseSent({ chatId, type: "unknown_command", command });
       return NextResponse.json({ ok: true });
     }
 
@@ -596,6 +615,7 @@ export async function POST(request: NextRequest) {
           chatId,
           AI_MANAGER_HANDOFF_MESSAGE
         );
+        logTelegramResponseSent({ chatId, type: "ai_handoff", businessId: activeBusiness.id });
         return NextResponse.json({ ok: true });
       }
 
@@ -611,8 +631,10 @@ export async function POST(request: NextRequest) {
             `Есть: ${matches.slice(0, 5).map((item) => `${item.name} — ${item.price} ₽`).join(", ")}. Откройте Mini App, чтобы добавить товар в корзину.`,
             { reply_markup: { inline_keyboard: [[{ text: `Открыть ${activeBusiness.name}`, web_app: { url: storeUrl } }]] } }
           );
+          logTelegramResponseSent({ chatId, type: "catalog_match", businessId: activeBusiness.id });
         } else {
           await telegramBot.sendNotification(chatId, `В каталоге ${activeBusiness.name} такого товара сейчас нет.`);
+          logTelegramResponseSent({ chatId, type: "catalog_no_match", businessId: activeBusiness.id });
         }
         return NextResponse.json({ ok: true });
       }
@@ -646,9 +668,18 @@ export async function POST(request: NextRequest) {
       }
 
       await telegramBot.sendNotification(chatId, answer);
+      logTelegramResponseSent({
+        chatId,
+        type: "ai_answer",
+        businessId: activeBusiness.id,
+        provider: activeBusinessProvider,
+        model: activeBusinessModel,
+        handoff: answer === AI_MANAGER_HANDOFF_MESSAGE,
+      });
     } else {
       console.error("[BUSINESS CONTEXT] slug/name/id", { slug: null, name: null, id: null });
       await telegramBot.sendNotification(chatId, "Сначала откройте нужный магазин в Mini App. Без выбранного бизнеса я не буду выдумывать товары и ответы.");
+      logTelegramResponseSent({ chatId, type: "business_context_missing" });
     }
 
     return NextResponse.json({ ok: true });
@@ -674,6 +705,7 @@ export async function POST(request: NextRequest) {
         webhookChatId,
         AI_MANAGER_HANDOFF_MESSAGE
       );
+      logTelegramResponseSent({ chatId: webhookChatId, type: "ai_error_handoff" });
     }
     return NextResponse.json({ ok: true });
   }

@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { Star, Store, Heart, ShoppingBag, Eye } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Store, Heart, ShoppingBag, Eye } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
 
 interface ClientFavoritesProps {
@@ -10,6 +11,7 @@ interface ClientFavoritesProps {
 }
 
 export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<"SHOPS" | "ITEMS">("SHOPS");
   const [data, setData] = useState<{ favoriteBusinesses: any[]; favoriteItems: any[] }>({
     favoriteBusinesses: [],
@@ -88,6 +90,19 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
       setError("Не удалось обновить избранное. Попробуйте ещё раз.");
       setTimeout(() => setError(null), 4000);
     }
+  };
+
+  const openFavoriteProduct = (fav: any) => {
+    const businessTarget = fav.business?.slug || fav.businessId;
+    const productId = fav.item?.id || fav.itemId;
+
+    if (!businessTarget || !productId) {
+      setError("Не удалось открыть товар: магазин или товар не найден.");
+      setTimeout(() => setError(null), 4000);
+      return;
+    }
+
+    router.push(`/app/${encodeURIComponent(businessTarget)}?product=${encodeURIComponent(productId)}`);
   };
 
   return (
@@ -208,7 +223,16 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
                 data.favoriteItems.map((fav) => (
                   <div
                     key={fav.id}
-                    className="flex items-center gap-3.5 rounded-3xl bg-white p-3 shadow-sm ring-1 ring-slate-100"
+                    onClick={() => openFavoriteProduct(fav)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openFavoriteProduct(fav);
+                      }
+                    }}
+                    className="flex cursor-pointer items-center gap-3.5 rounded-3xl bg-white p-3 shadow-sm ring-1 ring-slate-100 transition active:scale-[0.99]"
                   >
                     <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-slate-50 border text-slate-400 text-xl font-bold">
                       {fav.item?.imageUrl ? (
@@ -216,28 +240,33 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
                       ) : "📦"}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h4 className="truncate text-sm font-extrabold text-slate-900">{fav.item?.name || "Недоступно"}</h4>
-                      {fav.item?.isAvailable === false || fav.business?.isActive === false ? (
-                        <p className="text-[10px] font-black text-rose-600 mt-0.5">Недоступно</p>
-                      ) : (
-                        <p className="text-[10px] font-black text-indigo-600 mt-0.5">{fav.item?.price} ₽</p>
-                      )}
-                      <span className="text-[9px] font-semibold text-slate-400">Магазин: {fav.business?.name || "Недоступно"}</span>
+                      <h4 className="truncate text-sm font-extrabold text-slate-900">{fav.item?.name || "Товар"}</h4>
+                      <p className="text-[10px] font-black text-indigo-600 mt-0.5">
+                        {typeof fav.item?.price === "number" ? `${fav.item.price} ₽` : "Цена уточняется"}
+                      </p>
+                      <span className="text-[9px] font-semibold text-slate-400">Магазин: {fav.business?.name || fav.businessId || "не указан"}</span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <button
-                        onClick={() => removeFavorite(fav.businessId, fav.itemId)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          removeFavorite(fav.businessId, fav.itemId);
+                        }}
                         className="grid h-8 w-8 place-items-center rounded-xl bg-slate-50 text-rose-600 hover:bg-rose-50 transition"
                       >
                         <Heart size={14} fill="currentColor" />
                       </button>
-                      {fav.business?.slug && fav.item?.isAvailable !== false && fav.business?.isActive !== false ? (
-                        <Link
-                          href={`/app/${fav.business.slug}?product=${encodeURIComponent(fav.itemId)}`}
+                      {fav.business?.slug || fav.businessId ? (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openFavoriteProduct(fav);
+                          }}
                           className="grid h-8 w-8 place-items-center rounded-xl bg-slate-900 text-white hover:bg-indigo-600 transition"
                         >
                           <Eye size={14} />
-                        </Link>
+                        </button>
                       ) : (
                         <span className="grid h-8 w-8 place-items-center rounded-xl bg-slate-100 text-slate-400">
                           <Eye size={14} />

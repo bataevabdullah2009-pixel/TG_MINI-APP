@@ -221,7 +221,7 @@ export default function AdminBusinessesPage() {
 
                   {/* Actions */}
                   <div className="flex gap-2">
-                    <Link href={`/${biz.slug}`} target="_blank" className="flex-1">
+                    <Link href={`/app/${biz.slug}`} target="_blank" className="flex-1">
                       <Button variant="outline" size="sm" className="w-full text-xs">
                         👁️ Mini App
                       </Button>

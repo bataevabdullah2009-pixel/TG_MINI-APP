@@ -47,6 +47,18 @@ function paymentProofAiLabel(status: string) {
   return "Нужна ручная проверка";
 }
 
+const ACTIVE_ORDER_STATUSES = new Set([
+  "NEW",
+  "ACCEPTED",
+  "PREPARING",
+  "READY",
+  "READY_FOR_PICKUP",
+  "READY_FOR_DELIVERY",
+  "COURIER_ASSIGNED",
+  "PICKED_UP",
+  "DELIVERING",
+]);
+
 export function SellerHome({ session, businessId }: SellerHomeProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<
@@ -128,6 +140,31 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     fetchSellerData();
   }, [businessId]);
 
+  const updateOrderInStats = (updatedOrder: any) => {
+    setStats((current) => {
+      const orders = current.orders.map((order) =>
+        order.id === updatedOrder.id ? { ...order, ...updatedOrder } : order
+      );
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      const todayRevenue = orders
+        .filter((order: any) => new Date(order.createdAt) >= startOfDay)
+        .filter((order: any) => ["COMPLETED", "DELIVERED"].includes(order.status))
+        .reduce((sum: number, order: any) => sum + (order.totalPrice || 0), 0);
+      const activeOrders = orders.filter((order: any) => ACTIVE_ORDER_STATUSES.has(order.status)).length;
+      const activeBookings = current.bookings.filter((booking: any) =>
+        booking.status === "PENDING" || booking.status === "NEW" || booking.status === "CONFIRMED"
+      ).length;
+
+      return {
+        ...current,
+        todayRevenue,
+        activeQueue: activeOrders + activeBookings,
+        orders,
+      };
+    });
+  };
+
   const fetchSellerData = async () => {
     setLoading(true);
     try {
@@ -184,10 +221,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         .filter((o: any) => ["COMPLETED", "DELIVERED"].includes(o.status))
         .reduce((sum: number, o: any) => sum + (o.totalPrice || 0), 0);
 
-      const activeOrds = ords.filter((o: any) => [
-        "NEW", "ACCEPTED", "PREPARING", "READY", "READY_FOR_PICKUP", "READY_FOR_DELIVERY",
-        "COURIER_ASSIGNED", "PICKED_UP", "DELIVERING",
-      ].includes(o.status)).length;
+      const activeOrds = ords.filter((o: any) => ACTIVE_ORDER_STATUSES.has(o.status)).length;
       const activeBks = bks.filter((b: any) => b.status === "PENDING" || b.status === "NEW" || b.status === "CONFIRMED").length;
 
       setStats({
@@ -346,7 +380,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       const d = await res.json();
       if (res.ok && d.ok) {
         showSuccess("Статус заказа обновлен!");
-        fetchSellerData();
+        if (d.data) updateOrderInStats(d.data);
       } else {
         showError(d.error || "Не удалось обновить статус заказа");
       }
@@ -403,8 +437,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         return;
       }
       setAssigningOrderId(null);
-      showSuccess("Курьер назначен и получил уведомление.");
-      fetchSellerData();
+      showSuccess(data.notificationSent === false ? "Курьер назначен. Telegram-уведомление не отправилось." : "Курьер назначен и получил уведомление.");
+      if (data.order) updateOrderInStats(data.order);
     } catch {
       showError("Не удалось назначить курьера. Проверьте соединение и попробуйте снова.");
     }
