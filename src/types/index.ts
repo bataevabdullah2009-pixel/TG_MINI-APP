@@ -184,13 +184,15 @@ export interface Order {
   totalPrice: number;
   status: OrderStatus;
   deliveryType: "DELIVERY" | "PICKUP" | "NONE";
-  deliveryStatus?: "NONE" | "WAITING_COURIER" | "ASSIGNED" | "PICKED_UP" | "DELIVERED" | "CANCELLED" | "EXPIRED";
+  deliveryStatus?: "NONE" | "NEW" | "WAITING_COURIER" | "ASSIGNED" | "ACCEPTED_BY_COURIER" | "PICKED_UP" | "DELIVERED" | "CANCELLED" | "EXPIRED";
   deliveryZoneId?: string | null;
   deliveryZoneName?: string | null;
   deliveryCityArea?: string | null;
   paymentMethod?: "CASH" | "TRANSFER" | "TELEGRAM_STARS" | "YOOKASSA" | "MANUAL";
-  paymentStatus?: "PENDING" | "AWAITING_REVIEW" | "PAID" | "REJECTED" | "FAILED" | "REFUNDED";
+  paymentStatus?: "PENDING" | "AWAITING_REVIEW" | "PAID" | "PAYMENT_REJECTED" | "REJECTED" | "FAILED" | "REFUNDED";
   paymentProofUrl?: string | null;
+  paymentProofFileName?: string | null;
+  paymentProofMimeType?: string | null;
   paymentProofAiStatus?: string | null;
   paymentProofAiSummary?: string | null;
   paymentProofAiConfidence?: number | null;

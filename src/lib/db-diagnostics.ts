@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
+import { diagnoseSupabaseStorageBucket } from "@/lib/supabase-storage";
 
 export type DatabaseDiagnosticIssue = {
-  type: "connection_error" | "wrong_database" | "missing_table" | "missing_column" | "enum_value_missing";
+  type: "connection_error" | "wrong_database" | "missing_table" | "missing_column" | "enum_value_missing" | "storage_bucket_missing" | "storage_error";
   message: string;
   patch?: string;
   table?: string;
@@ -17,6 +18,7 @@ const BUSINESS_DEMO_PATCH = "docs/manual-add-business-is-demo.sql";
 const CHECKOUT_PATCH = "docs/manual-hotfix-polza-checkout-payment-flow.sql";
 const EXPIRATION_PATCH = "docs/manual-expire-bookings-orders.sql";
 const DELIVERY_PATCH = "docs/manual-courier-direct-links.sql";
+const PRODUCTION_STABILITY_PATCH = "docs/production-stability.sql";
 
 const REQUIRED_TABLES = [
   "User",
@@ -95,11 +97,13 @@ const REQUIRED_COLUMNS = [
   { table: "Customer", patch: CHECKOUT_PATCH, columns: ["isBlocked", "blockReason"] },
   {
     table: "Order",
-    patch: CHECKOUT_PATCH,
+    patch: PRODUCTION_STABILITY_PATCH,
     columns: [
       "paymentMethod",
       "paymentStatus",
       "paymentProofUrl",
+      "paymentProofFileName",
+      "paymentProofMimeType",
       "paymentProofAiStatus",
       "paymentProofAiSummary",
       "paymentProofAiConfidence",
@@ -111,7 +115,7 @@ const REQUIRED_COLUMNS = [
   { table: "Order", patch: EXPIRATION_PATCH, columns: ["expiredAt", "expireReason"] },
   {
     table: "Order",
-    patch: DELIVERY_PATCH,
+    patch: PRODUCTION_STABILITY_PATCH,
     columns: [
       "itemsSubtotal",
       "deliveryFee",
@@ -126,8 +130,8 @@ const REQUIRED_COLUMNS = [
   { table: "Booking", patch: EXPIRATION_PATCH, columns: ["expiredAt", "expireReason"] },
   {
     table: "OrderAttempt",
-    patch: CHECKOUT_PATCH,
-    columns: ["businessId", "telegramUserId", "phone", "success", "reason", "createdAt"],
+    patch: PRODUCTION_STABILITY_PATCH,
+    columns: ["businessId", "telegramUserId", "phone", "ipAddress", "success", "reason", "createdAt"],
   },
 ] as const;
 
@@ -141,11 +145,11 @@ const REQUIRED_ENUMS = [
   },
   {
     enum: "DeliveryStatus",
-    patch: DELIVERY_PATCH,
-    values: ["NONE", "WAITING_COURIER", "ASSIGNED", "PICKED_UP", "DELIVERED", "CANCELLED", "EXPIRED"],
+    patch: PRODUCTION_STABILITY_PATCH,
+    values: ["NONE", "NEW", "WAITING_COURIER", "ASSIGNED", "ACCEPTED_BY_COURIER", "PICKED_UP", "DELIVERED", "CANCELLED", "EXPIRED"],
   },
   { enum: "BookingStatus", patch: EXPIRATION_PATCH, values: ["PENDING", "EXPIRED"] },
-  { enum: "PaymentStatus", patch: CHECKOUT_PATCH, values: ["AWAITING_REVIEW", "REJECTED"] },
+  { enum: "PaymentStatus", patch: PRODUCTION_STABILITY_PATCH, values: ["AWAITING_REVIEW", "PAYMENT_REJECTED"] },
 ] as const;
 
 function configuredDatabaseName(value?: string) {
@@ -158,7 +162,7 @@ function configuredDatabaseName(value?: string) {
 }
 
 export async function runDatabaseDiagnostics() {
-  const [identityRows, tableRows, columnRows, enumRows] = await Promise.all([
+  const [identityRows, tableRows, columnRows, enumRows, storage] = await Promise.all([
     prisma.$queryRaw<Array<{ database: string; schema: string }>>`
       SELECT current_database() AS database, current_schema() AS schema
     `,
@@ -175,6 +179,7 @@ export async function runDatabaseDiagnostics() {
       JOIN pg_namespace n ON n.oid = t.typnamespace
       WHERE n.nspname = 'public'
     `,
+    diagnoseSupabaseStorageBucket(),
   ]);
 
   const identity = identityRows[0] || { database: "unknown", schema: "unknown" };
@@ -242,9 +247,18 @@ export async function runDatabaseDiagnostics() {
     }
   }
 
+  if (!storage.ok) {
+    issues.push({
+      type: "status" in storage && storage.status === 404 ? "storage_bucket_missing" : "storage_error",
+      patch: PRODUCTION_STABILITY_PATCH,
+      message: storage.error,
+    });
+  }
+
   return {
     ok: issues.length === 0,
     identity,
+    storage,
     summary: {
       tables: tables.size,
       columns: columns.size,

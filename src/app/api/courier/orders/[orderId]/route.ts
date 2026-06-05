@@ -48,6 +48,16 @@ export async function POST(request: NextRequest, context: { params: Promise<{ or
       return NextResponse.json({ ok: false, code: "DELIVERY_ALREADY_TAKEN", error: "Заказ уже взял другой курьер." }, { status: 409 });
     }
 
+    await prisma.$transaction([
+      prisma.deliveryAssignment.update({
+        where: { orderId },
+        data: { status: "ACCEPTED_BY_COURIER" },
+      }),
+      prisma.order.update({
+        where: { id: orderId },
+        data: { deliveryStatus: "ACCEPTED_BY_COURIER" },
+      }),
+    ]);
     await NotificationService.notifyCourierAssigned(orderId, access.courier.id).catch((error) =>
       console.warn(`[COURIER] Assignment notification failed for ${orderId}:`, error)
     );
@@ -55,10 +65,27 @@ export async function POST(request: NextRequest, context: { params: Promise<{ or
     return NextResponse.json(toJsonSafe({ ok: true, order: updated }));
   }
 
-  if (action === "PICKED_UP") {
+  if (action === "ACCEPT") {
     const changed = await prisma.$transaction(async (tx) => {
       const assignment = await tx.deliveryAssignment.updateMany({
         where: { orderId, courierId: access.courier!.id, status: "ASSIGNED" },
+        data: { status: "ACCEPTED_BY_COURIER" },
+      });
+      if (assignment.count !== 1) return false;
+      await tx.order.update({
+        where: { id: orderId },
+        data: { deliveryStatus: "ACCEPTED_BY_COURIER" },
+      });
+      return true;
+    });
+    if (!changed) return NextResponse.json({ ok: false, error: "Доставка уже принята или недоступна." }, { status: 409 });
+    return NextResponse.json(toJsonSafe({ ok: true, order: await loadCourierOrder(orderId) }));
+  }
+
+  if (action === "PICKED_UP") {
+    const changed = await prisma.$transaction(async (tx) => {
+      const assignment = await tx.deliveryAssignment.updateMany({
+        where: { orderId, courierId: access.courier!.id, status: "ACCEPTED_BY_COURIER" },
         data: { status: "PICKED_UP", pickedUpAt: new Date() },
       });
       if (assignment.count !== 1) return false;

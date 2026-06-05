@@ -17,9 +17,8 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const value = searchParams.get("businessId") || session.businessId || undefined;
-    const business = value
-      ? await prisma.business.findFirst({ where: { OR: [{ id: value }, { slug: value }] }, select: adminAiBusinessSelect })
-      : await prisma.business.findFirst({ where: { isActive: true }, select: adminAiBusinessSelect });
+    if (!value) return jsonError("Выберите бизнес для ИИ-маркетинга.", 400);
+    const business = await prisma.business.findFirst({ where: { OR: [{ id: value }, { slug: value }] }, select: adminAiBusinessSelect });
 
     if (!business) return jsonError("Бизнес не найден.", 404);
     if (!canUseBusiness(session, business.id)) return jsonError("Нет доступа к этому бизнесу.", 403);
@@ -31,8 +30,8 @@ export async function GET(request: NextRequest) {
       businessName: business.name,
       businessType: business.type,
       templateKey: business.templateKey,
-      provider: routing?.provider || "mock",
-      model: routing?.model || "mock",
+      provider: routing?.provider || (process.env.NODE_ENV === "production" ? "polza" : "mock"),
+      model: routing?.model || "not-configured",
       plan: routing?.plan || "FREE",
       dailyLimit: routing?.dailyLimit || 5,
       maxTokens: routing?.maxTokens || 300,

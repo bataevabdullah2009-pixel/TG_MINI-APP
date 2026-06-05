@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { CalendarDays, LayoutGrid, List, Package, Search, X } from "lucide-react";
 import { PhoneVerificationScreen } from "@/components/app/PhoneVerificationScreen";
 import { FullScreenCheckout } from "@/components/storefront/FullScreenCheckout";
@@ -12,6 +12,8 @@ import { CartBar } from "@/components/storefront/CartBar";
 import { CategoryTabs } from "@/components/storefront/CategoryTabs";
 import { ProductGrid } from "@/components/storefront/ProductGrid";
 import type { StorefrontBusiness as Business, StorefrontCartLine as CartItem, StorefrontItem as Item } from "@/components/storefront/types";
+import { miniAppFetch } from "@/lib/miniAppFetch";
+import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 
 type Staff = { id: string; name: string; role?: string | null };
 
@@ -50,6 +52,7 @@ function isoDate(offset = 0) {
 
 export default function BusinessMiniAppPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const slug = String(params.businessSlug || "");
   const [business, setBusiness] = useState<Business | null>(null);
   const [items, setItems] = useState<Item[]>([]);
@@ -75,11 +78,13 @@ export default function BusinessMiniAppPage() {
   const [favoriteToast, setFavoriteToast] = useState("");
   const [businessFavorited, setBusinessFavorited] = useState(false);
   const [favoriteProductIds, setFavoriteProductIds] = useState<string[]>([]);
-  const [needsPhoneVerification, setNeedsPhoneVerification] = useState(false);
+  const [needsPhoneVerification, setNeedsPhoneVerification] = useState(true);
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", address: "", deliveryType: "PICKUP", deliveryZoneId: "", comment: "" });
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "TRANSFER">("CASH");
   const [paymentProofUrl, setPaymentProofUrl] = useState("");
+  const [paymentProofFileName, setPaymentProofFileName] = useState("");
+  const [paymentProofMimeType, setPaymentProofMimeType] = useState("");
   const [paymentProofUploading, setPaymentProofUploading] = useState(false);
 
   useEffect(() => {
@@ -116,6 +121,14 @@ export default function BusinessMiniAppPage() {
   }, [slug]);
 
   useEffect(() => {
+    const itemId = searchParams.get("item");
+    if (!itemId || items.length === 0) return;
+
+    const item = items.find((candidate) => candidate.id === itemId);
+    if (item) setSelectedPreviewItem(item);
+  }, [items, searchParams]);
+
+  useEffect(() => {
     if (!business) return undefined;
 
     const user = telegramUser();
@@ -125,8 +138,8 @@ export default function BusinessMiniAppPage() {
     const telegramUserId = String(user.id);
 
     Promise.all([
-      fetch(`/api/favorites/business?telegramUserId=${encodeURIComponent(telegramUserId)}&slug=${encodeURIComponent(slug)}`).then((res) => res.json()),
-      fetch(`/api/favorites/product?telegramUserId=${encodeURIComponent(telegramUserId)}`).then((res) => res.json()),
+      miniAppFetch(`/api/favorites/business?telegramUserId=${encodeURIComponent(telegramUserId)}&slug=${encodeURIComponent(slug)}`).then((res) => res.json()),
+      miniAppFetch(`/api/favorites/product?telegramUserId=${encodeURIComponent(telegramUserId)}`).then((res) => res.json()),
     ])
       .then(([businessRes, productRes]) => {
         if (cancelled) return;
@@ -138,6 +151,45 @@ export default function BusinessMiniAppPage() {
         }
       })
       .catch((error) => console.warn("[Storefront favorites] Could not load favorites:", error));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [business, slug]);
+
+  useEffect(() => {
+    if (!business) return undefined;
+    const initData = (window as any).Telegram?.WebApp?.initData || sessionStorage.getItem("tgInitData") || "";
+    if (!initData) {
+      setNeedsPhoneVerification(true);
+      return undefined;
+    }
+
+    let cancelled = false;
+    miniAppFetch(`/api/customer/profile?businessSlug=${encodeURIComponent(slug)}`)
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) throw new Error(data.error || "Не удалось проверить телефон.");
+        return data;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        const customer = data.customer || {};
+        const normalizedPhone = normalizeRuPhone(customer.phone) || "";
+        const nameParts = String(customer.name || data.telegramName || "").trim().split(/\s+/).filter(Boolean);
+        setForm((current) => ({
+          ...current,
+          firstName: current.firstName || nameParts[0] || "",
+          lastName: current.lastName || nameParts.slice(1).join(" "),
+          phone: normalizedPhone,
+          address: current.address || customer.address || "",
+        }));
+        setNeedsPhoneVerification(!customer.phoneVerified || !normalizedPhone);
+      })
+      .catch((error) => {
+        console.warn("[Storefront profile] Phone verification state unavailable:", error);
+        if (!cancelled) setNeedsPhoneVerification(true);
+      });
 
     return () => {
       cancelled = true;
@@ -163,6 +215,8 @@ export default function BusinessMiniAppPage() {
     if (!business?.transferPaymentEnabled) {
       setPaymentMethod("CASH");
       setPaymentProofUrl("");
+      setPaymentProofFileName("");
+      setPaymentProofMimeType("");
     }
   }, [business?.transferPaymentEnabled]);
 
@@ -230,7 +284,7 @@ export default function BusinessMiniAppPage() {
     setBusinessFavorited(next);
 
     try {
-      const res = await fetch("/api/favorites/business", {
+      const res = await miniAppFetch("/api/favorites/business", {
         method: next ? "POST" : "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -262,7 +316,7 @@ export default function BusinessMiniAppPage() {
     setFavoriteProductIds(next);
 
     try {
-      const res = await fetch("/api/favorites/product", {
+      const res = await miniAppFetch("/api/favorites/product", {
         method: isFavorite ? "DELETE" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -299,7 +353,7 @@ export default function BusinessMiniAppPage() {
       return;
     }
     try {
-      const res = await fetch(`/api/businesses/${slug}/orders`, {
+      const res = await miniAppFetch(`/api/businesses/${slug}/orders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -313,6 +367,8 @@ export default function BusinessMiniAppPage() {
           username: user?.username,
           paymentMethod,
           paymentProofUrl: paymentMethod === "TRANSFER" ? paymentProofUrl : undefined,
+          paymentProofFileName: paymentMethod === "TRANSFER" ? paymentProofFileName : undefined,
+          paymentProofMimeType: paymentMethod === "TRANSFER" ? paymentProofMimeType : undefined,
           items: cart.map((line) => ({ itemId: line.item.id, quantity: line.quantity })),
         }),
       });
@@ -322,6 +378,8 @@ export default function BusinessMiniAppPage() {
         setCart([]);
         setCheckoutOpen(false);
         setPaymentProofUrl("");
+        setPaymentProofFileName("");
+        setPaymentProofMimeType("");
         setPaymentMethod("CASH");
         setSuccess("Заказ оформлен. Продавец уже получил уведомление.");
       } else {
@@ -341,14 +399,12 @@ export default function BusinessMiniAppPage() {
     setCheckoutError("");
     setPaymentProofUploading(true);
     try {
-      const initData = (window as any).Telegram?.WebApp?.initData || sessionStorage.getItem("tgInitData") || "";
       const formData = new FormData();
       formData.append("businessId", business.id);
       formData.append("file", file);
 
-      const res = await fetch("/api/orders/payment-proof", {
+      const res = await miniAppFetch("/api/orders/payment-proof", {
         method: "POST",
-        headers: initData ? { "x-telegram-init-data": initData } : undefined,
         body: formData,
       });
       const data = await res.json().catch(() => ({}));
@@ -356,8 +412,12 @@ export default function BusinessMiniAppPage() {
         throw new Error(data.error || "Не удалось загрузить чек.");
       }
       setPaymentProofUrl(data.url || data.publicUrl || "");
+      setPaymentProofFileName(data.fileName || file.name);
+      setPaymentProofMimeType(data.mimeType || file.type);
     } catch (error) {
       setPaymentProofUrl("");
+      setPaymentProofFileName("");
+      setPaymentProofMimeType("");
       setCheckoutError(error instanceof Error ? error.message : "Не удалось загрузить чек.");
     } finally {
       setPaymentProofUploading(false);
@@ -369,7 +429,7 @@ export default function BusinessMiniAppPage() {
     if (!selectedService || !selectedTime) return;
     const user = telegramUser();
     const startTime = new Date(`${selectedDate}T${selectedTime}:00`);
-    const res = await fetch(`/api/businesses/${slug}/bookings`, {
+    const res = await miniAppFetch(`/api/businesses/${slug}/bookings`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -551,6 +611,7 @@ export default function BusinessMiniAppPage() {
           paymentMethod={paymentMethod}
           setPaymentMethod={setPaymentMethod}
           paymentProofUrl={paymentProofUrl}
+          paymentProofFileName={paymentProofFileName}
           paymentProofUploading={paymentProofUploading}
           onPaymentProofUpload={handlePaymentProofUpload}
           checkoutError={checkoutError}
@@ -714,7 +775,7 @@ function ContactFields({
         <input required value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="Имя" className="rounded-2xl border px-4 py-3 text-sm" />
         <input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="Фамилия" className="rounded-2xl border px-4 py-3 text-sm" />
       </div>
-      <input required value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+7 (999) 999-99-99" className="w-full rounded-2xl border px-4 py-3 text-sm" />
+      <input required value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+79991234567" className="w-full rounded-2xl border px-4 py-3 text-sm" />
       {showAddress && <input required value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Адрес доставки" className="w-full rounded-2xl border px-4 py-3 text-sm" />}
       <textarea value={form.comment} onChange={(e) => setForm({ ...form, comment: e.target.value })} placeholder="Комментарий" className="h-20 w-full resize-none rounded-2xl border px-4 py-3 text-sm" />
     </>

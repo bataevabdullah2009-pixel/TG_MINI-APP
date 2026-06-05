@@ -1,21 +1,18 @@
 export type ProductCardJson = {
-  name: string;
+  title: string;
+  shortDescription: string;
   description: string;
-  category: string;
-  marketingText: string;
-  imagePrompt: string;
+  categorySuggestion: string;
+  tags: string[];
+  tgPost: string;
 };
 
 export type PaymentProofAnalysisJson = {
-  status: "LIKELY_VALID" | "SUSPICIOUS" | "INVALID" | "UNREADABLE";
+  isReceipt: boolean;
+  amount: number | null;
+  date: string | null;
   confidence: number;
-  amountFound: number | null;
-  dateFound: string | null;
-  recipientFound: string | null;
-  phoneOrCardFound: string | null;
-  bankFound: string | null;
-  problems: string[];
-  summary: string;
+  comment: string;
 };
 
 export function aiRawPreview(raw: string, limit = 200) {
@@ -75,39 +72,37 @@ function requiredString(value: unknown, field: string) {
 
 export function validateProductCardJson(value: unknown): ProductCardJson {
   const input = value as Partial<ProductCardJson> & {
+    name?: unknown;
+    category?: unknown;
+    marketingText?: unknown;
+    telegramPost?: unknown;
     categorySuggestion?: unknown;
-    marketing?: unknown;
-    image_prompt?: unknown;
   };
 
+  const tgPost = requiredString(input.tgPost ?? input.telegramPost ?? input.marketingText, "tgPost");
   return {
-    name: requiredString(input.name, "name"),
+    title: requiredString(input.title ?? input.name, "title"),
+    shortDescription: requiredString(input.shortDescription ?? input.marketingText ?? tgPost.slice(0, 160), "shortDescription"),
     description: requiredString(input.description, "description"),
-    category: requiredString(input.category ?? input.categorySuggestion, "category"),
-    marketingText: requiredString(input.marketingText ?? input.marketing, "marketingText"),
-    imagePrompt: requiredString(input.imagePrompt ?? input.image_prompt, "imagePrompt"),
+    categorySuggestion: requiredString(input.categorySuggestion ?? input.category, "categorySuggestion"),
+    tags: Array.isArray(input.tags) ? input.tags.map(String).map((tag) => tag.trim()).filter(Boolean).slice(0, 12) : [],
+    tgPost,
   };
 }
 
 export function validatePaymentProofAnalysisJson(value: unknown): PaymentProofAnalysisJson {
   const input = value as Partial<PaymentProofAnalysisJson>;
-  const status = input.status;
-
-  if (!["LIKELY_VALID", "SUSPICIOUS", "INVALID", "UNREADABLE"].includes(String(status))) {
-    throw new Error("Invalid payment proof AI status.");
+  if (typeof input.isReceipt !== "boolean") {
+    throw new Error("Invalid payment proof AI isReceipt value.");
   }
 
   const confidence = Number(input.confidence);
 
   return {
-    status: status as PaymentProofAnalysisJson["status"],
+    isReceipt: input.isReceipt,
+    amount: typeof input.amount === "number" && Number.isFinite(input.amount) ? input.amount : null,
+    date: typeof input.date === "string" && input.date.trim() ? input.date.trim() : null,
     confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(100, Math.round(confidence))) : 0,
-    amountFound: typeof input.amountFound === "number" && Number.isFinite(input.amountFound) ? input.amountFound : null,
-    dateFound: typeof input.dateFound === "string" && input.dateFound.trim() ? input.dateFound.trim() : null,
-    recipientFound: typeof input.recipientFound === "string" && input.recipientFound.trim() ? input.recipientFound.trim() : null,
-    phoneOrCardFound: typeof input.phoneOrCardFound === "string" && input.phoneOrCardFound.trim() ? input.phoneOrCardFound.trim() : null,
-    bankFound: typeof input.bankFound === "string" && input.bankFound.trim() ? input.bankFound.trim() : null,
-    problems: Array.isArray(input.problems) ? input.problems.map(String).filter(Boolean).slice(0, 10) : [],
-    summary: requiredString(input.summary, "summary").slice(0, 600),
+    comment: requiredString(input.comment, "comment").slice(0, 600),
   };
 }

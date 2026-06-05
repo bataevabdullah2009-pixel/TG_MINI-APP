@@ -68,27 +68,28 @@ export async function getTelegramSessionUser(initData: string, businessId?: stri
 
   const telegramUserId = BigInt(tgUser.id);
 
-  // In production, we optionally validate
-  if (process.env.NODE_ENV === "production" && process.env.VALIDATE_TELEGRAM_DATA === "true") {
-    let token = process.env.TELEGRAM_BOT_TOKEN || "";
+  const shouldValidate = process.env.NODE_ENV === "production" || process.env.VALIDATE_TELEGRAM_DATA === "true";
+  if (shouldValidate) {
+    const tokens = [process.env.TELEGRAM_BOT_TOKEN || ""];
     
-    // If businessId is specified, fetch its bot token for white-label validation
     if (businessId) {
       const biz = await prisma.business.findUnique({
         where: { id: businessId },
         select: { telegramBotToken: true },
       });
       if (biz?.telegramBotToken) {
-        token = biz.telegramBotToken;
+        tokens.unshift(biz.telegramBotToken);
       }
     }
 
-    if (token) {
-      const isValid = verifyTelegramInitData(initData, token);
-      if (!isValid) {
-        console.warn(`[getTelegramSessionUser] Invalid initData signature for user ${tgUser.id}`);
-        return null;
-      }
+    const configuredTokens = Array.from(new Set(tokens.filter(Boolean)));
+    if (configuredTokens.length === 0) {
+      console.error("[TELEGRAM AUTH] No bot token is configured for initData validation.");
+      return null;
+    }
+    if (!configuredTokens.some((token) => verifyTelegramInitData(initData, token))) {
+      console.warn(`[getTelegramSessionUser] Invalid initData signature for user ${tgUser.id}`);
+      return null;
     }
   }
 

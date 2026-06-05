@@ -210,6 +210,11 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
                               {order.deliveryAssignment?.courier && <div className="font-bold text-indigo-700">Курьер: {order.deliveryAssignment.courier.name}</div>}
                             </div>
                           )}
+                          {(order.paymentStatus === "PAYMENT_REJECTED" || order.paymentStatus === "REJECTED") && (
+                            <div className="mt-2 rounded-xl bg-rose-50 p-2 font-bold text-rose-700 ring-1 ring-rose-100">
+                              Оплата отклонена продавцом. {order.paymentRejectReason || "Свяжитесь с продавцом или загрузите корректный чек."}
+                            </div>
+                          )}
                           {order.comment && (
                             <div className="mt-1 text-slate-500 bg-slate-50 p-2 rounded-xl italic">
                               <span className="font-bold block text-[9px] text-slate-400">КОММЕНТАРИЙ</span>

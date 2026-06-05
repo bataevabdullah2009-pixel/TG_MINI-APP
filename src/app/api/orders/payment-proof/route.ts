@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTelegramSessionUser } from "@/lib/auth-telegram";
 import { prisma } from "@/lib/prisma";
-import { bucketForUploadType, publicUploadErrorMessage, uploadPdfToSupabaseStorage } from "@/lib/supabase-storage";
+import {
+  bucketForUploadType,
+  normalizePaymentProofMimeType,
+  publicUploadErrorMessage,
+  uploadPaymentProofToSupabaseStorage,
+} from "@/lib/supabase-storage";
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,7 +40,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: "Нужна авторизация через Telegram." }, { status: 401 });
     }
 
-    const uploaded = await uploadPdfToSupabaseStorage({
+    const mimeType = normalizePaymentProofMimeType(file);
+    const uploaded = await uploadPaymentProofToSupabaseStorage({
       file,
       bucket: bucketForUploadType("payment-proof"),
       folder: `${business.slug}/payment-proofs`,
@@ -47,14 +53,24 @@ export async function POST(request: NextRequest) {
         type: "payment-proof",
         url: uploaded.publicUrl,
         filename: uploaded.filename,
-        mimeType: file.type,
+        mimeType,
         size: file.size,
       },
+    }).catch((error) => {
+      console.warn("[PAYMENT PROOF UPLOAD] File uploaded, but MediaAsset log could not be saved:", error);
     });
 
-    return NextResponse.json({ ok: true, url: uploaded.publicUrl, publicUrl: uploaded.publicUrl });
+    return NextResponse.json({
+      ok: true,
+      url: uploaded.publicUrl,
+      publicUrl: uploaded.publicUrl,
+      fileName: file.name,
+      mimeType,
+    });
   } catch (error) {
     console.error("POST /api/orders/payment-proof failed:", error);
-    return NextResponse.json({ ok: false, error: publicUploadErrorMessage(error) }, { status: 500 });
+    const message = publicUploadErrorMessage(error);
+    const status = /Чек должен быть|Файл чека должен быть|Файл не похож/.test(message) ? 400 : 500;
+    return NextResponse.json({ ok: false, error: message }, { status });
   }
 }

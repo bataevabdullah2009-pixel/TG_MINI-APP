@@ -32,7 +32,11 @@ export function buildBusinessShareLinks(businessSlug: string) {
   const slug = businessSlug.trim().replace(/^\/+|\/+$/g, "");
   const configuredWebAppUrl = process.env.NEXT_PUBLIC_WEBAPP_URL || process.env.NEXT_PUBLIC_APP_URL || "";
   const runtimeOrigin = typeof window !== "undefined" ? window.location.origin : "";
-  const publicUrl = [configuredWebAppUrl, runtimeOrigin].find(isSafePublicUrl) || "";
+  const publicUrl = (
+    process.env.NODE_ENV === "production"
+      ? [configuredWebAppUrl]
+      : [configuredWebAppUrl, runtimeOrigin]
+  ).find(isSafePublicUrl) || "";
   const baseUrl = publicUrl ? normalizeMiniAppBase(publicUrl) : "";
 
   const botUsername = cleanTelegramName(process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "");

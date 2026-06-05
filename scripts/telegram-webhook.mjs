@@ -2,6 +2,7 @@ import "dotenv/config";
 
 const action = process.argv[2];
 const token = process.env.TELEGRAM_BOT_TOKEN;
+const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim() || "";
 
 function fail(message) {
   console.error(message);
@@ -54,6 +55,17 @@ function webhookUrl() {
     : `${appBaseUrl()}/api/telegram/webhook`;
 }
 
+function assertWebhookSecret() {
+  if (!webhookSecret) {
+    if (process.env.NODE_ENV === "production") fail("TELEGRAM_WEBHOOK_SECRET is required in production.");
+    return "";
+  }
+  if (!/^[A-Za-z0-9_-]{1,256}$/.test(webhookSecret)) {
+    fail("TELEGRAM_WEBHOOK_SECRET must contain 1-256 characters: A-Z, a-z, 0-9, _ or -.");
+  }
+  return webhookSecret;
+}
+
 async function callTelegram(method, params = {}) {
   if (!token) fail("TELEGRAM_BOT_TOKEN is required.");
   const url = new URL(`https://api.telegram.org/bot${token}/${method}`);
@@ -68,7 +80,8 @@ async function callTelegram(method, params = {}) {
 if (action === "info") {
   await callTelegram("getWebhookInfo");
 } else if (action === "set") {
-  await callTelegram("setWebhook", { url: webhookUrl() });
+  const secret = assertWebhookSecret();
+  await callTelegram("setWebhook", { url: webhookUrl(), ...(secret ? { secret_token: secret } : {}) });
 } else if (action === "delete") {
   await callTelegram("deleteWebhook");
 } else {

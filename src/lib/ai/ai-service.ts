@@ -20,7 +20,7 @@ export function resolveAIProviderName(providerName?: string | null) {
   const businessProvider = providerName?.trim().toLowerCase();
   if (businessProvider && businessProvider !== "mock") return businessProvider;
 
-  return businessProvider || "mock";
+  return process.env.NODE_ENV === "production" ? "polza" : businessProvider || "mock";
 }
 
 export function getAIProviderConfig(providerName?: string | null, modelName?: string | null): AIProvider {
@@ -33,6 +33,10 @@ export function getAIProviderConfig(providerName?: string | null, modelName?: st
   }
 
   if (provider === "mock") {
+    if (process.env.NODE_ENV === "production") {
+      console.error("[AI CONFIG ERROR] Mock AI is disabled in production");
+      throw new AIConfigurationError("Mock AI is disabled in production");
+    }
     return new MockAIProvider();
   }
 
@@ -140,9 +144,9 @@ export class AIService {
         error instanceof AIConfigurationError ||
         String((error as Error)?.message || "").includes("POLZA_AI_API_KEY missing")
       ) {
-        return "AI-помощник временно недоступен: на сервере не настроен ключ Polza AI. Администратор уже может увидеть [AI CONFIG ERROR] в логах.";
+        return "ИИ временно недоступен. Попробуйте позже.";
       }
-      return "Не получилось получить живой ответ от Polza AI. Попробуйте отправить сообщение ещё раз через минуту.";
+      return "ИИ временно недоступен. Попробуйте позже.";
     }
   }
 

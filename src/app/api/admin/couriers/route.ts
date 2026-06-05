@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     where: { businessId },
     include: {
       assignments: {
-        where: { status: { in: ["ASSIGNED", "PICKED_UP"] } },
+        where: { status: { in: ["ASSIGNED", "ACCEPTED_BY_COURIER", "PICKED_UP"] } },
         include: { order: { select: { id: true, status: true, customerAddress: true } } },
       },
     },

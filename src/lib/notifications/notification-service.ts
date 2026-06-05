@@ -189,7 +189,7 @@ export class NotificationService {
         deliveryZone: true,
       },
     });
-    if (!order || order.deliveryStatus !== "WAITING_COURIER") return;
+    if (!order || !["NEW", "WAITING_COURIER"].includes(order.deliveryStatus)) return;
 
     const couriers = await prisma.courier.findMany({
       where: { businessId: order.businessId, isActive: true },
@@ -235,15 +235,19 @@ export class NotificationService {
     const seller = sellerChatId(order.business);
 
     if (courierChat) {
-      await telegramBot.sendNotification(courierChat, `<b>Заказ назначен вам</b>\nЗаказ #${order.id.slice(-6).toUpperCase()}\nАдрес: ${escapeTelegramHtml(order.customerAddress || "не указан")}`);
+      await telegramBot.sendNotification(
+        courierChat,
+        `<b>Заказ назначен вам</b>\nЗаказ #${order.id.slice(-6).toUpperCase()}\nАдрес: ${escapeTelegramHtml(order.customerAddress || "не указан")}`,
+        { reply_markup: { inline_keyboard: [[{ text: "Принять доставку", web_app: { url: adminUrl("/courier/orders") } }]] } }
+      );
     } else {
       console.warn(`Courier assigned notification skipped for courier ${courier.id}: no telegram id.`);
     }
     if (seller) {
-      await telegramBot.sendNotification(seller, `Курьер <b>${courierName}</b> взял заказ #${order.id.slice(-6).toUpperCase()}.`);
+      await telegramBot.sendNotification(seller, `Курьер <b>${courierName}</b> назначен на заказ #${order.id.slice(-6).toUpperCase()}.`);
     }
     if (order.customer?.telegramUserId) {
-      await telegramBot.sendNotification(order.customer.telegramUserId.toString(), `${escapeTelegramHtml(order.business.name)}: курьер ${courierName} взял ваш заказ.`);
+      await telegramBot.sendNotification(order.customer.telegramUserId.toString(), `${escapeTelegramHtml(order.business.name)}: на ваш заказ назначен курьер ${courierName}.`);
     } else {
       console.warn(`Courier assigned customer notification skipped for order ${order.id}: no telegram id.`);
     }

@@ -29,15 +29,7 @@ const typeContext: Record<string, string> = {
   CARWASH: "Автомойка: мойка, химчистка, сезонные акции, запись. Не пиши про стрижки или шаурму.",
 };
 
-const PRODUCT_CARD_FORMAT_ERROR = "Polza AI не удалось преобразовать ответ в карточку товара. Уточните название и характеристики, затем повторите.";
-
-type ProductCard = {
-  name: string;
-  description: string;
-  category: string;
-  marketingText: string;
-  imagePrompt: string;
-};
+const PRODUCT_CARD_FORMAT_ERROR = "ИИ вернул неверный формат. Попробуйте ещё раз.";
 
 function cleanJsonText(value: string) {
   return value
@@ -48,7 +40,7 @@ function cleanJsonText(value: string) {
     .trim();
 }
 
-function parseProductCardResponse(raw: string): ProductCard {
+function parseProductCardResponse(raw: string) {
   return safeParseAiJson(raw, validateProductCardJson);
 }
 
@@ -73,7 +65,7 @@ export async function POST(request: NextRequest) {
       ? await prisma.business.findUnique({ where: { id: body.businessId }, select: aiGenerateBusinessSelect })
       : session.businessId
         ? await prisma.business.findUnique({ where: { id: session.businessId }, select: aiGenerateBusinessSelect })
-        : await prisma.business.findFirst({ where: { isActive: true }, select: aiGenerateBusinessSelect });
+        : null;
 
     if (!business) return jsonError("Бизнес не найден.", 404);
     if (!canUseBusiness(session, business.id)) return jsonError("Нет доступа к этому бизнесу.", 403);
@@ -102,11 +94,12 @@ export async function POST(request: NextRequest) {
     if (isProductCard) {
       goal += ` ВНИМАНИЕ: Верни строго валидный JSON без какого-либо дополнительного текста, markdown разметки или бэкквотов (без \`\`\`json). JSON должен строго соответствовать следующей схеме:
       {
-        "name": "Название товара",
+        "title": "Название товара",
+        "shortDescription": "Короткое описание",
         "description": "Продающее описание товара",
-        "category": "Название категории",
-        "marketingText": "Короткий текст для рекламы/поста в Telegram",
-        "imagePrompt": "Промпт для генерации фото товара"
+        "categorySuggestion": "Название категории",
+        "tags": ["тег"],
+        "tgPost": "Пост для Telegram"
       }`;
     }
 
@@ -144,7 +137,21 @@ export async function POST(request: NextRequest) {
     let usedProvider = provider.name;
 
     try {
-      content = await provider.generateContent(input);
+      if (isProductCard && body.imageUrl && provider.analyzeImageJson) {
+        content = await provider.analyzeImageJson({
+          imageUrl: String(body.imageUrl),
+          model: process.env.POLZA_VISION_MODEL || routing.model,
+          system: [
+            "Создай карточку товара по фото и данным продавца.",
+            "Верни только строгий JSON без markdown.",
+            "Схема: {\"title\":\"string\",\"shortDescription\":\"string\",\"description\":\"string\",\"categorySuggestion\":\"string\",\"tags\":[\"string\"],\"tgPost\":\"string\"}.",
+            "Не выдумывай факты и цену.",
+          ].join(" "),
+          user: input.productOrService,
+        });
+      } else {
+        content = await provider.generateContent(input);
+      }
     } catch (error) {
       console.error("AI provider failed:", error);
       await incrementAiUsage(business.id, feature, usedProvider, routing.model, JSON.stringify(input).length, "FAILED");
@@ -183,7 +190,7 @@ export async function POST(request: NextRequest) {
                 system: "Преобразуй ответ в строгий JSON карточки товара. Верни только JSON без markdown и пояснений.",
                 user: [
                   "Схема:",
-                  "{\"name\":\"string\",\"description\":\"string\",\"category\":\"string\",\"marketingText\":\"string\",\"imagePrompt\":\"string\"}",
+                  "{\"title\":\"string\",\"shortDescription\":\"string\",\"description\":\"string\",\"categorySuggestion\":\"string\",\"tags\":[\"string\"],\"tgPost\":\"string\"}",
                   "Исходный ответ:",
                   content,
                 ].join("\n"),
@@ -193,7 +200,7 @@ export async function POST(request: NextRequest) {
                 ...input,
                 productOrService: [
                   "Исправь этот ответ в валидный JSON строго по схеме:",
-                  "{\"name\":\"string\",\"description\":\"string\",\"category\":\"string\",\"marketingText\":\"string\",\"imagePrompt\":\"string\"}",
+                  "{\"title\":\"string\",\"shortDescription\":\"string\",\"description\":\"string\",\"categorySuggestion\":\"string\",\"tags\":[\"string\"],\"tgPost\":\"string\"}",
                   "Верни только JSON без markdown и пояснений.",
                   "",
                   "Исходный ответ:",

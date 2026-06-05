@@ -11,9 +11,11 @@ import { Input } from "@/components/ui/input";
 import { Business } from "@/types";
 import { apiClient } from "@/lib/api-client";
 import { formatPrice } from "@/lib/utils";
+import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 import { useTelegram } from "@/hooks/useTelegram";
 import Link from "next/link";
 import { PhoneVerificationScreen } from "@/components/app/PhoneVerificationScreen";
+import { BottomSheetPicker } from "@/components/ui/BottomSheetPicker";
 import {
   User,
   Phone,
@@ -33,7 +35,7 @@ import {
 
 const CheckoutSchema = z.object({
   customerName: z.string().min(2, "Введите имя (мин. 2 символа)"),
-  customerPhone: z.string().min(10, "Введите корректный номер телефона"),
+  customerPhone: z.string().regex(/^\+7\d{10}$/, "Введите номер в формате +7XXXXXXXXXX"),
   customerAddress: z.string().optional(),
   deliveryType: z.enum(["DELIVERY", "PICKUP"]),
   deliveryZoneId: z.string().optional(),
@@ -120,8 +122,9 @@ export default function CheckoutPage() {
             }
 
             if (cust.phone) {
-              setValue("customerPhone", cust.phone);
-              if (cust.phoneVerified) {
+              const normalizedPhone = normalizeRuPhone(cust.phone);
+              setValue("customerPhone", normalizedPhone || "");
+              if (cust.phoneVerified && normalizedPhone) {
                 setPhoneVerified(true);
               }
             }
@@ -583,7 +586,7 @@ export default function CheckoutPage() {
                   <Input
                     {...register("customerPhone")}
                     type="tel"
-                    placeholder="+7 (999) 000-00-00"
+                    placeholder="+79990000000"
                     readOnly={phoneVerified}
                     onClick={() => !phoneVerified && setShowVerifyModal(true)}
                     className={`pl-10 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50/50 py-5 focus:bg-white transition cursor-pointer ${errors.customerPhone ? "border-rose-500 bg-rose-50/20" : ""}`}
@@ -607,16 +610,19 @@ export default function CheckoutPage() {
               {deliveryType === "DELIVERY" && (
                 <div className="animate-fade-in space-y-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Город / район доставки *</label>
-                  <select
-                    {...register("deliveryZoneId")}
-                    className="mb-3 w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-xs font-bold"
-                    required
-                  >
-                    <option value="">Выберите зону</option>
-                    {business.deliveryZones?.filter((zone) => zone.isActive).map((zone) => (
-                      <option key={zone.id} value={zone.id}>{zone.name} — {formatPrice(zone.fee)}</option>
-                    ))}
-                  </select>
+                  <BottomSheetPicker
+                    title="Выберите зону доставки"
+                    value={deliveryZoneId || ""}
+                    onChange={(value) => setValue("deliveryZoneId", value, { shouldValidate: true })}
+                    placeholder="Выберите зону"
+                    buttonClassName="mb-3 rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-xs font-bold"
+                    options={(business.deliveryZones || []).filter((zone) => zone.isActive).map((zone) => ({
+                      value: zone.id,
+                      label: zone.name,
+                      description: `Доставка ${formatPrice(zone.fee)}`,
+                      icon: <MapPin size={17} />,
+                    }))}
+                  />
                   <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Адрес доставки *</label>
                   <div className="relative">
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-455">

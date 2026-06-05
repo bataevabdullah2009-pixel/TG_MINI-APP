@@ -22,6 +22,7 @@ import {
   ExternalLink
 } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
+import { BottomSheetPicker } from "@/components/ui/BottomSheetPicker";
 
 interface SuperAdminHomeProps {
   session: any;
@@ -64,7 +65,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
 
   // Platform White-Label Customization
   const [platformTitle, setPlatformTitle] = useState("Vitrina AI");
-  const [defaultAiProvider, setDefaultAiProvider] = useState("mock");
+  const [defaultAiProvider, setDefaultAiProvider] = useState("polza");
   const [defaultAiLimit, setDefaultAiLimit] = useState(15);
   const [allowedModules, setAllowedModules] = useState("catalog,cart,profile,booking,staff,calendar,delivery,pickup");
 
@@ -512,20 +513,22 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
 
                 <div>
                   <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Тип шаблона бизнеса</label>
-                  <select
+                  <BottomSheetPicker
+                    title="Выберите тип бизнеса"
                     value={bizType}
-                    onChange={(e) => setBizType(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none cursor-pointer"
-                  >
-                    <option value="CAFE">🍔 Кафе / Ресторан</option>
-                    <option value="BARBERSHOP">💈 Барбершоп / Салон красоты</option>
-                    <option value="SHOP">🛒 Розничный Магазин</option>
-                    <option value="GROCERY">🍎 Продукты питания</option>
-                    <option value="HARDWARE_STORE">🔧 Хозмаг / Стройматериалы</option>
-                    <option value="CARWASH">🚗 Автомойка / Автосервис</option>
-                    <option value="COURSES">📚 Курсы / Обучение</option>
-                    <option value="CUSTOM">⚙️ Кастомный бизнес (Универсальный)</option>
-                  </select>
+                    onChange={setBizType}
+                    buttonClassName="rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none"
+                    options={[
+                      { value: "CAFE", label: "Кафе / Ресторан", icon: <Store size={16} /> },
+                      { value: "BARBERSHOP", label: "Барбершоп / Салон красоты", icon: <User size={16} /> },
+                      { value: "SHOP", label: "Розничный магазин", icon: <Store size={16} /> },
+                      { value: "GROCERY", label: "Продукты питания", icon: <Store size={16} /> },
+                      { value: "HARDWARE_STORE", label: "Хозмаг / Стройматериалы", icon: <Layers size={16} /> },
+                      { value: "CARWASH", label: "Автомойка / Автосервис", icon: <Sliders size={16} /> },
+                      { value: "COURSES", label: "Курсы / Обучение", icon: <BookOpen size={16} /> },
+                      { value: "CUSTOM", label: "Кастомный бизнес", icon: <Settings size={16} /> },
+                    ]}
+                  />
                 </div>
 
                 <div>
@@ -706,15 +709,17 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
 
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Дефолтный ИИ-провайдер</label>
-                  <select
+                  <BottomSheetPicker
+                    title="Выберите AI-провайдера"
                     value={defaultAiProvider}
-                    onChange={(e) => setDefaultAiProvider(e.target.value)}
-                    className="w-full text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none cursor-pointer"
-                  >
-                    <option value="mock">🤖 Локальный Заглушка (Mock-AI)</option>
-                    <option value="openai">🌌 OpenAI (ChatGPT-4o)</option>
-                    <option value="openrouter">📡 OpenRouter Service</option>
-                  </select>
+                    onChange={setDefaultAiProvider}
+                    buttonClassName="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold outline-none"
+                    options={[
+                      { value: "polza", label: "Polza AI", description: "Production provider", icon: <Sparkles size={16} /> },
+                      { value: "openrouter", label: "OpenRouter", icon: <ArrowRight size={16} /> },
+                      { value: "mock", label: "Mock AI", description: "Только для локальной разработки", icon: <Database size={16} /> },
+                    ]}
+                  />
                 </div>
 
                 <div>

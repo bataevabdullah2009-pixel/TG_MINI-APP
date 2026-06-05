@@ -16,6 +16,8 @@ const legacyOrderDetailSelect = {
   paymentMethod: true,
   paymentStatus: true,
   paymentProofUrl: true,
+  paymentProofFileName: true,
+  paymentProofMimeType: true,
   paymentProofAiStatus: true,
   paymentProofAiSummary: true,
   paymentProofAiConfidence: true,
