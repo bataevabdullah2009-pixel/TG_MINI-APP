@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiClient } from "@/lib/api-client";
 import { formatPrice } from "@/lib/utils";
+import { buildBusinessUrl } from "@/lib/production-url";
 
 interface Business {
   id: string;
@@ -221,7 +222,7 @@ export default function AdminBusinessesPage() {
 
                   {/* Actions */}
                   <div className="flex gap-2">
-                    <Link href={`/app/${biz.slug}`} target="_blank" className="flex-1">
+                    <Link href={buildBusinessUrl(biz.slug)} target="_blank" className="flex-1">
                       <Button variant="outline" size="sm" className="w-full text-xs">
                         👁️ Mini App
                       </Button>

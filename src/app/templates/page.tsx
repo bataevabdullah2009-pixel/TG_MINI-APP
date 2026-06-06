@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { buildBusinessUrl } from "@/lib/production-url";
 
 export default function TemplatesPage() {
   const templates = [
@@ -180,7 +181,7 @@ export default function TemplatesPage() {
                 </p>
               </div>
               <Link 
-                href={`/app/${tpl.demoSlug}`}
+                href={buildBusinessUrl(tpl.demoSlug)}
                 className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl transition text-center shadow-lg shadow-indigo-500/20 active:scale-[0.98]"
               >
                 Запустить демо

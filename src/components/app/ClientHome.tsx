@@ -3,6 +3,7 @@
 import React, { useMemo } from "react";
 import Link from "next/link";
 import { Search, Store, Star, Heart } from "lucide-react";
+import { buildBusinessUrl } from "@/lib/production-url";
 
 type Business = {
   id: string;
@@ -204,7 +205,7 @@ export function ClientHome({
                     <Heart size={15} fill={favorites.includes(business.slug) ? "currentColor" : "none"} />
                   </button>
                   <Link
-                    href={`/app/${business.slug}`}
+                    href={buildBusinessUrl(business.slug)}
                     className="rounded-xl bg-slate-900 px-4 py-1.5 text-xs font-black text-white hover:bg-indigo-600 transition active:scale-95"
                   >
                     Открыть

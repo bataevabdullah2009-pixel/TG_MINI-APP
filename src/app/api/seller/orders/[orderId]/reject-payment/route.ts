@@ -34,8 +34,12 @@ export async function POST(
       return jsonError("У заказа не выбран перевод.", 400);
     }
 
-    const updated = await prisma.order.update({
-      where: { id: order.id },
+    const result = await prisma.order.updateMany({
+      where: {
+        id: order.id,
+        paymentMethod: "TRANSFER",
+        paymentStatus: "AWAITING_REVIEW",
+      },
       data: {
         paymentStatus: "PAYMENT_REJECTED",
         status: "CANCELLED",
@@ -43,6 +47,13 @@ export async function POST(
         paymentReviewedBy: session.id,
         paymentRejectReason: reason,
       },
+    });
+    if (result.count !== 1) {
+      return jsonError("Оплата уже была обработана.", 409);
+    }
+
+    const updated = await prisma.order.findUnique({
+      where: { id: order.id },
       include: { items: true, business: { select: { name: true, slug: true } }, customer: true },
     });
 

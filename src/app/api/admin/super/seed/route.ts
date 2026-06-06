@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { BUSINESS_TEMPLATES, type TemplateKey } from "@/lib/business-templates";
 import { getAdminSession, jsonError, requireRole } from "@/lib/admin-auth";
+import { buildBusinessUrl } from "@/lib/production-url";
 
 const DEMO_BUSINESSES: Array<{
   slug: string;
@@ -99,7 +100,7 @@ async function runSeedProcess() {
         defaultItems: JSON.stringify(template.items),
         theme: JSON.stringify(template.theme),
         icon: template.icon,
-        preview: template.preview,
+        preview: buildBusinessUrl(template.previewSlug),
         isActive: true,
       },
       create: {
@@ -112,7 +113,7 @@ async function runSeedProcess() {
         defaultItems: JSON.stringify(template.items),
         theme: JSON.stringify(template.theme),
         icon: template.icon,
-        preview: template.preview,
+        preview: buildBusinessUrl(template.previewSlug),
         isActive: true,
       },
     });

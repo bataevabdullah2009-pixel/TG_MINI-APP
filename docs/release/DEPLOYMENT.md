@@ -64,7 +64,7 @@ Minimum required production env:
 DATABASE_URL=""
 DIRECT_URL=""
 NEXT_PUBLIC_APP_URL="https://your-vercel-domain.vercel.app"
-NEXT_PUBLIC_WEBAPP_URL="https://your-vercel-domain.vercel.app/app"
+NEXT_PUBLIC_WEBAPP_URL="https://your-vercel-domain.vercel.app"
 TELEGRAM_BOT_TOKEN=""
 TELEGRAM_SUPER_ADMIN_IDS=""
 TELEGRAM_WEBHOOK_URL="https://your-vercel-domain.vercel.app/api/telegram/webhook"

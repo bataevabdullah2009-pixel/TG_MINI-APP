@@ -18,7 +18,7 @@ export type BusinessTemplateSeed = {
     backgroundColor: string;
   };
   icon: string;
-  preview: string;
+  previewSlug: string;
   categories: string[];
   items: Array<{
     category: string;
@@ -41,7 +41,7 @@ export const BUSINESS_TEMPLATES: Record<TemplateKey, BusinessTemplateSeed> = {
     orderMode: "cart/order",
     theme: { primaryColor: "#F97316", accentColor: "#F59E0B", backgroundColor: "#FFF7ED" },
     icon: "coffee",
-    preview: "/app/demo-cafe",
+    previewSlug: "demo-cafe",
     categories: ["Шаурма", "Бургеры", "Напитки", "Комбо"],
     items: [
       { category: "Шаурма", name: "Классическая шаурма с курицей", description: "Курица, свежие овощи и чесночный соус.", price: 250, type: "PRODUCT", isPopular: true },
@@ -58,7 +58,7 @@ export const BUSINESS_TEMPLATES: Record<TemplateKey, BusinessTemplateSeed> = {
     orderMode: "booking",
     theme: { primaryColor: "#1E293B", accentColor: "#64748B", backgroundColor: "#F8FAFC" },
     icon: "scissors",
-    preview: "/app/demo-barber",
+    previewSlug: "demo-barber",
     categories: ["Стрижки", "Борода", "Комплексы"],
     items: [
       { category: "Стрижки", name: "Мужская стрижка", description: "Консультация, стрижка и укладка.", price: 1200, type: "SERVICE", durationMinutes: 45, isPopular: true },
@@ -74,7 +74,7 @@ export const BUSINESS_TEMPLATES: Record<TemplateKey, BusinessTemplateSeed> = {
     orderMode: "cart/order",
     theme: { primaryColor: "#EC4899", accentColor: "#F43F5E", backgroundColor: "#FFF1F2" },
     icon: "shopping-bag",
-    preview: "/app/demo-shop",
+    previewSlug: "demo-shop",
     categories: ["Новинки", "Одежда", "Аксессуары"],
     items: [
       { category: "Новинки", name: "Футболка oversize", description: "Плотный хлопок и свободная посадка.", price: 1499, type: "PRODUCT", stock: 45, isPopular: true },
@@ -90,7 +90,7 @@ export const BUSINESS_TEMPLATES: Record<TemplateKey, BusinessTemplateSeed> = {
     orderMode: "cart/order",
     theme: { primaryColor: "#10B981", accentColor: "#34D399", backgroundColor: "#ECFDF5" },
     icon: "apple",
-    preview: "/app/demo-grocery",
+    previewSlug: "demo-grocery",
     categories: ["Овощи", "Фрукты", "Молочные", "Напитки"],
     items: [
       { category: "Фрукты", name: "Зелёные яблоки, кг", description: "Свежие кисло-сладкие яблоки на вес.", price: 189, type: "PRODUCT", stock: 100, isPopular: true },
@@ -106,7 +106,7 @@ export const BUSINESS_TEMPLATES: Record<TemplateKey, BusinessTemplateSeed> = {
     orderMode: "request/order",
     theme: { primaryColor: "#2563EB", accentColor: "#3B82F6", backgroundColor: "#EFF6FF" },
     icon: "wrench",
-    preview: "/app/demo-hozmag",
+    previewSlug: "demo-hozmag",
     categories: ["Инструменты", "Электрика", "Сантехника", "Товары для дома"],
     items: [
       { category: "Инструменты", name: "Аккумуляторная дрель", description: "Дрель 12V с кейсом и двумя батареями.", price: 3590, type: "PRODUCT", stock: 15, isPopular: true },
@@ -122,7 +122,7 @@ export const BUSINESS_TEMPLATES: Record<TemplateKey, BusinessTemplateSeed> = {
     orderMode: "booking",
     theme: { primaryColor: "#06B6D4", accentColor: "#0EA5E9", backgroundColor: "#ECFEFF" },
     icon: "car",
-    preview: "/app/demo-carwash",
+    previewSlug: "demo-carwash",
     categories: ["Мойка", "Химчистка", "Полировка", "Комплексы"],
     items: [
       { category: "Мойка", name: "Стандартная мойка", description: "Кузов, колёса, коврики и быстрая уборка салона.", price: 700, type: "SERVICE", durationMinutes: 30, isPopular: true },

@@ -31,6 +31,14 @@ export async function GET(request: NextRequest) {
         status: "READY_FOR_DELIVERY",
         deliveryStatus: { in: ["NEW", "WAITING_COURIER"] },
         deliveryType: "DELIVERY",
+        NOT: {
+          deliveryAssignment: {
+            is: {
+              courierId: access.courier.id,
+              status: "EXPIRED",
+            },
+          },
+        },
       },
       include: courierOrderInclude,
       orderBy: { createdAt: "asc" },

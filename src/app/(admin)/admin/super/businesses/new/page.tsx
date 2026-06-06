@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BottomSheetPicker } from "@/components/ui/BottomSheetPicker";
+import { buildBusinessUrl } from "@/lib/production-url";
 
 export default function OnboardWizard() {
   const router = useRouter();
@@ -117,7 +118,7 @@ export default function OnboardWizard() {
               <div className="flex justify-between pb-1.5 items-start">
                 <span className="text-slate-500">Mini App URL:</span>
                 <Link 
-                  href={`/app/${successData.slug}`} 
+                  href={buildBusinessUrl(successData.slug)}
                   target="_blank"
                   className="text-indigo-400 font-semibold underline hover:text-indigo-300 block text-right max-w-[280px] break-all"
                 >
@@ -128,7 +129,7 @@ export default function OnboardWizard() {
 
             <div className="flex flex-col sm:flex-row gap-3">
               <Link 
-                href={`/app/${successData.slug}`} 
+                href={buildBusinessUrl(successData.slug)}
                 target="_blank"
                 className="flex-1 py-3 px-4 bg-gradient-to-r from-indigo-500 to-cyan-500 hover:brightness-110 text-white text-xs font-black rounded-xl text-center shadow-lg shadow-indigo-500/10 active:scale-[0.98] transition-all"
               >

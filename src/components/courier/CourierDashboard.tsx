@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Clock, MapPin, PackageCheck, Phone, RefreshCw, Store, Truck, User } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
 
@@ -8,12 +8,29 @@ function money(value: number) {
   return new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 0 }).format(value || 0);
 }
 
+const DELIVERY_STATUS_RU: Record<string, string> = {
+  NONE: "Без доставки",
+  NEW: "Новый",
+  WAITING_COURIER: "Ожидает курьера",
+  ASSIGNED: "Назначен",
+  ACCEPTED_BY_COURIER: "Принят курьером",
+  PICKED_UP: "Забран у продавца",
+  DELIVERED: "Доставлен",
+  CANCELLED: "Отменён",
+  EXPIRED: "Назначение истекло",
+};
+
 function OrderCard({ order, action, loading }: { order: any; action: (id: string, action: string) => void; loading: string }) {
   const assignedStatus = ["ASSIGNED", "ACCEPTED_BY_COURIER", "PICKED_UP"].includes(order.deliveryAssignment?.status)
     ? order.deliveryAssignment.status
     : null;
   const pending = loading === order.id;
   const terminal = ["DELIVERED", "CANCELLED", "EXPIRED"].includes(order.deliveryStatus);
+  const mapUrl = order.customerAddress
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+        [order.deliveryCityArea, order.customerAddress].filter(Boolean).join(", ")
+      )}`
+    : "";
   return (
     <article className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
       <div className="flex items-start justify-between gap-3">
@@ -21,14 +38,27 @@ function OrderCard({ order, action, loading }: { order: any; action: (id: string
           <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600">{order.business.name}</span>
           <h2 className="mt-1 text-sm font-black text-slate-950">Заказ #{order.id.slice(-6).toUpperCase()}</h2>
         </div>
-        <span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-black text-slate-600">{order.deliveryStatus}</span>
+        <span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-black text-slate-600">
+          {DELIVERY_STATUS_RU[order.deliveryStatus] || order.deliveryStatus}
+        </span>
       </div>
 
       <div className="mt-4 grid gap-2 rounded-2xl bg-slate-50 p-3 text-xs font-bold text-slate-700">
         <div className="flex gap-2"><Store size={15} className="shrink-0 text-slate-400" /><span><b>Забрать:</b> {order.business.address || "Адрес магазина не указан"}</span></div>
         <div className="flex gap-2"><MapPin size={15} className="shrink-0 text-slate-400" /><span><b>Доставить:</b> {order.deliveryCityArea ? `${order.deliveryCityArea}, ` : ""}{order.customerAddress}</span></div>
         <div className="flex gap-2"><User size={15} className="shrink-0 text-slate-400" /><span>{order.customerName}</span></div>
-        <a href={`tel:${order.customerPhone}`} className="flex gap-2 text-indigo-700"><Phone size={15} className="shrink-0" /><span>{order.customerPhone}</span></a>
+        <div className="grid grid-cols-2 gap-2">
+          <a href={`tel:${order.customerPhone}`} className="flex items-center justify-center gap-2 rounded-xl bg-white px-3 py-2 text-indigo-700 ring-1 ring-slate-200">
+            <Phone size={15} className="shrink-0" />
+            <span>Позвонить клиенту</span>
+          </a>
+          {mapUrl && (
+            <a href={mapUrl} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 rounded-xl bg-white px-3 py-2 text-indigo-700 ring-1 ring-slate-200">
+              <MapPin size={15} className="shrink-0" />
+              <span>Открыть в картах</span>
+            </a>
+          )}
+        </div>
         {order.comment && <div className="rounded-xl bg-white p-2 text-slate-500">Комментарий: {order.comment}</div>}
       </div>
 
@@ -40,7 +70,9 @@ function OrderCard({ order, action, loading }: { order: any; action: (id: string
           <div className="flex justify-between"><span>Товары</span><span>{money(order.itemsSubtotal || order.totalPrice - (order.deliveryFee || 0))}</span></div>
           <div className="flex justify-between"><span>Доставка</span><span>{money(order.deliveryFee)}</span></div>
           <div className="mt-1 flex justify-between text-sm font-black text-slate-950"><span>Итого</span><span>{money(order.totalPrice)}</span></div>
-          <div className="mt-1 text-[10px] uppercase text-slate-400">Оплата: {order.paymentMethod}</div>
+          <div className="mt-1 text-[10px] uppercase text-slate-400">
+            Оплата: {order.paymentMethod === "CASH" ? "наличные" : order.paymentMethod === "TRANSFER" ? "перевод" : order.paymentMethod}
+          </div>
         </div>
       </div>
 
@@ -76,6 +108,7 @@ export function CourierDashboard() {
   const [actionLoading, setActionLoading] = useState("");
   const [error, setError] = useState("");
   const [denied, setDenied] = useState(false);
+  const actionInFlight = useRef(new Set<string>());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -105,6 +138,8 @@ export function CourierDashboard() {
   }, [load]);
 
   const runAction = async (orderId: string, action: string) => {
+    if (actionInFlight.current.has(orderId)) return;
+    actionInFlight.current.add(orderId);
     setActionLoading(orderId);
     setError("");
     try {
@@ -118,6 +153,7 @@ export function CourierDashboard() {
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Не удалось обновить доставку.");
     } finally {
+      actionInFlight.current.delete(orderId);
       setActionLoading("");
     }
   };

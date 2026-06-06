@@ -39,20 +39,6 @@ function cleanPathPart(value: string) {
     .slice(0, 64) || "file";
 }
 
-function cleanAsciiPathPart(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/gi, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64) || "file";
-}
-
-function paymentProofBusinessSlug(folder: string) {
-  const parts = folder.split(/[\\/]/).map((part) => part.trim()).filter(Boolean);
-  const businessPart = parts.find((part) => part !== uploadBuckets.paymentProofs && part !== "payment-proofs") || folder;
-  return cleanAsciiPathPart(businessPart);
-}
-
 function paymentProofExtension(file: File, mimeType: string) {
   const ext = path.extname(file.name).toLowerCase();
   if (mimeType === "application/pdf") return ".pdf";
@@ -62,12 +48,12 @@ function paymentProofExtension(file: File, mimeType: string) {
   return "";
 }
 
-function paymentProofStoragePath(file: File, folder: string, mimeType: string) {
+function paymentProofStoragePath(file: File, mimeType: string) {
   const ext = paymentProofExtension(file, mimeType);
   if (!ext) {
     throw new Error("Чек должен быть в формате JPG, JPEG, PNG, WEBP или PDF.");
   }
-  return `${uploadBuckets.paymentProofs}/${paymentProofBusinessSlug(folder)}/${crypto.randomUUID()}${ext}`;
+  return `${crypto.randomUUID()}${ext}`;
 }
 
 export function assertUploadImage(file: File) {
@@ -237,7 +223,10 @@ async function uploadFileToSupabaseStorage({ file, bucket, folder, storagePath: 
   }
 
   return {
-    publicUrl: `${supabaseUrl}/storage/v1/object/public/${bucket}/${storagePath}`,
+    publicUrl: `${supabaseUrl}/storage/v1/object/public/${encodeURIComponent(bucket)}/${storagePath
+      .split("/")
+      .map(encodeURIComponent)
+      .join("/")}`,
     filename: storagePath,
   };
 }
@@ -277,7 +266,7 @@ export async function uploadPaymentProofToSupabaseStorage(options: UploadOptions
   return uploadFileToSupabaseStorage({
     ...options,
     file: new File([await options.file.arrayBuffer()], options.file.name, { type: mimeType }),
-    storagePath: paymentProofStoragePath(options.file, options.folder, mimeType),
+    storagePath: paymentProofStoragePath(options.file, mimeType),
     contentType: mimeType,
     errorLogLabel: "[PAYMENT_PROOF_STORAGE_ERROR]",
   });
