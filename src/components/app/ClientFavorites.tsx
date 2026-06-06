@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Store, Heart, ShoppingBag, Eye } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
+import { buildBusinessUrl } from "@/lib/production-url";
 
 interface ClientFavoritesProps {
   telegramUserId?: string;
@@ -102,7 +103,7 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
       return;
     }
 
-    router.push(`/app/${encodeURIComponent(businessTarget)}?product=${encodeURIComponent(productId)}`);
+    router.push(`${buildBusinessUrl(businessTarget)}?product=${encodeURIComponent(productId)}`);
   };
 
   return (
@@ -193,7 +194,7 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
                       </button>
                       {fav.business?.slug && fav.business?.isActive !== false ? (
                         <Link
-                          href={`/app/${fav.business.slug}`}
+                          href={buildBusinessUrl(fav.business.slug)}
                           className="grid h-8 w-8 place-items-center rounded-xl bg-slate-900 text-white hover:bg-indigo-600 transition"
                         >
                           <Eye size={14} />

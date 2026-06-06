@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { BUSINESS_TEMPLATES, type TemplateKey } from "../src/lib/business-templates";
+import { buildBusinessUrl } from "../src/lib/production-url";
 
 const prisma = new PrismaClient();
 
@@ -96,7 +97,7 @@ async function main() {
         defaultItems: JSON.stringify(template.items),
         theme: JSON.stringify(template.theme),
         icon: template.icon,
-        preview: template.preview,
+        preview: buildBusinessUrl(template.previewSlug),
         isActive: true,
       },
       create: {
@@ -109,7 +110,7 @@ async function main() {
         defaultItems: JSON.stringify(template.items),
         theme: JSON.stringify(template.theme),
         icon: template.icon,
-        preview: template.preview,
+        preview: buildBusinessUrl(template.previewSlug),
         isActive: true,
       },
     });

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { CalendarDays, LayoutGrid, List, Package, Search, X } from "lucide-react";
 import { PhoneVerificationScreen } from "@/components/app/PhoneVerificationScreen";
@@ -87,6 +87,8 @@ export default function BusinessMiniAppPage() {
   const [paymentProofFileName, setPaymentProofFileName] = useState("");
   const [paymentProofMimeType, setPaymentProofMimeType] = useState("");
   const [paymentProofUploading, setPaymentProofUploading] = useState(false);
+  const [orderSubmitting, setOrderSubmitting] = useState(false);
+  const orderSubmittingRef = useRef(false);
   const businessId = business?.id || "";
   const businessTemplateKey = business?.templateKey || "";
   const businessTemplate = businessTemplateKey ? templateUi[businessTemplateKey] : undefined;
@@ -350,6 +352,7 @@ export default function BusinessMiniAppPage() {
 
   async function submitOrder(event: React.FormEvent) {
     event.preventDefault();
+    if (orderSubmittingRef.current) return;
     setCheckoutError("");
     setNeedsPhoneVerification(false);
     const user = telegramUser();
@@ -365,6 +368,8 @@ export default function BusinessMiniAppPage() {
       setCheckoutError("Загрузите чек перевода.");
       return;
     }
+    orderSubmittingRef.current = true;
+    setOrderSubmitting(true);
     try {
       const res = await miniAppFetch(`/api/businesses/${slug}/orders`, {
         method: "POST",
@@ -396,14 +401,24 @@ export default function BusinessMiniAppPage() {
         setPaymentMethod("CASH");
         setSuccess("Заказ оформлен. Продавец уже получил уведомление.");
       } else {
-        const message = data.error || "Не удалось оформить заказ. Проверьте данные и попробуйте снова.";
+        const messages: Record<string, string> = {
+          ITEM_UNAVAILABLE: "Один из товаров закончился. Обновите корзину.",
+          RATE_LIMITED: "Слишком много попыток. Попробуйте позже.",
+          DELIVERY_ZONE_REQUIRED: "Выберите зону доставки.",
+          PAYMENT_PROOF_REQUIRED: "Загрузите чек перевода.",
+          PHONE_NOT_VERIFIED: "Подтвердите номер телефона.",
+        };
+        const message = messages[data.code] || data.error || "Не удалось оформить заказ.";
         setCheckoutError(message);
         const phoneNotVerified = data.code === "PHONE_NOT_VERIFIED";
         setNeedsPhoneVerification(phoneNotVerified);
         if (phoneNotVerified) setVerifyOpen(true);
       }
     } catch (error) {
-      setCheckoutError("Не удалось отправить заказ. Проверьте соединение и попробуйте снова.");
+      setCheckoutError("Нет связи. Попробуйте ещё раз.");
+    } finally {
+      orderSubmittingRef.current = false;
+      setOrderSubmitting(false);
     }
   }
 
@@ -626,11 +641,14 @@ export default function BusinessMiniAppPage() {
           paymentProofUrl={paymentProofUrl}
           paymentProofFileName={paymentProofFileName}
           paymentProofUploading={paymentProofUploading}
+          submitting={orderSubmitting}
           onPaymentProofUpload={handlePaymentProofUpload}
           checkoutError={checkoutError}
           needsPhoneVerification={needsPhoneVerification}
           onSubmit={submitOrder}
-          onClose={() => setCheckoutOpen(false)}
+          onClose={() => {
+            if (!orderSubmitting) setCheckoutOpen(false);
+          }}
           onVerifyPhone={() => setVerifyOpen(true)}
           formatPrice={rub}
         />

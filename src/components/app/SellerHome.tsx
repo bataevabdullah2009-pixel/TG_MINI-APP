@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { buildBusinessUrl } from "@/lib/production-url";
 import { 
   TrendingUp, 
   ShoppingBag, 
@@ -41,10 +42,9 @@ interface SellerHomeProps {
 }
 
 function paymentProofAiLabel(status: string) {
-  if (status === "PENDING") return "ИИ проверяет чек";
-  if (status === "LIKELY_VALID") return "Похоже на чек";
-  if (status === "AI_UNAVAILABLE") return "ИИ временно недоступен, чек отправлен продавцу";
-  return "Нужна ручная проверка";
+  if (status === "PENDING") return "проверяет чек";
+  if (status === "LIKELY_VALID") return "похоже верно";
+  return "нужна ручная проверка";
 }
 
 const ACTIVE_ORDER_STATUSES = new Set([
@@ -87,7 +87,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const [newItemDesc, setNewItemDesc] = useState("");
   const [newItemType, setNewItemType] = useState<"PRODUCT" | "SERVICE">("PRODUCT");
   const [newItemImage, setNewItemImage] = useState("");
+  const [newItemAvailable, setNewItemAvailable] = useState(true);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
+  const [updatingPaymentOrderId, setUpdatingPaymentOrderId] = useState<string | null>(null);
   
   // Category management inside catalog
   const [newCatName, setNewCatName] = useState("");
@@ -299,6 +302,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     setNewItemDesc("");
     setNewItemType("PRODUCT");
     setNewItemImage("");
+    setNewItemAvailable(true);
   };
 
   const startEditItem = (item: any) => {
@@ -309,6 +313,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     setNewItemDesc(item.description || "");
     setNewItemType(item.type === "SERVICE" ? "SERVICE" : "PRODUCT");
     setNewItemImage(item.imageUrl || "");
+    setNewItemAvailable(item.isAvailable !== false);
     setActiveTab("ITEMS");
   };
 
@@ -330,7 +335,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
           description: newItemDesc,
           type: newItemType,
           imageUrl: newItemImage || undefined,
-          isAvailable: true,
+          isAvailable: newItemAvailable,
         }),
       });
 
@@ -366,6 +371,34 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     }
   };
 
+  const handleToggleItemAvailability = async (item: any) => {
+    if (updatingItemId) return;
+    const nextAvailability = item.isAvailable === false;
+    setUpdatingItemId(item.id);
+    setItems((current) => current.map((entry) =>
+      entry.id === item.id ? { ...entry, isAvailable: nextAvailability } : entry
+    ));
+
+    try {
+      const res = await miniAppFetch(`/api/admin/items/${item.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ isAvailable: nextAvailability }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Не удалось изменить наличие.");
+      }
+      if (editingItemId === item.id) setNewItemAvailable(nextAvailability);
+    } catch (error) {
+      setItems((current) => current.map((entry) =>
+        entry.id === item.id ? { ...entry, isAvailable: item.isAvailable !== false } : entry
+      ));
+      showError(error instanceof Error ? error.message : "Не удалось изменить наличие.");
+    } finally {
+      setUpdatingItemId(null);
+    }
+  };
+
   const handleUpdateOrderStatus = async (orderId: string, newStatus: string) => {
     let finalStatus = newStatus;
     if (newStatus === "PROCESSING") {
@@ -390,6 +423,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   };
 
   const handleConfirmPayment = async (orderId: string) => {
+    if (updatingPaymentOrderId) return;
+    setUpdatingPaymentOrderId(orderId);
     try {
       const res = await miniAppFetch(`/api/seller/orders/${orderId}/confirm-payment`, {
         method: "POST",
@@ -403,11 +438,15 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       }
     } catch (error) {
       showError("Не удалось подтвердить оплату. Проверьте соединение и попробуйте снова.");
+    } finally {
+      setUpdatingPaymentOrderId(null);
     }
   };
 
   const handleRejectPayment = async (orderId: string) => {
+    if (updatingPaymentOrderId) return;
     const reason = window.prompt("Причина отклонения оплаты", "Оплата не подтверждена продавцом.") || "";
+    setUpdatingPaymentOrderId(orderId);
     try {
       const res = await miniAppFetch(`/api/seller/orders/${orderId}/reject-payment`, {
         method: "POST",
@@ -422,6 +461,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       }
     } catch (error) {
       showError("Не удалось отклонить оплату. Проверьте соединение и попробуйте снова.");
+    } finally {
+      setUpdatingPaymentOrderId(null);
     }
   };
 
@@ -537,7 +578,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
   const openStorefront = () => {
     if (businessData?.slug) {
-      router.push(`/app/${businessData.slug}`);
+      router.push(buildBusinessUrl(businessData.slug));
     }
   };
 
@@ -835,9 +876,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                                 <span>ИИ:</span>
                                 <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${
                                   order.paymentProofAiStatus === "LIKELY_VALID" ? "bg-emerald-100 text-emerald-700" :
-                                  order.paymentProofAiStatus === "SUSPICIOUS" ? "bg-amber-100 text-amber-700" :
-                                  order.paymentProofAiStatus === "INVALID" ? "bg-rose-100 text-rose-700" :
-                                  "bg-slate-100 text-slate-600"
+                                  "bg-amber-100 text-amber-700"
                                 }`}>
                                   {paymentProofAiLabel(order.paymentProofAiStatus)}
                                 </span>
@@ -894,15 +933,17 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           <>
                             <button
                               onClick={() => handleConfirmPayment(order.id)}
-                              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-2 rounded-xl transition"
+                              disabled={updatingPaymentOrderId === order.id}
+                              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-2 rounded-xl transition disabled:opacity-50"
                             >
-                              Подтвердить оплату
+                              {updatingPaymentOrderId === order.id ? "Сохраняем…" : "Подтвердить оплату"}
                             </button>
                             <button
                               onClick={() => handleRejectPayment(order.id)}
-                              className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs px-3.5 py-2 rounded-xl transition"
+                              disabled={updatingPaymentOrderId === order.id}
+                              className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs px-3.5 py-2 rounded-xl transition disabled:opacity-50"
                             >
-                              Отклонить оплату
+                              Отклонить
                             </button>
                           </>
                         ) : (
@@ -1261,6 +1302,16 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                   className="w-full text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none resize-none"
                 />
 
+                <label className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-700">
+                  <span>{newItemAvailable ? "В наличии" : "Нет в наличии"}</span>
+                  <input
+                    type="checkbox"
+                    checked={newItemAvailable}
+                    onChange={(event) => setNewItemAvailable(event.target.checked)}
+                    className="h-4 w-4 accent-indigo-600"
+                  />
+                </label>
+
                 <button
                   type="submit"
                   className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-950 py-3 text-xs font-black text-white hover:bg-indigo-650 transition"
@@ -1299,6 +1350,23 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleItemAvailability(it)}
+                          disabled={updatingItemId === it.id}
+                          className={`rounded-xl px-2.5 py-2 text-[9px] font-black transition disabled:opacity-50 ${
+                            it.isAvailable === false
+                              ? "bg-rose-50 text-rose-600"
+                              : "bg-emerald-50 text-emerald-700"
+                          }`}
+                          title="Изменить наличие"
+                        >
+                          {updatingItemId === it.id
+                            ? "Сохраняем…"
+                            : it.isAvailable === false
+                              ? "Нет в наличии"
+                              : "В наличии"}
+                        </button>
                         <button
                           onClick={() => startEditItem(it)}
                           className="p-2 rounded-xl text-indigo-600 hover:bg-indigo-50 active:scale-95 transition"

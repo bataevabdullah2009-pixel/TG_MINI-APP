@@ -187,6 +187,7 @@ export class NotificationService {
       include: {
         business: { select: notificationBusinessSelect },
         deliveryZone: true,
+        deliveryAssignment: { select: { courierId: true, status: true } },
       },
     });
     if (!order || !["NEW", "WAITING_COURIER"].includes(order.deliveryStatus)) return;
@@ -198,6 +199,9 @@ export class NotificationService {
 
     const area = (order.deliveryCityArea || "").toLowerCase();
     for (const courier of couriers) {
+      if (order.deliveryAssignment?.status === "EXPIRED" && order.deliveryAssignment.courierId === courier.id) {
+        continue;
+      }
       if (courier.cityArea && !area.includes(courier.cityArea.toLowerCase())) continue;
       const chatId = courierChatId(courier);
       if (!chatId) {

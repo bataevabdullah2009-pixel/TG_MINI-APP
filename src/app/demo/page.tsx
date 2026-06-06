@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { buildBusinessUrl } from "@/lib/production-url";
 
 export default function DemoPage() {
   const demos = [
@@ -146,7 +147,7 @@ export default function DemoPage() {
 
             {/* Launch CTA Button */}
             <Link 
-              href={`/app/${demo.slug}`}
+              href={buildBusinessUrl(demo.slug)}
               className={`w-full py-4 bg-gradient-to-r ${demo.color} text-white font-extrabold text-sm rounded-xl shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2`}
             >
               <span>📱 Запустить Mini App</span>

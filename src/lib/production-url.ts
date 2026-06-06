@@ -28,6 +28,17 @@ function isBlockedProductionUrl(url: URL) {
   );
 }
 
+function isCurrentVercelPreviewUrl(url: URL) {
+  const previewHosts = [
+    process.env.VERCEL_URL,
+    process.env.VERCEL_BRANCH_URL,
+  ]
+    .map((value) => value?.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "").toLowerCase())
+    .filter(Boolean);
+
+  return previewHosts.includes(url.hostname.toLowerCase());
+}
+
 function assertProductionUrl(label: string, value: string) {
   let parsed: URL;
   try {
@@ -38,7 +49,11 @@ function assertProductionUrl(label: string, value: string) {
     );
   }
 
-  if (process.env.NODE_ENV === "production" && process.env.VERCEL_ENV === "preview") {
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.VERCEL_ENV === "preview" &&
+    isCurrentVercelPreviewUrl(parsed)
+  ) {
     throw new Error(
       `[URL CONFIG] ${label} cannot use a Vercel Preview deployment for production Telegram routing.`
     );
@@ -81,6 +96,21 @@ export function getAppBaseUrl() {
 export function getMiniAppUrl(path = "/app") {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${getAppBaseUrl()}${normalizedPath}`;
+}
+
+function normalizeBusinessSlug(slug?: string | null) {
+  const normalized = slug?.trim().replace(/^\/+|\/+$/g, "").toLowerCase();
+
+  if (!normalized || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
+export function buildBusinessUrl(slug?: string | null) {
+  const normalizedSlug = normalizeBusinessSlug(slug);
+  return getMiniAppUrl(normalizedSlug ? `/app/${encodeURIComponent(normalizedSlug)}` : "/app");
 }
 
 export function getTelegramWebhookUrl(options: WebhookOptions = {}) {

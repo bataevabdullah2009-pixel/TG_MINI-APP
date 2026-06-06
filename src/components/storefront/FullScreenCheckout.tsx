@@ -57,6 +57,7 @@ type Props = {
   paymentProofUrl: string;
   paymentProofFileName: string;
   paymentProofUploading: boolean;
+  submitting: boolean;
   onPaymentProofUpload: (file: File) => void;
   checkoutError: string;
   needsPhoneVerification: boolean;
@@ -78,6 +79,7 @@ export function FullScreenCheckout({
   paymentProofUrl,
   paymentProofFileName,
   paymentProofUploading,
+  submitting,
   onPaymentProofUpload,
   checkoutError,
   needsPhoneVerification,
@@ -102,7 +104,8 @@ export function FullScreenCheckout({
     !needsPhoneVerification &&
     (pickupEnabled || deliveryEnabled) &&
     (form.deliveryType !== "DELIVERY" || (Boolean(form.deliveryZoneId) && form.address.trim().length >= 5)) &&
-    (paymentMethod !== "TRANSFER" || (Boolean(paymentProofUrl) && !paymentProofUploading));
+    (paymentMethod !== "TRANSFER" || (Boolean(paymentProofUrl) && !paymentProofUploading)) &&
+    !submitting;
 
   return (
     <div className="fixed inset-0 z-50 bg-white text-slate-950">
@@ -112,6 +115,7 @@ export function FullScreenCheckout({
             <button
               type="button"
               onClick={onClose}
+              disabled={submitting}
               className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-700 active:scale-95"
               aria-label="Назад"
             >
@@ -345,7 +349,7 @@ export function FullScreenCheckout({
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-4 text-sm font-black text-white shadow-xl shadow-slate-900/15 disabled:opacity-50"
             >
               <CheckCircle2 size={18} />
-              Подтвердить заказ на {formatPrice(orderTotal)}
+              {submitting ? "Оформляем заказ…" : `Подтвердить заказ на ${formatPrice(orderTotal)}`}
             </button>
           </div>
         </div>
