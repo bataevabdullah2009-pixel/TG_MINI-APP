@@ -69,9 +69,10 @@ function assertWebhookSecret() {
 async function callTelegram(method, params = {}) {
   if (!token) fail("TELEGRAM_BOT_TOKEN is required.");
   const url = new URL(`https://api.telegram.org/bot${token}/${method}`);
-  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+  const body = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => body.set(key, value));
 
-  const response = await fetch(url);
+  const response = await fetch(url, { method: "POST", body });
   const data = await response.json();
   console.log(JSON.stringify(data, null, 2));
   if (!data.ok) process.exit(1);
@@ -81,7 +82,11 @@ if (action === "info") {
   await callTelegram("getWebhookInfo");
 } else if (action === "set") {
   const secret = assertWebhookSecret();
-  await callTelegram("setWebhook", { url: webhookUrl(), ...(secret ? { secret_token: secret } : {}) });
+  await callTelegram("setWebhook", {
+    url: webhookUrl(),
+    ...(secret ? { secret_token: secret } : {}),
+    drop_pending_updates: "true",
+  });
 } else if (action === "delete") {
   await callTelegram("deleteWebhook");
 } else {

@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
     const uploaded = await uploadPaymentProofToSupabaseStorage({
       file,
       bucket: bucketForUploadType("payment-proof"),
-      folder: `${business.slug}/payment-proofs`,
+      folder: business.slug,
     });
 
     await prisma.mediaAsset.create({

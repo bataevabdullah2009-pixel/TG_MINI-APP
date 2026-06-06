@@ -41,9 +41,22 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   const assignment = await claimDelivery(order.id, courier.id, new Date(Date.now() + minutes * 60_000));
   if (!assignment) return jsonError("Заказ уже назначен другому курьеру.", 409);
 
-  await NotificationService.notifyCourierAssigned(order.id, courier.id).catch((error) =>
-    console.warn(`[DELIVERY] Could not notify assigned courier for order ${order.id}:`, error)
-  );
+  let notificationSent = true;
+  await NotificationService.notifyCourierAssigned(order.id, courier.id).catch((error) => {
+    notificationSent = false;
+    console.warn(`[DELIVERY] Could not notify assigned courier for order ${order.id}:`, error);
+  });
 
-  return NextResponse.json(toJsonSafe({ ok: true, assignment }), { status: 201 });
+  const updatedOrder = await prisma.order.findUnique({
+    where: { id: order.id },
+    include: {
+      items: true,
+      business: { select: { name: true, slug: true } },
+      customer: true,
+      deliveryZone: true,
+      deliveryAssignment: { include: { courier: true } },
+    },
+  });
+
+  return NextResponse.json(toJsonSafe({ ok: true, assignment, order: updatedOrder, notificationSent }), { status: 201 });
 }

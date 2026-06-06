@@ -4,9 +4,6 @@ export function getTelegramWebhookSecret() {
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim() || "";
 
   if (!secret) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("TELEGRAM_WEBHOOK_SECRET is required in production.");
-    }
     return "";
   }
 

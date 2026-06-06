@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { MapPin, Plus, Save, Truck } from "lucide-react";
+import { MapPin, Plus, Save, Trash2, Truck } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
 
 export function SellerDeliverySettings({ businessId, onMessage }: { businessId: string; onMessage: (message: string, error?: boolean) => void }) {
@@ -9,6 +9,7 @@ export function SellerDeliverySettings({ businessId, onMessage }: { businessId: 
   const [zones, setZones] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [zoneForm, setZoneForm] = useState({ name: "", cityArea: "", fee: "", estimatedMinutes: "" });
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,6 +61,26 @@ export function SellerDeliverySettings({ businessId, onMessage }: { businessId: 
     setZones((current) => current.map((item) => item.id === zone.id ? data.zone : item));
   };
 
+  const deleteZone = async (zone: any) => {
+    const response = await miniAppFetch(`/api/businesses/${encodeURIComponent(businessId)}/delivery-zones/${encodeURIComponent(zone.id)}`, {
+      method: "DELETE",
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) {
+      return onMessage(data.error || "Не удалось удалить зону доставки.", true);
+    }
+
+    setDeleteTarget(null);
+    if (data.deleted) {
+      setZones((current) => current.filter((item) => item.id !== zone.id));
+      onMessage("Зона доставки удалена.");
+      return;
+    }
+
+    setZones((current) => current.map((item) => item.id === zone.id ? data.zone : item));
+    onMessage("Зона доставки отключена, история заказов сохранена.");
+  };
+
   if (loading || !settings) return <div className="rounded-3xl bg-white p-8 text-center text-xs font-black text-slate-400">Загрузка настроек доставки...</div>;
 
   return (
@@ -91,12 +112,42 @@ export function SellerDeliverySettings({ businessId, onMessage }: { businessId: 
           {zones.map((zone) => (
             <div key={zone.id} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-100">
               <div className="min-w-0"><p className="truncate text-xs font-black">{zone.name}</p><p className="text-[10px] font-bold text-slate-400">{zone.cityArea} · {zone.fee} ₽{zone.estimatedMinutes ? ` · ~${zone.estimatedMinutes} мин.` : ""}</p></div>
-              <button onClick={() => toggleZone(zone)} className={`shrink-0 rounded-full px-3 py-1 text-[9px] font-black ${zone.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"}`}>{zone.isActive ? "Активна" : "Выключена"}</button>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button onClick={() => toggleZone(zone)} className={`rounded-full px-3 py-1 text-[9px] font-black ${zone.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"}`}>{zone.isActive ? "Активна" : "Выключена"}</button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteTarget(zone)}
+                  className="grid h-8 w-8 place-items-center rounded-xl bg-rose-50 text-rose-600"
+                  title="Удалить зону"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
             </div>
           ))}
           {zones.length === 0 && <p className="py-4 text-center text-xs font-bold text-slate-400">Добавьте хотя бы одну зону, чтобы доставка появилась в checkout.</p>}
         </div>
       </section>
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55">
+          <button className="absolute inset-0" aria-label="Закрыть" onClick={() => setDeleteTarget(null)} />
+          <section className="relative w-full max-w-[480px] rounded-t-[28px] bg-white p-5 pb-8 shadow-2xl">
+            <h3 className="text-base font-black text-slate-950">Удалить зону доставки?</h3>
+            <p className="mt-2 text-xs font-bold leading-relaxed text-slate-500">
+              Зона «{deleteTarget.name}» исчезнет из checkout. Если она уже была в заказах, история сохранится, а зона будет отключена.
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setDeleteTarget(null)} className="rounded-2xl bg-slate-100 px-4 py-3 text-xs font-black text-slate-700">
+                Отмена
+              </button>
+              <button type="button" onClick={() => deleteZone(deleteTarget)} className="rounded-2xl bg-rose-600 px-4 py-3 text-xs font-black text-white">
+                Удалить
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

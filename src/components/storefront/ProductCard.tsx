@@ -26,9 +26,11 @@ export function ProductCard({
   onAction,
   onFavoriteToggle,
 }: ProductCardProps) {
+  const isGrid = viewMode === "grid";
+
   return (
-    <article className="h-full overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200/70">
-      <div className={`${viewMode === "grid" ? "aspect-square" : "aspect-[4/3]"} bg-slate-100`}>
+    <article className={`${isGrid ? "min-h-[292px] rounded-2xl" : "rounded-3xl"} flex h-full min-w-0 flex-col overflow-hidden bg-white shadow-sm ring-1 ring-slate-200/70`}>
+      <div className={`${isGrid ? "aspect-square" : "aspect-[4/3]"} shrink-0 overflow-hidden bg-slate-100`}>
         {item.imageUrl ? (
           <button
             type="button"
@@ -41,32 +43,32 @@ export function ProductCard({
         ) : (
           <div className="grid h-full place-items-center bg-slate-50 text-slate-400">
             <div className="flex flex-col items-center gap-1 text-[10px] font-black uppercase tracking-wider">
-              <Package size={viewMode === "grid" ? 26 : 34} strokeWidth={1.8} />
+              <Package size={isGrid ? 26 : 34} strokeWidth={1.8} />
               {item.type === "SERVICE" ? "Услуга" : "Товар"}
             </div>
           </div>
         )}
       </div>
 
-      <div className={viewMode === "grid" ? "p-3" : "flex items-start justify-between gap-4 p-4"}>
+      <div className={isGrid ? "flex min-h-0 flex-1 flex-col p-3" : "flex flex-1 items-start justify-between gap-4 p-4"}>
         <div className="min-w-0">
           <div className="mb-1 flex items-center gap-2">
-            <h3 className="font-black line-clamp-2">{item.name}</h3>
+            <h3 className={`${isGrid ? "text-sm leading-tight" : ""} line-clamp-2 font-black`}>{item.name}</h3>
             {item.isPopular && <Star size={14} className="text-amber-500" fill="currentColor" />}
           </div>
-          <p className="line-clamp-2 text-sm text-slate-500">{item.description}</p>
+          <p className={`${isGrid ? "text-xs leading-4" : "text-sm"} line-clamp-2 text-slate-500`}>{item.description}</p>
           {item.durationMinutes && <p className="mt-1 text-xs font-bold text-slate-400">{item.durationMinutes} мин.</p>}
         </div>
-        <div className={viewMode === "grid" ? "mt-2" : "text-right"}>
-          <p className="whitespace-nowrap font-black">{formatPrice(item.price)}</p>
+        <div className={isGrid ? "mt-auto pt-2" : "text-right"}>
+          <p className={`${isGrid ? "text-sm" : ""} whitespace-nowrap font-black`}>{formatPrice(item.price)}</p>
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-2 px-4 pb-4">
+      <div className={`${isGrid ? "px-3 pb-3" : "px-4 pb-4"} mt-auto flex items-center justify-between gap-2`}>
         <button
           type="button"
           onClick={() => onAction(item)}
-          className="min-w-0 flex-1 rounded-full px-4 py-2 text-sm font-bold text-white"
+          className={`${isGrid ? "px-2 text-[11px]" : "px-4 text-sm"} min-w-0 flex-1 truncate rounded-full py-2 font-bold text-white`}
           style={{ backgroundColor: primaryColor }}
         >
           {cta}
