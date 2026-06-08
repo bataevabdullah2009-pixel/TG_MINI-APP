@@ -22,10 +22,9 @@ Run `npm run env:diagnose` before deploy. It reports missing variables and unsaf
 - Source: Vercel deployment domain or custom domain.
 
 `NEXT_PUBLIC_WEBAPP_URL`
-- Public production origin used to build Telegram Mini App links.
-- Example format: `https://your-vercel-domain.vercel.app`.
-- `buildBusinessUrl(slug)` appends `/app/<slug>` and falls back to `/app`.
-- Source: the same production origin as `NEXT_PUBLIC_APP_URL`.
+- Telegram Mini App URL.
+- Example format: `https://your-vercel-domain.vercel.app/app`.
+- Source: `NEXT_PUBLIC_APP_URL + /app`.
 
 `TELEGRAM_BOT_TOKEN`
 - Telegram bot token.

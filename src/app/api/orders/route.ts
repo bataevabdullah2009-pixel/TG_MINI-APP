@@ -1,4 +1,4 @@
-import { after, NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession } from "@/lib/admin-auth";
@@ -396,38 +396,28 @@ export async function POST(request: NextRequest) {
 
     let totalPrice = 0;
     const orderItems: Array<{ name: string; price: number; quantity: number; itemId: string }> = [];
-    const requestedItems = items.map((item) => ({
-      itemId: cleanString(item.itemId),
-      quantity: toPositiveInt(item.quantity),
-    }));
 
-    if (requestedItems.some((item) => !item.itemId || item.quantity <= 0)) {
-      await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "INVALID_ITEM" });
-      return orderError("INVALID_ITEM", "В корзине есть некорректная позиция.");
-    }
+    for (const item of items) {
+      const quantity = toPositiveInt(item.quantity);
+      if (!item.itemId || quantity <= 0) {
+        await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "INVALID_ITEM" });
+        return orderError("INVALID_ITEM", "В корзине есть некорректная позиция.");
+      }
 
-    const availableItems = await prisma.item.findMany({
-      where: {
-        id: { in: Array.from(new Set(requestedItems.map((item) => item.itemId))) },
-        businessId: business.id,
-        isAvailable: true,
-      },
-      select: { id: true, name: true, price: true },
-    });
-    const availableItemsById = new Map(availableItems.map((item) => [item.id, item]));
-
-    for (const item of requestedItems) {
-      const dbItem = availableItemsById.get(item.itemId);
-      if (!dbItem) {
+      const dbItem = await prisma.item.findUnique({
+        where: { id: item.itemId },
+        select: { id: true, businessId: true, name: true, price: true, isAvailable: true },
+      });
+      if (!dbItem || dbItem.businessId !== business.id || !dbItem.isAvailable) {
         await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "ITEM_UNAVAILABLE" });
         return orderError("ITEM_UNAVAILABLE", "Одна из позиций больше недоступна. Обновите корзину.");
       }
 
-      totalPrice += dbItem.price * item.quantity;
+      totalPrice += dbItem.price * quantity;
       orderItems.push({
         name: dbItem.name,
         price: dbItem.price,
-        quantity: item.quantity,
+        quantity,
         itemId: dbItem.id,
       });
     }
@@ -593,7 +583,9 @@ export async function POST(request: NextRequest) {
           paymentProofUrl: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofUrl) : null,
           paymentProofFileName: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofFileName) || null : null,
           paymentProofMimeType: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofMimeType) || null : null,
-          paymentProofAiStatus: requestedPaymentMethod === "TRANSFER" ? "PENDING" : null,
+          paymentProofAiStatus: requestedPaymentMethod === "TRANSFER"
+            ? cleanString(paymentProofMimeType).startsWith("image/") ? "PENDING" : "MANUAL_REVIEW"
+            : null,
         },
         include: checkoutOrderInclude,
       });
@@ -641,67 +633,55 @@ export async function POST(request: NextRequest) {
       deliveryCityArea: "deliveryCityArea" in orderResult ? orderResult.deliveryCityArea : null,
     };
 
-    after(async () => {
-      await recordAttempt({
-        businessId: business.id,
-        telegramUserId: telegramId,
-        phone: verifiedCustomerPhone,
-        success: true,
-        reason: "ORDER_CREATED",
-      }).catch((error) => console.warn("[ORDER ATTEMPT] success log failed:", error));
+    await recordAttempt({
+      businessId: business.id,
+      telegramUserId: telegramId,
+      phone: verifiedCustomerPhone,
+      success: true,
+      reason: "ORDER_CREATED",
+    });
 
-      try {
-        await prisma.customer.update({
-          where: { id: customer.id },
-          data: {
-            totalOrders: { increment: 1 },
-            totalSpent: { increment: totalPrice },
-          },
-        });
-      } catch (error) {
-        warnPrismaSchemaDrift("Order created, but customer counters could not be updated", error);
-      }
+    try {
+      await prisma.customer.update({
+        where: { id: customer.id },
+        data: {
+          totalOrders: { increment: 1 },
+          totalSpent: { increment: totalPrice },
+        },
+      });
+    } catch (error) {
+      warnPrismaSchemaDrift("Order created, but customer counters could not be updated", error);
+    }
 
-      if (requestedPaymentMethod === "TRANSFER" && order.paymentProofUrl) {
-        try {
-          const analysis = await analyzePaymentProof({
-            imageUrl: order.paymentProofUrl,
-            orderTotal: order.totalPrice,
-            businessName: business.name,
-            recipientName: business.transferRecipientName,
-            paymentPhone: business.transferPaymentPhone,
-            bankName: business.transferBankName,
-            orderCreatedAt: order.createdAt,
-          });
-          await prisma.order.update({
+    if (requestedPaymentMethod === "TRANSFER" && order.paymentProofUrl && order.paymentProofMimeType?.startsWith("image/")) {
+      analyzePaymentProof({
+        imageUrl: order.paymentProofUrl,
+        orderTotal: order.totalPrice,
+        businessName: business.name,
+        recipientName: business.transferRecipientName,
+        paymentPhone: business.transferPaymentPhone,
+        bankName: business.transferBankName,
+        orderCreatedAt: order.createdAt,
+      })
+        .then((analysis) =>
+          prisma.order.update({
             where: { id: order.id },
             data: {
               paymentProofAiStatus: analysis.status,
               paymentProofAiSummary: analysis.summary,
-              paymentProofAiConfidence: Math.round(analysis.confidence * 100),
+              paymentProofAiConfidence: analysis.confidence,
             },
             select: { id: true },
-          });
-        } catch (error) {
-          console.warn("[PAYMENT PROOF AI] background update failed:", error);
-          await prisma.order.update({
-            where: { id: order.id },
-            data: {
-              paymentProofAiStatus: "MANUAL_REVIEW",
-              paymentProofAiSummary: "ИИ не смог проверить чек. Нужна ручная проверка.",
-              paymentProofAiConfidence: 0,
-            },
-            select: { id: true },
-          }).catch((updateError) => console.warn("[PAYMENT PROOF AI] fallback update failed:", updateError));
-        }
-      }
+          })
+        )
+        .catch((error) => console.warn("[PAYMENT PROOF AI] background update failed:", error));
+    }
 
-      try {
-        await NotificationService.notifyBusinessOwnerNewOrder(order.id);
-      } catch (error) {
-        console.error("[ORDER NOTIFICATION] Order created, but seller notification failed:", error);
-      }
-    });
+    try {
+      await NotificationService.notifyBusinessOwnerNewOrder(order.id);
+    } catch (error) {
+      console.error("[ORDER NOTIFICATION] Order created, but seller notification failed:", error);
+    }
 
     return NextResponse.json(toJsonSafe({ ...order, ok: true, schemaFallback: usedCheckoutSchemaFallback }), { status: 201 });
   } catch (error) {

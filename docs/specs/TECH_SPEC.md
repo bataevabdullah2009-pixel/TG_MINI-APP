@@ -14,7 +14,7 @@
 Required production URL variables:
 
 - `NEXT_PUBLIC_APP_URL`: base deployed domain, for example `https://production-domain.vercel.app`.
-- `NEXT_PUBLIC_WEBAPP_URL`: public application origin without `/app`, for example `https://production-domain.vercel.app`.
+- `NEXT_PUBLIC_WEBAPP_URL`: Mini App entry, for example `https://production-domain.vercel.app/app`.
 - `TELEGRAM_WEBHOOK_URL`: webhook URL, for example `https://production-domain.vercel.app/api/telegram/webhook`.
 
 In production, Telegram URLs must be HTTPS and must not use ngrok, localhost, or 127.0.0.1.

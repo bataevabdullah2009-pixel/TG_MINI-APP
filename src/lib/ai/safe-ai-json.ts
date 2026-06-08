@@ -8,12 +8,11 @@ export type ProductCardJson = {
 };
 
 export type PaymentProofAnalysisJson = {
-  valid: boolean;
+  isReceipt: boolean;
   amount: number | null;
   date: string | null;
-  receiver: string | null;
   confidence: number;
-  reason: string;
+  comment: string;
 };
 
 export function aiRawPreview(raw: string, limit = 200) {
@@ -93,18 +92,17 @@ export function validateProductCardJson(value: unknown): ProductCardJson {
 
 export function validatePaymentProofAnalysisJson(value: unknown): PaymentProofAnalysisJson {
   const input = value as Partial<PaymentProofAnalysisJson>;
-  if (typeof input.valid !== "boolean") {
-    throw new Error("Invalid payment proof AI valid value.");
+  if (typeof input.isReceipt !== "boolean") {
+    throw new Error("Invalid payment proof AI isReceipt value.");
   }
 
   const confidence = Number(input.confidence);
 
   return {
-    valid: input.valid,
+    isReceipt: input.isReceipt,
     amount: typeof input.amount === "number" && Number.isFinite(input.amount) ? input.amount : null,
     date: typeof input.date === "string" && input.date.trim() ? input.date.trim() : null,
-    receiver: typeof input.receiver === "string" && input.receiver.trim() ? input.receiver.trim() : null,
-    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
-    reason: requiredString(input.reason, "reason").slice(0, 600),
+    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(100, Math.round(confidence))) : 0,
+    comment: requiredString(input.comment, "comment").slice(0, 600),
   };
 }

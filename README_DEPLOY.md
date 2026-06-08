@@ -104,7 +104,7 @@ Prisma в serverless-среде (Vercel) требует настройки дв�
 | **DIRECT_URL** | Прямое подключение (порт 5432) | `postgresql://postgres.xxx:pass@host:5432/postgres` |
 | **NODE_ENV** | Режим работы | `production` |
 | **NEXT_PUBLIC_APP_URL** | Полный URL вашего приложения Vercel | `https://tg-mini-app-two-ruby.vercel.app` |
-| **NEXT_PUBLIC_WEBAPP_URL** | Публичный origin Mini App (без `/app`) | `https://your-vercel-domain.vercel.app` |
+| **NEXT_PUBLIC_WEBAPP_URL** | URL Mini App клиента (с `/app`) | `https://tg-mini-app-two-ruby.vercel.app/app` |
 | **TELEGRAM_WEBHOOK_URL** | Вебхук URL | `https://tg-mini-app-two-ruby.vercel.app/api/telegram/webhook` |
 | **TELEGRAM_BOT_TOKEN** | API токен бота от BotFather | `1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ` |
 | **TELEGRAM_BOT_USERNAME** | Username бота без символа `@` | `VitrinaAI_bot` |

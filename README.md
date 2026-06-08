@@ -95,7 +95,7 @@ npm run dev
 DATABASE_URL=""
 DIRECT_URL=""
 NEXT_PUBLIC_APP_URL="https://your-vercel-domain.vercel.app"
-NEXT_PUBLIC_WEBAPP_URL="https://your-vercel-domain.vercel.app"
+NEXT_PUBLIC_WEBAPP_URL="https://your-vercel-domain.vercel.app/app"
 TELEGRAM_BOT_TOKEN=""
 TELEGRAM_BOT_USERNAME=""
 TELEGRAM_SUPER_ADMIN_IDS=""

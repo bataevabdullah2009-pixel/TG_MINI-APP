@@ -7,22 +7,24 @@ import {
 } from "@/lib/ai/safe-ai-json";
 
 export type PaymentProofAnalysisResult = PaymentProofAnalysisJson & {
-  status: "LIKELY_VALID" | "MANUAL_REVIEW" | "AI_UNAVAILABLE";
+  status: "LIKELY_VALID" | "SUSPICIOUS" | "INVALID" | "UNREADABLE" | "AI_UNAVAILABLE";
   summary: string;
 };
 
 function toResult(analysis: PaymentProofAnalysisJson, orderTotal: number): PaymentProofAnalysisResult {
-  const amountMismatch = analysis.amount === null || Math.abs(analysis.amount - orderTotal) > 1;
-  const status = analysis.valid && !amountMismatch && analysis.confidence >= 0.85
-    ? "LIKELY_VALID"
-    : "MANUAL_REVIEW";
+  const amountMismatch = analysis.amount !== null && Math.abs(analysis.amount - orderTotal) > 1;
+  const status = !analysis.isReceipt
+    ? "INVALID"
+    : amountMismatch || analysis.confidence < 60
+      ? "SUSPICIOUS"
+      : "LIKELY_VALID";
 
   return {
     ...analysis,
     status,
     summary: amountMismatch
-      ? `${analysis.reason} Сумма чека не совпала с суммой заказа или не распознана.`
-      : analysis.reason,
+      ? `${analysis.comment} Сумма на чеке не совпадает с суммой заказа.`
+      : analysis.comment,
   };
 }
 
@@ -42,12 +44,11 @@ export async function analyzePaymentProof(input: {
     }
     return {
       status: "AI_UNAVAILABLE",
-      valid: false,
+      isReceipt: false,
       amount: null,
       date: null,
-      receiver: null,
       confidence: 0,
-      reason: "ИИ временно недоступен.",
+      comment: "ИИ временно недоступен, чек отправлен продавцу.",
       summary: "ИИ-проверка чека не выполнена. Проверьте чек вручную.",
     };
   }
@@ -56,9 +57,8 @@ export async function analyzePaymentProof(input: {
     "Ты проверяешь изображение банковского чека перевода для Telegram Mini App.",
     "Верни только JSON без markdown и пояснений.",
     "Не ставь заказ как оплаченный. Финальное решение принимает продавец.",
-    "Форма JSON строго такая: {\"valid\":true,\"amount\":1250.5,\"date\":\"2026-06-06\",\"receiver\":\"Имя получателя\",\"confidence\":0.95,\"reason\":\"Краткая причина\"}.",
-    "Если значение amount, date или receiver не удалось извлечь, верни null в соответствующем поле.",
-    "confidence укажи числом от 0 до 1.",
+    "Схема строго такая: {\"isReceipt\":true,\"amount\":number|null,\"date\":\"string|null\",\"confidence\":number,\"comment\":\"string\"}.",
+    "confidence укажи числом от 0 до 100.",
   ].join(" ");
 
   const user = [
@@ -69,9 +69,9 @@ export async function analyzePaymentProof(input: {
     `Банк продавца: ${input.bankName || "не указан"}.`,
     `Заказ создан: ${input.orderCreatedAt.toISOString()}.`,
     "Правила:",
-    "1. valid=true только если файл похож на настоящий банковский чек и ключевые данные читаются.",
-    "2. Извлеки сумму, дату и получателя. Не додумывай отсутствующие значения.",
-    "3. В reason кратко укажи сомнения, несовпадения или причину низкой уверенности.",
+    "1. Определи, похоже ли изображение на банковский чек.",
+    "2. Извлеки сумму и дату, если они читаются.",
+    "3. В comment кратко укажи сомнения, несовпадения или причину низкой уверенности.",
     "4. Не подтверждай оплату и не принимай финальное решение за продавца.",
   ].join("\n");
 
@@ -101,7 +101,7 @@ export async function analyzePaymentProof(input: {
           system,
           user: [
             "Исправь этот ответ в валидный JSON строго по схеме анализа чека:",
-            "{\"valid\":false,\"amount\":null,\"date\":null,\"receiver\":null,\"confidence\":0,\"reason\":\"Краткая причина\"}",
+            "{\"isReceipt\":true,\"amount\":number|null,\"date\":\"string|null\",\"confidence\":number,\"comment\":\"string\"}",
             "Верни только JSON.",
             raw,
           ].join("\n"),
@@ -116,13 +116,12 @@ export async function analyzePaymentProof(input: {
     }
 
     return {
-      status: raw ? "MANUAL_REVIEW" : "AI_UNAVAILABLE",
-      valid: false,
+      status: raw ? "UNREADABLE" : "AI_UNAVAILABLE",
+      isReceipt: false,
       amount: null,
       date: null,
-      receiver: null,
       confidence: 0,
-      reason: raw ? "ИИ не смог уверенно прочитать чек." : "ИИ временно недоступен.",
+      comment: raw ? "ИИ не смог прочитать или проверить чек." : "ИИ временно недоступен, чек отправлен продавцу.",
       summary: raw ? "ИИ не смог проверить чек автоматически. Проверьте чек вручную." : "ИИ временно недоступен, чек отправлен продавцу.",
     };
   }

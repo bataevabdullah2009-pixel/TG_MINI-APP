@@ -6,12 +6,10 @@ import { AI_MANAGER_HANDOFF_MESSAGE, AIService, resolveAIProviderName } from "@/
 import { getPolzaChatEndpoint } from "@/lib/ai/polza-provider";
 import { ensureTelegramUser, trySyncUserPhone } from "@/lib/auth/telegram-user-service";
 import { ensureCustomerForTelegramUser } from "@/lib/customer/customer-service";
-import { buildBusinessUrl, getMiniAppUrl } from "@/lib/production-url";
+import { getMiniAppUrl } from "@/lib/production-url";
 import { looksLikeSellerLinkAttempt, parseSellerLinkText } from "@/lib/seller-link";
 import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 import { getTelegramWebhookSecret } from "@/lib/telegram-webhook-config";
-import { getStoreSlugFromStartParam } from "@/lib/business-share-links";
-import { routeTelegramBusinessIntent } from "@/lib/telegram-intent-router";
 
 type TelegramBusinessContext = {
   id: string;
@@ -25,17 +23,6 @@ type TelegramBusinessContext = {
   aiModel: string | null;
   telegramAdminChatId?: bigint | null;
   owner?: { telegramId: bigint | null } | null;
-  settings?: {
-    deliveryEnabled: boolean;
-    pickupEnabled: boolean;
-    bookingEnabled: boolean;
-  } | null;
-  deliveryZones?: Array<{
-    name: string;
-    cityArea: string;
-    fee: number;
-    estimatedMinutes: number | null;
-  }>;
 };
 
 const telegramBusinessContextSelect = {
@@ -50,23 +37,6 @@ const telegramBusinessContextSelect = {
   aiModel: true,
   telegramAdminChatId: true,
   owner: { select: { telegramId: true } },
-  settings: {
-    select: {
-      deliveryEnabled: true,
-      pickupEnabled: true,
-      bookingEnabled: true,
-    },
-  },
-  deliveryZones: {
-    where: { isActive: true },
-    select: {
-      name: true,
-      cityArea: true,
-      fee: true,
-      estimatedMinutes: true,
-    },
-    orderBy: { fee: "asc" },
-  },
 } as const;
 
 function telegramWebhookAuth(request: NextRequest) {
@@ -165,6 +135,14 @@ async function notifyManagerAboutAiFailure(
       `Question: ${escapeTelegramHtml(question.slice(0, 1000))}`,
     ].join("\n")
   );
+}
+
+function catalogSearchQuery(text: string) {
+  const normalized = text.toLowerCase().replace(/[?!.,;:]/g, " ").replace(/\s+/g, " ").trim();
+  const markers = ["есть ли у вас ", "у вас есть ", "есть ли ", "есть "];
+  const marker = markers.find((candidate) => normalized.includes(candidate));
+  if (!marker) return null;
+  return normalized.split(marker)[1]?.replace(/\b(в наличии|сейчас|товар)\b/g, "").trim() || null;
 }
 
 async function handleSellerLinkCode(text: string, chatId: string | number, from?: TelegramMessageFrom | null) {
@@ -388,6 +366,11 @@ export async function POST(request: NextRequest) {
         targetUrl = `${miniAppUrl}?mode=super`;
         buttonText = "SaaS Панель";
         message = "Добро пожаловать в SaaS Панель управления! 👑\n\nНажмите на кнопку ниже, чтобы открыть кабинет...";
+      } else if (payload === "demo-cafe" || payload === "cafe") {
+        targetUrl = `${miniAppUrl}/demo-cafe`;
+
+        buttonText = "Открыть Demo Cafe";
+        message = "Добро пожаловать в <b>Demo Cafe</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.";
       } else if (payload) {
         // Deep link payload: check if link code
         if (payload.startsWith("link-") || payload.startsWith("link_") || payload.length === 6) {
@@ -416,21 +399,20 @@ export async function POST(request: NextRequest) {
             message = `✅ <b>Успешно привязано!</b>\n\nВы привязали аккаунт продавца <b>${ownerUser.email}</b>.\nТеперь вы можете управлять вашим бизнесом прямо внутри Telegram Mini App!`;
           }
         } else {
-          const businessPayload = getStoreSlugFromStartParam(payload) || payload;
           const targetBusiness = await prisma.business.findFirst({
             where: {
               isActive: true,
               OR: [
-                { slug: businessPayload },
-                { id: businessPayload },
-                { slug: { equals: businessPayload, mode: "insensitive" } },
+                { slug: payload },
+                { id: payload },
+                { slug: { equals: payload, mode: "insensitive" } },
               ],
             },
             select: telegramBusinessContextSelect,
           });
           if (targetBusiness) {
             business = targetBusiness;
-            targetUrl = buildBusinessUrl(targetBusiness.slug);
+            targetUrl = `${miniAppUrl}/${targetBusiness.slug}`;
             buttonText = `Открыть ${targetBusiness.name}`;
             message = `Добро пожаловать в <b>${targetBusiness.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
           } else {
@@ -441,7 +423,7 @@ export async function POST(request: NextRequest) {
           }
         }
       } else if (business) {
-        targetUrl = buildBusinessUrl(business.slug);
+        targetUrl = `${miniAppUrl}/${business.slug}`;
 
         buttonText = `Открыть ${business.name}`;
         message = `Добро пожаловать в <b>${business.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
@@ -593,53 +575,19 @@ export async function POST(request: NextRequest) {
     if (activeBusiness) {
       const catalogItems = await prisma.item.findMany({
         where: { businessId: activeBusiness.id, isAvailable: true, type: "PRODUCT" },
-        select: {
-          id: true,
-          name: true,
-          price: true,
-          category: { select: { name: true } },
-        },
+        select: { id: true, name: true, price: true },
         orderBy: [{ isPopular: "desc" }, { sortOrder: "asc" }],
         take: 100,
       });
-      const storeUrl = buildBusinessUrl(activeBusiness.slug);
-      const routedIntent = await routeTelegramBusinessIntent({
-        text,
-        business: activeBusiness,
-        customerId: customer?.id,
-        customerPhone: customer?.phone,
-        catalogItems,
-      });
-
-      if (routedIntent) {
-        await telegramBot.sendNotification(chatId, routedIntent.message, routedIntent.buttonUrl ? {
-          reply_markup: {
-            inline_keyboard: [[{
-              text: routedIntent.buttonText || "Открыть магазин",
-              web_app: { url: withTelegramWebAppCacheBust(routedIntent.buttonUrl) },
-            }]],
-          },
-        } : undefined);
-        logTelegramResponseSent({
-          chatId,
-          type: `intent_${routedIntent.kind}`,
-          businessId: activeBusiness.id,
-        });
-        return NextResponse.json({ ok: true });
-      }
-
+      const storeUrl = getMiniAppUrl(`/app/${activeBusiness.slug}`);
       const knowledgeBase = [
         `Название: ${activeBusiness.name}.`,
         `Описание: ${activeBusiness.description || "нет"}.`,
         `Телефон: ${activeBusiness.phone || "нет"}.`,
         `Адрес: ${activeBusiness.address || "нет"}.`,
         `Текущий каталог: ${catalogItems.map((item) => `${item.name} — ${item.price} ₽`).join("; ") || "товаров нет"}.`,
-        `Доставка: ${activeBusiness.settings?.deliveryEnabled ? "доступна" : "недоступна"}.`,
-        `Запись: ${activeBusiness.settings?.bookingEnabled ? "доступна" : "недоступна"}.`,
         `Mini App: ${storeUrl}.`,
-        "Отвечай только о текущем бизнесе и только по этим данным.",
-        "Не придумывай товары, услуги, цены, сроки и условия.",
-        "Ответ должен быть коротким, на русском языке, без ссылок на другие магазины или демо-бизнесы.",
+        "Не выдумывай товары. Если товара нет в текущем каталоге, честно скажи, что его нет.",
       ].join(" ");
       
       console.info("[BUSINESS CONTEXT] slug/name/id", {
@@ -671,7 +619,27 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true });
       }
 
-      await telegramBot.sendNotification(chatId, "Думаю…");
+      const searchQuery = catalogSearchQuery(text);
+      if (searchQuery) {
+        const matches = catalogItems.filter((item) => {
+          const itemName = item.name.toLowerCase();
+          return itemName.includes(searchQuery) || searchQuery.includes(itemName);
+        });
+        if (matches.length > 0) {
+          await telegramBot.sendNotification(
+            chatId,
+            `Есть: ${matches.slice(0, 5).map((item) => `${item.name} — ${item.price} ₽`).join(", ")}. Откройте Mini App, чтобы добавить товар в корзину.`,
+            { reply_markup: { inline_keyboard: [[{ text: `Открыть ${activeBusiness.name}`, web_app: { url: storeUrl } }]] } }
+          );
+          logTelegramResponseSent({ chatId, type: "catalog_match", businessId: activeBusiness.id });
+        } else {
+          await telegramBot.sendNotification(chatId, `В каталоге ${activeBusiness.name} такого товара сейчас нет.`);
+          logTelegramResponseSent({ chatId, type: "catalog_no_match", businessId: activeBusiness.id });
+        }
+        return NextResponse.json({ ok: true });
+      }
+
+      await telegramBot.sendNotification(chatId, "⏳ Думаю...");
       console.info("[TELEGRAM_AI_REQUEST]", {
         chatId,
         businessId: activeBusiness.id,
@@ -699,11 +667,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const safeAnswer = answer === AI_MANAGER_HANDOFF_MESSAGE
-        ? answer
-        : `${answer.replace(/https?:\/\/\S+/gi, "").trim().slice(0, 450)}\n\n${storeUrl}`;
-
-      await telegramBot.sendNotification(chatId, safeAnswer);
+      await telegramBot.sendNotification(chatId, answer);
       logTelegramResponseSent({
         chatId,
         type: "ai_answer",
@@ -714,14 +678,7 @@ export async function POST(request: NextRequest) {
       });
     } else {
       console.error("[BUSINESS CONTEXT] slug/name/id", { slug: null, name: null, id: null });
-      await telegramBot.sendNotification(chatId, "Сначала выберите магазин в Mini App.", {
-        reply_markup: {
-          inline_keyboard: [[{
-            text: "Открыть каталог",
-            web_app: { url: withTelegramWebAppCacheBust(buildBusinessUrl(null)) },
-          }]],
-        },
-      });
+      await telegramBot.sendNotification(chatId, "Сначала откройте нужный магазин в Mini App. Без выбранного бизнеса я не буду выдумывать товары и ответы.");
       logTelegramResponseSent({ chatId, type: "business_context_missing" });
     }
 

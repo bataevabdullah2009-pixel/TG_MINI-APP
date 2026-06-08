@@ -12,7 +12,6 @@ import { ManagerWorkPanel } from "@/components/app/ManagerWorkPanel";
 import { SuperAdminHome } from "@/components/app/SuperAdminHome";
 import { getStoreSlugFromStartParam } from "@/lib/business-share-links";
 import { miniAppFetch } from "@/lib/miniAppFetch";
-import { buildBusinessUrl } from "@/lib/production-url";
 
 type Business = {
   id: string;
@@ -102,7 +101,7 @@ export default function MarketplacePage() {
     const initDataStartParam = new URLSearchParams(tg?.initData || sessionStorage.getItem("tgInitData") || "").get("start_param");
     const storeSlug = getStoreSlugFromStartParam(tg?.initDataUnsafe?.start_param || initDataStartParam);
     if (storeSlug) {
-      router.replace(buildBusinessUrl(storeSlug));
+      router.replace(`/app/${encodeURIComponent(storeSlug)}`);
       return;
     }
 

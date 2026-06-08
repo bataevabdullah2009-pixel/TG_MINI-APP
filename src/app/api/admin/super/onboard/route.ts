@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildBusinessUrl } from "@/lib/production-url";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { BUSINESS_TEMPLATES, templateKeyFromBusinessType } from "@/lib/business-templates";
@@ -209,7 +208,7 @@ export async function POST(request: NextRequest) {
         email: safeResult.owner.email,
         telegramLinkCode: safeResult.owner.telegramLinkCode 
       },
-      miniAppUrl: buildBusinessUrl(safeResult.business.slug),
+      miniAppUrl: `/app/${safeResult.business.slug}`,
     });
   } catch (error) {
     console.error("Onboard API error:", error);
