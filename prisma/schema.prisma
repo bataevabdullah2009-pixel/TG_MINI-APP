@@ -219,7 +219,7 @@ model Business {
   subscriptionStartDate DateTime?
   subscriptionEndDate   DateTime?
   setupFeeAmount        Int                @default(30000)
-  monthlyFeeAmount      Int                @default(3000)
+  monthlyFeeAmount      Int                @default(0)
   lastPaidAt            DateTime?
   nextPaymentAt         DateTime?
   blockedAt             DateTime?
@@ -324,8 +324,8 @@ model SubscriptionPlan {
   description         String?
   price               Float
   setupFeeAmount      Int     @default(30000)
-  monthlyFeeAmount    Int     @default(3000)
-  billingPeriodMonths Int     @default(1)
+  monthlyFeeAmount    Int     @default(0)
+  billingPeriodMonths Int     @default(0)
 
   maxItems          Int @default(50)
   maxOrdersPerMonth Int @default(200)

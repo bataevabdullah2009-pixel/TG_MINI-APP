@@ -9,9 +9,9 @@ import { NotificationService } from "@/lib/notifications/notification-service";
 
 export const COMMERCIAL_PLAN_ID = "plan-commercial";
 export const COMMERCIAL_PLAN_NAME = "Commercial";
-export const COMMERCIAL_SETUP_FEE_RUB = 30_000;
-export const COMMERCIAL_MONTHLY_FEE_RUB = 3_000;
-export const COMMERCIAL_BILLING_PERIOD_MONTHS = 1;
+export const COMMERCIAL_SETUP_FEE_RUB = 50_000;
+export const COMMERCIAL_MONTHLY_FEE_RUB = 0;
+export const COMMERCIAL_BILLING_PERIOD_MONTHS = 0;
 export const SUBSCRIPTION_GRACE_DAYS = 3;
 export const TRIAL_DAYS = 14;
 export const SUBSCRIPTION_EXPIRED_REASON = "Истёк срок подписки";
@@ -55,8 +55,8 @@ export async function ensureCommercialPlan(tx?: Prisma.TransactionClient) {
     update: {
       name: COMMERCIAL_PLAN_NAME,
       description:
-        "Подключение 30 000 ₽ + 3 000 ₽/мес подписка. Каталог, заказы, ИИ, доставка, уведомления.",
-      price: COMMERCIAL_MONTHLY_FEE_RUB,
+        "Разовое подключение 50 000 ₽ — бессрочный доступ. Каталог, заказы, ИИ, доставка, уведомления.",
+      price: COMMERCIAL_SETUP_FEE_RUB,
       setupFeeAmount: COMMERCIAL_SETUP_FEE_RUB,
       monthlyFeeAmount: COMMERCIAL_MONTHLY_FEE_RUB,
       billingPeriodMonths: COMMERCIAL_BILLING_PERIOD_MONTHS,
@@ -66,8 +66,8 @@ export async function ensureCommercialPlan(tx?: Prisma.TransactionClient) {
       id: COMMERCIAL_PLAN_ID,
       name: COMMERCIAL_PLAN_NAME,
       description:
-        "Подключение 30 000 ₽ + 3 000 ₽/мес подписка. Каталог, заказы, ИИ, доставка, уведомления.",
-      price: COMMERCIAL_MONTHLY_FEE_RUB,
+        "Разовое подключение 50 000 ₽ — бессрочный доступ. Каталог, заказы, ИИ, доставка, уведомления.",
+      price: COMMERCIAL_SETUP_FEE_RUB,
       setupFeeAmount: COMMERCIAL_SETUP_FEE_RUB,
       monthlyFeeAmount: COMMERCIAL_MONTHLY_FEE_RUB,
       billingPeriodMonths: COMMERCIAL_BILLING_PERIOD_MONTHS,
@@ -310,16 +310,15 @@ export async function recordBusinessPayment(
 
     if (isSetup) {
       const startDate = business.subscriptionStartDate || paidAt;
-      const endDate = addMonths(startDate, COMMERCIAL_BILLING_PERIOD_MONTHS);
       subscriptionUpdate = {
         ...subscriptionUpdate,
         subscriptionPlanId: COMMERCIAL_PLAN_ID,
         setupFeeAmount: COMMERCIAL_SETUP_FEE_RUB,
         monthlyFeeAmount: COMMERCIAL_MONTHLY_FEE_RUB,
-        subscriptionStatus: "ACTIVE",
+        subscriptionStatus: "LIFETIME",
         subscriptionStartDate: startDate,
-        subscriptionEndDate: endDate,
-        nextPaymentAt: endDate,
+        subscriptionEndDate: null,
+        nextPaymentAt: null,
         gracePeriodUntil: null,
         isBlocked: false,
         blockedAt: null,
@@ -376,15 +375,6 @@ export async function recordBusinessPayment(
     ).catch((error) =>
       console.warn(
         `[SUBSCRIPTION] Setup activation notification failed for ${result.business.id}:`,
-        error
-      )
-    );
-  } else if (monthsAdded > 0) {
-    await NotificationService.notifySubscriptionRenewed(
-      result.business.id
-    ).catch((error) =>
-      console.warn(
-        `[SUBSCRIPTION] Renewal notification failed for ${result.business.id}:`,
         error
       )
     );

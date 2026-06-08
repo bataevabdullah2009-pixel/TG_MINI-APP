@@ -66,7 +66,7 @@ export async function POST(
           select: { id: true },
         });
         if (existingSetupPayment) {
-          return jsonError("Разовая оплата 30 000 ₽ уже отмечена.", 409);
+          return jsonError("Разовая оплата 50 000 ₽ уже отмечена.", 409);
         }
       }
 

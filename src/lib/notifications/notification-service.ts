@@ -86,8 +86,8 @@ export class NotificationService {
 
     const message =
       days === 3
-        ? `Срок подписки Vitrina AI для бизнеса ${escapeTelegramHtml(business.name)} заканчивается через 3 дня. Для продления оплатите 3 000 ₽.`
-        : `Срок подписки Vitrina AI для бизнеса ${escapeTelegramHtml(business.name)} заканчивается завтра. Для продления оплатите 3 000 ₽.`;
+        ? `Срок подписки Vitrina AI для бизнеса ${escapeTelegramHtml(business.name)} заканчивается через 3 дня. Свяжитесь с администратором Vitrina AI для продления.`
+        : `Срок подписки Vitrina AI для бизнеса ${escapeTelegramHtml(business.name)} заканчивается завтра. Свяжитесь с администратором Vitrina AI для продления.`;
     return telegramBot.sendNotification(chatId, message, {
       reply_markup: {
         inline_keyboard: [
@@ -142,7 +142,7 @@ export class NotificationService {
 
     return telegramBot.sendNotification(
       chatId,
-      `Оплата подключения 30 000 ₽ получена. Бизнес ${escapeTelegramHtml(business.name)} активирован до ${endDate}. Ежемесячная подписка: 3 000 ₽/мес.`
+      `Оплата подключения 50 000 ₽ получена. Для бизнеса ${escapeTelegramHtml(business.name)} активирован бессрочный доступ Vitrina AI.`
     );
   }
 

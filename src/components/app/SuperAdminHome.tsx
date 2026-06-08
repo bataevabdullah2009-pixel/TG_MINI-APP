@@ -565,7 +565,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
                         </div>
                         <div>
                           <span className="block text-[8px] uppercase tracking-wider text-slate-400">Стоимость</span>
-                          <strong>{Number(biz.setupFeeAmount || 30000).toLocaleString("ru-RU")} ₽ + {Number(biz.monthlyFeeAmount || 3000).toLocaleString("ru-RU")} ₽/мес</strong>
+                          <strong>{Number(biz.setupFeeAmount || 50000).toLocaleString("ru-RU")} ₽ разово</strong>
                         </div>
                         <div>
                           <span className="block text-[8px] uppercase tracking-wider text-slate-400">Доступ</span>
@@ -599,25 +599,12 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
                         >
                           Открыть витрину
                         </button>
-                        <button onClick={() => editBusiness(biz)} className="rounded-xl bg-slate-100 px-2 py-2 text-[10px] font-black text-slate-700">
-                          Редактировать
-                        </button>
-                        <button onClick={() => markManualPayment(biz)} disabled={businessActionId === biz.id} className="rounded-xl bg-amber-50 px-2 py-2 text-[10px] font-black text-amber-700 disabled:opacity-50">
-                          Отметить оплату
-                        </button>
                         <button onClick={() => runBusinessAction(biz, "PAY_SETUP")} disabled={businessActionId === biz.id || biz.setupPaid} className="rounded-xl bg-violet-50 px-2 py-2 text-[10px] font-black text-violet-700 disabled:opacity-40">
                           {biz.setupPaid ? "Подключение оплачено" : "Оплачено подключение"}
                         </button>
-                        {renewalOptions.map((opt) => (
-                          <button
-                            key={opt.action}
-                            onClick={() => runBusinessAction(biz, opt.action)}
-                            disabled={businessActionId === biz.id}
-                            className="rounded-xl bg-indigo-50 px-2 py-2 text-[10px] font-black text-indigo-700 disabled:opacity-50"
-                          >
-                            {opt.label} ({(3000 * opt.months).toLocaleString("ru-RU")} ₽)
-                          </button>
-                        ))}
+                        <button onClick={() => editBusiness(biz)} className="rounded-xl bg-slate-100 px-2 py-2 text-[10px] font-black text-slate-700">
+                          Редактировать
+                        </button>
                         {biz.isBlocked || biz.subscriptionStatus === "BLOCKED" ? (
                           <button onClick={() => runBusinessAction(biz, "UNBLOCK")} disabled={businessActionId === biz.id} className="rounded-xl bg-emerald-600 px-2 py-2 text-[10px] font-black text-white disabled:opacity-50">
                             Разблокировать
@@ -775,14 +762,14 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
                       <p className="mt-1 text-sm font-black text-slate-950">Commercial</p>
                     </div>
                     <div className="text-right text-[10px] font-bold text-slate-600">
-                          <p>30 000 ₽ подключение</p>
-                          <p>+ 3 000 ₽/мес подписка</p>
+                          <p>50 000 ₽ разово</p>
+                          <p>Бессрочный доступ</p>
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-amber-100 bg-amber-50 p-3 text-amber-800">
-                  После создания бизнес получает пробный период {14} дней. Для активации отметьте оплату подключения.
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-emerald-800">
+                  После создания бизнес получает пробный период 14 дней. Для активации отметьте оплату подключения 50 000 ₽ — доступ навсегда.
                 </div>
 
                 <button

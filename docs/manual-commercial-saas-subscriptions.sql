@@ -115,11 +115,11 @@ INSERT INTO "SubscriptionPlan" (
 VALUES (
   'plan-commercial',
   'Commercial',
-  'Подключение 30 000 ₽ + 3 000 ₽/мес подписка. Каталог, заказы, ИИ, доставка, уведомления.',
-  3000,
-  30000,
-  3000,
-  1,
+  'Разовое подключение 50 000 ₽ — бессрочный доступ. Каталог, заказы, ИИ, доставка, уведомления.',
+  50000,
+  50000,
+  0,
+  0,
   1000,
   10000,
   20,
@@ -140,7 +140,7 @@ ON CONFLICT ("id") DO UPDATE SET
 
 UPDATE "Business"
 SET
-  "monthlyFeeAmount" = 3000,
+  "monthlyFeeAmount" = 0,
   "subscriptionStatus" = CASE
     WHEN "isArchived" = true OR "isDeleted" = true THEN 'ARCHIVED'::"SubscriptionStatus"
     WHEN "isBlocked" = true
