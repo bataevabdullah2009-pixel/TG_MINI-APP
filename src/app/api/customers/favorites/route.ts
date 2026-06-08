@@ -13,6 +13,10 @@ const favoriteBusinessSelect = {
   address: true,
   primaryColor: true,
   accentColor: true,
+  isActive: true,
+  isArchived: true,
+  isDeleted: true,
+  subscriptionStatus: true,
 } as const;
 
 // GET: Получить все избранные бизнесы и товары пользователя
@@ -28,14 +32,31 @@ export async function GET(req: Request) {
     const telegramUserId = BigInt(telegramUserIdStr);
 
     const favoriteBusinesses = await prisma.favoriteBusiness.findMany({
-      where: { telegramUserId },
+      where: {
+        telegramUserId,
+        business: {
+          isActive: true,
+          isArchived: false,
+          isDeleted: false,
+          subscriptionStatus: { not: "ARCHIVED" },
+        },
+      },
       include: {
         business: { select: favoriteBusinessSelect },
       },
     });
 
     const favoriteItems = await prisma.favoriteItem.findMany({
-      where: { telegramUserId },
+      where: {
+        telegramUserId,
+        item: { isAvailable: true },
+        business: {
+          isActive: true,
+          isArchived: false,
+          isDeleted: false,
+          subscriptionStatus: { not: "ARCHIVED" },
+        },
+      },
       include: {
         item: true,
         business: { select: favoriteBusinessSelect },
@@ -56,7 +77,7 @@ export async function GET(req: Request) {
       warnPrismaSchemaDrift("Favorites loaded as an empty list while Business.isDemo is missing", e);
       return NextResponse.json({ ok: true, data: { favoriteBusinesses: [], favoriteItems: [] } });
     }
-    return NextResponse.json({ ok: false, error: "Favorites are temporarily unavailable." }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Избранное временно недоступно." }, { status: 500 });
   }
 }
 
@@ -135,6 +156,6 @@ export async function POST(req: Request) {
     }
   } catch (e: any) {
     console.error("[favorites POST error]", e);
-    return NextResponse.json({ ok: false, error: "Could not update favorites right now." }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Не удалось обновить избранное." }, { status: 500 });
   }
 }

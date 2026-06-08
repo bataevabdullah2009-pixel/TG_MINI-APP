@@ -16,6 +16,15 @@ import { miniAppFetch } from "@/lib/miniAppFetch";
 import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 
 type Staff = { id: string; name: string; role?: string | null };
+type OperationAccess = {
+  canViewCatalog: boolean;
+  canCreateOrder: boolean;
+  canManageProducts: boolean;
+  canManageOrders: boolean;
+  canUseAI: boolean;
+  canUseDelivery: boolean;
+  reason: string | null;
+};
 
 const templateUi: Record<string, { title: string; accent: string; mode: "cart" | "booking"; cta: string }> = {
   cafe: { title: "Меню и доставка", accent: "from-orange-500 to-amber-400", mode: "cart", cta: "Добавить" },
@@ -56,6 +65,15 @@ export default function BusinessMiniAppPage() {
   const slug = String(params.businessSlug || "");
   const targetProductId = searchParams.get("product") || searchParams.get("item");
   const [business, setBusiness] = useState<Business | null>(null);
+  const [operationAccess, setOperationAccess] = useState<OperationAccess>({
+    canViewCatalog: true,
+    canCreateOrder: true,
+    canManageProducts: true,
+    canManageOrders: true,
+    canUseAI: true,
+    canUseDelivery: true,
+    reason: null,
+  });
   const [items, setItems] = useState<Item[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [category, setCategory] = useState("Все");
@@ -65,6 +83,7 @@ export default function BusinessMiniAppPage() {
   const [cartPulse, setCartPulse] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [notFoundMessage, setNotFoundMessage] = useState("Бизнес не найден");
   const [loadError, setLoadError] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
@@ -87,6 +106,8 @@ export default function BusinessMiniAppPage() {
   const [paymentProofFileName, setPaymentProofFileName] = useState("");
   const [paymentProofMimeType, setPaymentProofMimeType] = useState("");
   const [paymentProofUploading, setPaymentProofUploading] = useState(false);
+  const [checkoutSubmitting, setCheckoutSubmitting] = useState(false);
+  const [checkoutRequestId, setCheckoutRequestId] = useState("");
   const businessId = business?.id || "";
   const businessTemplateKey = business?.templateKey || "";
   const businessTemplate = businessTemplateKey ? templateUi[businessTemplateKey] : undefined;
@@ -103,11 +124,17 @@ export default function BusinessMiniAppPage() {
 
     setLoading(true);
     setNotFound(false);
+    setNotFoundMessage("Бизнес не найден");
     setLoadError("");
     fetch(`/api/businesses/${encodeURIComponent(slug)}/catalog`)
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (res.status === 404) {
+          setNotFoundMessage(
+            data.code === "BUSINESS_UNAVAILABLE"
+              ? "Бизнес временно недоступен"
+              : data.error || "Бизнес не найден"
+          );
           setNotFound(true);
           return null;
         }
@@ -119,6 +146,7 @@ export default function BusinessMiniAppPage() {
       .then((data) => {
         if (!data) return;
         setBusiness(data.business);
+        if (data.operationAccess) setOperationAccess(data.operationAccess);
         setItems(data.items || []);
         setStaff(data.staff || []);
       })
@@ -350,8 +378,15 @@ export default function BusinessMiniAppPage() {
 
   async function submitOrder(event: React.FormEvent) {
     event.preventDefault();
+    if (checkoutSubmitting) return;
     setCheckoutError("");
-    setNeedsPhoneVerification(false);
+    if (!operationAccess.canCreateOrder) {
+      setCheckoutError(
+        operationAccess.reason ||
+          "Магазин временно недоступен. Продавец должен продлить подписку."
+      );
+      return;
+    }
     const user = telegramUser();
     if (form.deliveryType === "DELIVERY" && form.address.trim().length < 5) {
       setCheckoutError("Укажите адрес доставки.");
@@ -365,6 +400,13 @@ export default function BusinessMiniAppPage() {
       setCheckoutError("Загрузите чек перевода.");
       return;
     }
+    const requestId =
+      checkoutRequestId ||
+      (typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}_${Math.random().toString(36).slice(2)}`);
+    if (!checkoutRequestId) setCheckoutRequestId(requestId);
+    setCheckoutSubmitting(true);
     try {
       const res = await miniAppFetch(`/api/businesses/${slug}/orders`, {
         method: "POST",
@@ -382,6 +424,7 @@ export default function BusinessMiniAppPage() {
           paymentProofUrl: paymentMethod === "TRANSFER" ? paymentProofUrl : undefined,
           paymentProofFileName: paymentMethod === "TRANSFER" ? paymentProofFileName : undefined,
           paymentProofMimeType: paymentMethod === "TRANSFER" ? paymentProofMimeType : undefined,
+          clientRequestId: requestId,
           items: cart.map((line) => ({ itemId: line.item.id, quantity: line.quantity })),
         }),
       });
@@ -394,6 +437,7 @@ export default function BusinessMiniAppPage() {
         setPaymentProofFileName("");
         setPaymentProofMimeType("");
         setPaymentMethod("CASH");
+        setCheckoutRequestId("");
         setSuccess("Заказ оформлен. Продавец уже получил уведомление.");
       } else {
         const message = data.error || "Не удалось оформить заказ. Проверьте данные и попробуйте снова.";
@@ -404,6 +448,8 @@ export default function BusinessMiniAppPage() {
       }
     } catch (error) {
       setCheckoutError("Не удалось отправить заказ. Проверьте соединение и попробуйте снова.");
+    } finally {
+      setCheckoutSubmitting(false);
     }
   }
 
@@ -491,8 +537,12 @@ export default function BusinessMiniAppPage() {
       <main className="grid min-h-screen place-items-center bg-slate-950 px-5 text-center text-white">
         <div>
           <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-3xl bg-white/10 text-3xl">?</div>
-          <h1 className="text-2xl font-black">Бизнес не найден</h1>
-          <p className="mt-2 text-sm text-white/60">Проверьте ссылку или вернитесь в общий каталог Vitrina AI.</p>
+          <h1 className="text-2xl font-black">{notFoundMessage}</h1>
+          <p className="mt-2 text-sm text-white/60">
+            {notFoundMessage === "Бизнес временно недоступен"
+              ? "Бизнес скрыт владельцем или администратором Vitrina AI."
+              : "Проверьте ссылку или вернитесь в общий каталог Vitrina AI."}
+          </p>
           <Link href="/app" className="mt-6 inline-flex rounded-full bg-white px-5 py-3 text-sm font-bold text-slate-950">
             Вернуться в каталог
           </Link>
@@ -628,6 +678,9 @@ export default function BusinessMiniAppPage() {
           paymentProofUploading={paymentProofUploading}
           onPaymentProofUpload={handlePaymentProofUpload}
           checkoutError={checkoutError}
+          canCreateOrder={operationAccess.canCreateOrder}
+          blockedReason={operationAccess.reason}
+          submitting={checkoutSubmitting}
           needsPhoneVerification={needsPhoneVerification}
           onSubmit={submitOrder}
           onClose={() => setCheckoutOpen(false)}

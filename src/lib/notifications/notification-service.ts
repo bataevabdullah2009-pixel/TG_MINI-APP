@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { telegramBot } from "@/lib/telegram-bot-service";
-import { getAppBaseUrl } from "@/lib/production-url";
+import { buildAdminUrl, buildBusinessUrl } from "@/lib/production-url";
 
 const orderStatusRu: Record<string, string> = {
   NEW: "Новый",
@@ -37,7 +37,7 @@ const notificationBusinessSelect = {
 } as const;
 
 function adminUrl(path: string) {
-  return `${getAppBaseUrl()}${path}`;
+  return buildAdminUrl(path);
 }
 
 function formatDateTime(date: Date) {
@@ -62,7 +62,147 @@ function courierChatId(courier: { telegramId?: bigint | null; user?: { telegramI
   return courier.telegramId?.toString() || courier.user?.telegramId?.toString() || null;
 }
 
+function superAdminChatIds() {
+  return Array.from(
+    new Set(
+      (process.env.TELEGRAM_SUPER_ADMIN_IDS || "")
+        .split(",")
+        .concat(process.env.TELEGRAM_ADMIN_CHAT_ID || "")
+        .map((id) => id.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
 export class NotificationService {
+  static async notifySubscriptionExpiring(businessId: string, days: 1 | 3) {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: notificationBusinessSelect,
+    });
+    if (!business) return false;
+    const chatId = sellerChatId(business);
+    if (!chatId) return false;
+
+    const message =
+      days === 3
+        ? `Срок подписки Vitrina AI для бизнеса ${escapeTelegramHtml(business.name)} заканчивается через 3 дня. Для продления оплатите 3 000 ₽.`
+        : `Срок подписки Vitrina AI для бизнеса ${escapeTelegramHtml(business.name)} заканчивается завтра. Для продления оплатите 3 000 ₽.`;
+    return telegramBot.sendNotification(chatId, message, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "Открыть бизнес", web_app: { url: buildBusinessUrl(business.slug) } }],
+        ],
+      },
+    });
+  }
+
+  static async notifySubscriptionExpired(businessId: string) {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: notificationBusinessSelect,
+    });
+    if (!business) return false;
+    const chatId = sellerChatId(business);
+    if (!chatId) return false;
+
+    return telegramBot.sendNotification(
+      chatId,
+      `Сегодня заканчивается подписка Vitrina AI для бизнеса ${escapeTelegramHtml(business.name)}. После окончания льготного периода бизнес будет заблокирован.`
+    );
+  }
+
+  static async notifySubscriptionBlocked(businessId: string) {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: notificationBusinessSelect,
+    });
+    if (!business) return false;
+    const chatId = sellerChatId(business);
+    if (!chatId) return false;
+
+    return telegramBot.sendNotification(
+      chatId,
+      `Бизнес ${escapeTelegramHtml(business.name)} временно заблокирован из-за окончания оплаты. Для разблокировки свяжитесь с администратором Vitrina AI.`
+    );
+  }
+
+  static async notifySetupActivated(businessId: string) {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { ...notificationBusinessSelect, subscriptionEndDate: true },
+    });
+    if (!business) return false;
+    const chatId = sellerChatId(business);
+    if (!chatId) return false;
+
+    const endDate = business.subscriptionEndDate
+      ? business.subscriptionEndDate.toLocaleDateString("ru-RU")
+      : "не указана";
+
+    return telegramBot.sendNotification(
+      chatId,
+      `Оплата подключения 30 000 ₽ получена. Бизнес ${escapeTelegramHtml(business.name)} активирован до ${endDate}. Ежемесячная подписка: 3 000 ₽/мес.`
+    );
+  }
+
+  static async notifySubscriptionRenewed(businessId: string) {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { ...notificationBusinessSelect, subscriptionEndDate: true },
+    });
+    if (!business) return false;
+    const chatId = sellerChatId(business);
+    if (!chatId) return false;
+
+    const endDate = business.subscriptionEndDate
+      ? business.subscriptionEndDate.toLocaleDateString("ru-RU")
+      : "не указана";
+
+    return telegramBot.sendNotification(
+      chatId,
+      `Оплата получена. Бизнес ${escapeTelegramHtml(business.name)} снова активен до ${endDate}.`
+    );
+  }
+
+  static async notifySuperAdminsSubscriptionIssue(
+    businessId: string,
+    overdueDays: number,
+    amount: number,
+    blocked: boolean
+  ) {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { name: true, slug: true },
+    });
+    if (!business) return false;
+
+    const chatIds = superAdminChatIds();
+    if (chatIds.length === 0) return false;
+    const message = [
+      blocked ? "<b>Бизнес заблокирован по подписке</b>" : "<b>Просрочена подписка бизнеса</b>",
+      `Бизнес: ${escapeTelegramHtml(business.name)}`,
+      `Slug: ${escapeTelegramHtml(business.slug)}`,
+      `Просрочка: ${overdueDays} дн.`,
+      amount > 0
+        ? `К оплате: ${amount.toLocaleString("ru-RU")} ₽`
+        : "Для уточнения доступа свяжитесь с владельцем бизнеса.",
+    ].join("\n");
+
+    const results = await Promise.all(
+      chatIds.map((chatId) =>
+        telegramBot.sendNotification(chatId, message, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "Открыть бизнес", web_app: { url: buildBusinessUrl(business.slug) } }],
+            ],
+          },
+        })
+      )
+    );
+    return results.some(Boolean);
+  }
+
   static async notifyBusinessOwnerNewOrder(orderId: string) {
     const order = await prisma.order.findUnique({
       where: { id: orderId },

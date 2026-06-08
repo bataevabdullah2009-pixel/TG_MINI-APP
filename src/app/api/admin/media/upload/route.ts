@@ -3,6 +3,7 @@ import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 import { bucketForUploadType, publicUploadErrorMessage, uploadImageToSupabaseStorage } from "@/lib/supabase-storage";
 import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { canBusinessOperate } from "@/lib/subscriptions/business-subscription-service";
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,6 +24,22 @@ export async function POST(request: NextRequest) {
     });
     if (!business) return jsonError("Бизнес не найден.", 404);
     if (!canUseBusiness(session, business.id)) return jsonError("Нет доступа к этому бизнесу.", 403);
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(business.id);
+      if (!access.canManageProducts) {
+        return jsonError(access.reason || "Добавление файлов временно недоступно.", 403);
+      }
+    }
+
+    if (itemId && (type === "product" || type === "service" || type === "item")) {
+      const item = await prisma.item.findUnique({
+        where: { id: itemId },
+        select: { id: true, businessId: true },
+      });
+      if (!item || item.businessId !== business.id) {
+        return jsonError("Позиция не найдена в выбранном бизнесе.", 404);
+      }
+    }
 
     const uploaded = await uploadImageToSupabaseStorage({
       file,
@@ -48,8 +65,6 @@ export async function POST(request: NextRequest) {
       await prisma.business.update({ where: { id: business.id }, data: { coverImageUrl: asset.url }, select: { id: true } });
     }
     if (itemId && (type === "product" || type === "service" || type === "item")) {
-      const item = await prisma.item.findUnique({ where: { id: itemId } });
-      if (!item || !canUseBusiness(session, item.businessId)) return jsonError("Нет доступа к этой позиции.", 403);
       await prisma.item.update({ where: { id: itemId }, data: { imageUrl: asset.url } });
     }
 

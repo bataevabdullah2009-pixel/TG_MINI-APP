@@ -34,6 +34,7 @@ import { SellerStoreTools } from "./SellerStoreTools";
 import { SellerDeliverySettings } from "./SellerDeliverySettings";
 import { SellerCouriers } from "./SellerCouriers";
 import { miniAppFetch } from "@/lib/miniAppFetch";
+import { buildBusinessUrl } from "@/lib/production-url";
 
 interface SellerHomeProps {
   session: any;
@@ -537,7 +538,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
   const openStorefront = () => {
     if (businessData?.slug) {
-      router.push(`/app/${businessData.slug}`);
+      router.push(buildBusinessUrl(businessData.slug));
     }
   };
 
@@ -547,6 +548,41 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         <div className="animate-spin rounded-full h-10 w-10 border-2 border-indigo-600 border-t-transparent mb-3" />
         <span className="text-xs font-black tracking-wider uppercase">Загрузка панели...</span>
       </div>
+    );
+  }
+
+  const sellerBlocked =
+    session?.role !== "SUPER_ADMIN" &&
+    businessData?.operationAccess &&
+    (!businessData.operationAccess.canManageProducts ||
+      !businessData.operationAccess.canManageOrders ||
+      !businessData.operationAccess.canUseDelivery);
+
+  if (sellerBlocked) {
+    return (
+      <main className="grid min-h-[100dvh] place-items-center bg-slate-950 px-5 text-center text-white">
+        <div className="max-w-sm rounded-3xl border border-rose-400/20 bg-white/5 p-6 shadow-2xl">
+          <AlertTriangle className="mx-auto text-rose-400" size={42} />
+          <h1 className="mt-4 text-xl font-black">
+            Доступ к бизнесу заблокирован
+          </h1>
+          <p className="mt-3 text-sm font-semibold leading-relaxed text-white/65">
+            Свяжитесь с администратором Vitrina AI для продления.
+          </p>
+          {businessData?.blockedReason && (
+            <p className="mt-4 rounded-2xl bg-rose-500/10 px-4 py-3 text-xs font-bold text-rose-200">
+              Причина: {businessData.blockedReason}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={openStorefront}
+            className="mt-5 w-full rounded-2xl bg-white px-4 py-3 text-xs font-black text-slate-950"
+          >
+            Открыть витрину
+          </button>
+        </div>
+      </main>
     );
   }
 
@@ -822,7 +858,14 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                             <div className="flex items-center justify-between gap-2">
                               <span>Оплата переводом</span>
                               <span className="rounded-full bg-white px-2 py-0.5 text-[9px] font-black text-amber-700">
-                                {order.paymentStatus === "AWAITING_REVIEW" ? "Ожидает проверки" : order.paymentStatus}
+                                {order.paymentStatus === "AI_REVIEW"
+                                  ? "ИИ проверяет чек"
+                                  : order.paymentStatus === "NEEDS_MANUAL_REVIEW"
+                                    ? "Нужна ручная проверка"
+                                    : order.paymentStatus === "PROOF_UPLOADED" ||
+                                        order.paymentStatus === "AWAITING_REVIEW"
+                                      ? "Чек ожидает подтверждения"
+                                      : order.paymentStatus}
                               </span>
                             </div>
                             {order.paymentProofUrl && (
@@ -890,7 +933,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
                       {/* Actions */}
                       <div className="flex gap-2 pt-1 border-t border-slate-200/50">
-                        {order.paymentMethod === "TRANSFER" && order.paymentStatus === "AWAITING_REVIEW" ? (
+                        {order.paymentMethod === "TRANSFER" &&
+                        ["AI_REVIEW", "NEEDS_MANUAL_REVIEW", "PROOF_UPLOADED", "AWAITING_REVIEW"].includes(
+                          order.paymentStatus
+                        ) ? (
                           <>
                             <button
                               onClick={() => handleConfirmPayment(order.id)}

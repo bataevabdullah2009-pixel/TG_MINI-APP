@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { NotificationService } from "@/lib/notifications/notification-service";
+import {
+  canUseBusiness,
+  getAdminSession,
+  jsonError,
+} from "@/lib/admin-auth";
+import {
+  SELLER_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
 
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getAdminSession(request);
+    if (!session) return jsonError("Нужен вход в панель продавца.", 401);
+
     const { id } = await context.params;
     const body = await request.json();
     const { status, internalNotes } = body;
@@ -14,6 +26,15 @@ export async function PATCH(
     const booking = await prisma.booking.findUnique({ where: { id } });
     if (!booking) {
       return NextResponse.json({ error: "Запись не найдена." }, { status: 404 });
+    }
+    if (!canUseBusiness(session, booking.businessId)) {
+      return jsonError("Нет доступа к этой записи.", 403);
+    }
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(booking.businessId);
+      if (!access.canManageOrders) {
+        return jsonError(access.reason || SELLER_BLOCKED_MESSAGE, 403);
+      }
     }
 
     const updated = await prisma.booking.update({

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTelegramSessionUser } from "@/lib/auth-telegram";
 import { prisma } from "@/lib/prisma";
 import {
+  BUSINESS_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
+import {
   bucketForUploadType,
   normalizePaymentProofMimeType,
   publicUploadErrorMessage,
@@ -50,6 +54,17 @@ export async function POST(request: NextRequest) {
     if (!business) {
       return NextResponse.json({ ok: false, error: "Бизнес не найден." }, { status: 404 });
     }
+    const operationAccess = await canBusinessOperate(business.id);
+    if (!operationAccess.canCreateOrder) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "BUSINESS_BLOCKED",
+          error: operationAccess.reason || BUSINESS_BLOCKED_MESSAGE,
+        },
+        { status: 403 }
+      );
+    }
     if (!business.transferPaymentEnabled) {
       return NextResponse.json({ ok: false, error: "Оплата переводом сейчас недоступна." }, { status: 400 });
     }
@@ -87,6 +102,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       ok: true,
+      status: "PROOF_UPLOADED",
       url: uploaded.publicUrl,
       publicUrl: uploaded.publicUrl,
       fileName: file.name,

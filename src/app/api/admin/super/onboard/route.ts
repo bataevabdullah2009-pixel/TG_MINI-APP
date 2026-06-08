@@ -3,12 +3,13 @@ import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { BUSINESS_TEMPLATES, templateKeyFromBusinessType } from "@/lib/business-templates";
 import { getAdminSession, jsonError, requireRole } from "@/lib/admin-auth";
-
-const PLAN_IDS: Record<string, string> = {
-  START: "plan-start",
-  PRO: "plan-pro",
-  BUSINESS: "plan-business",
-};
+import { buildBusinessUrl } from "@/lib/production-url";
+import {
+  COMMERCIAL_MONTHLY_FEE_RUB,
+  COMMERCIAL_PLAN_ID,
+  COMMERCIAL_SETUP_FEE_RUB,
+  ensureCommercialPlan,
+} from "@/lib/subscriptions/business-subscription-service";
 
 const cyrillicMap: Record<string, string> = {
   а: "a",
@@ -90,7 +91,6 @@ export async function POST(request: NextRequest) {
       ownerPassword,
       telegramUsername,
       telegramAdminChatId,
-      subscriptionPlan = "PRO",
       aiEnabled = true,
       aiDailyLimit = "30",
     } = body;
@@ -124,10 +124,10 @@ export async function POST(request: NextRequest) {
     }
 
     const hashedPassword = await bcrypt.hash(ownerPassword, 10);
-    const planId = PLAN_IDS[String(subscriptionPlan).toUpperCase()] || PLAN_IDS.PRO;
     const adminChatId = telegramAdminChatId ? BigInt(String(telegramAdminChatId)) : undefined;
 
     const result = await prisma.$transaction(async (tx) => {
+      await ensureCommercialPlan(tx);
       const business = await tx.business.create({
         data: {
           name,
@@ -140,8 +140,13 @@ export async function POST(request: NextRequest) {
           backgroundColor: template.theme.backgroundColor,
           telegramUsername: telegramUsername || undefined,
           telegramAdminChatId: adminChatId,
-          subscriptionStatus: "ACTIVE",
-          subscriptionPlanId: planId,
+          subscriptionStatus: "LIFETIME",
+          subscriptionPlanId: COMMERCIAL_PLAN_ID,
+          subscriptionStartDate: new Date(),
+          subscriptionEndDate: null,
+          nextPaymentAt: null,
+          setupFeeAmount: COMMERCIAL_SETUP_FEE_RUB,
+          monthlyFeeAmount: COMMERCIAL_MONTHLY_FEE_RUB,
           isActive: true,
           aiEnabled: Boolean(aiEnabled),
           aiDailyLimit: parseInt(String(aiDailyLimit || "30"), 10),
@@ -208,7 +213,7 @@ export async function POST(request: NextRequest) {
         email: safeResult.owner.email,
         telegramLinkCode: safeResult.owner.telegramLinkCode 
       },
-      miniAppUrl: `/app/${safeResult.business.slug}`,
+      miniAppUrl: buildBusinessUrl(safeResult.business.slug),
     });
   } catch (error) {
     console.error("Onboard API error:", error);

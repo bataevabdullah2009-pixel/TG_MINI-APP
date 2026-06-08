@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
+import {
+  SELLER_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
 
 export async function GET(request: NextRequest) {
   const session = await getAdminSession(request);
@@ -20,6 +24,12 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const businessId = body.businessId || session.businessId;
   if (!businessId || !canUseBusiness(session, businessId)) return jsonError("Нет доступа к зонам доставки.", 403);
+  if (session.role !== "SUPER_ADMIN") {
+    const access = await canBusinessOperate(businessId);
+    if (!access.canUseDelivery) {
+      return jsonError(access.reason || SELLER_BLOCKED_MESSAGE, 403);
+    }
+  }
   if (!String(body.name || "").trim() || !String(body.cityArea || "").trim()) return jsonError("Укажите название и город/район.", 400);
 
   const zone = await prisma.deliveryZone.create({

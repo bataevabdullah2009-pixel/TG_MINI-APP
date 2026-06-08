@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
+import { canBusinessOperate } from "@/lib/subscriptions/business-subscription-service";
 
 export async function DELETE(
   request: NextRequest,
@@ -14,6 +15,12 @@ export async function DELETE(
   if (!canUseBusiness(session, businessId)) {
     return jsonError("Нет доступа к зонам доставки этого бизнеса.", 403);
   }
+  if (session.role !== "SUPER_ADMIN") {
+    const access = await canBusinessOperate(businessId);
+    if (!access.canUseDelivery) {
+      return jsonError(access.reason || "Управление доставкой временно недоступно.", 403);
+    }
+  }
 
   const zone = await prisma.deliveryZone.findUnique({
     where: { id: zoneId },
@@ -23,18 +30,14 @@ export async function DELETE(
     return jsonError("Зона доставки не найдена.", 404);
   }
 
-  const usedInOrders = await prisma.order.count({
-    where: { businessId, deliveryZoneId: zoneId },
+  const archived = await prisma.deliveryZone.update({
+    where: { id: zoneId },
+    data: { isActive: false },
   });
-
-  if (usedInOrders > 0) {
-    const archived = await prisma.deliveryZone.update({
-      where: { id: zoneId },
-      data: { isActive: false },
-    });
-    return NextResponse.json({ ok: true, archived: true, deleted: false, zone: archived });
-  }
-
-  await prisma.deliveryZone.delete({ where: { id: zoneId } });
-  return NextResponse.json({ ok: true, archived: false, deleted: true, zoneId });
+  return NextResponse.json({
+    ok: true,
+    archived: true,
+    deleted: false,
+    zone: archived,
+  });
 }

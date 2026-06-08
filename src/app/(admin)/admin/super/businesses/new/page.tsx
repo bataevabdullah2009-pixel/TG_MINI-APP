@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { BottomSheetPicker } from "@/components/ui/BottomSheetPicker";
 
 export default function OnboardWizard() {
@@ -23,8 +22,6 @@ export default function OnboardWizard() {
   const [telegramUsername, setTelegramUsername] = useState("");
   const [telegramAdminChatId, setTelegramAdminChatId] = useState("");
   
-  // SaaS plan
-  const [subscriptionPlan, setSubscriptionPlan] = useState("PRO");
   const [aiEnabled, setAiEnabled] = useState(true);
   const [aiDailyLimit, setAiDailyLimit] = useState("30");
 
@@ -61,7 +58,7 @@ export default function OnboardWizard() {
           ownerPassword,
           telegramUsername,
           telegramAdminChatId,
-          subscriptionPlan,
+          subscriptionPlan: "COMMERCIAL",
           aiEnabled,
           aiDailyLimit,
         }),
@@ -112,7 +109,7 @@ export default function OnboardWizard() {
               </div>
               <div className="flex justify-between border-b border-slate-900 pb-2.5">
                 <span className="text-slate-500">SaaS Тариф:</span>
-                <span className="text-cyan-400 font-black uppercase">{successData.subscriptionPlanId || "PRO"}</span>
+                <span className="text-cyan-400 font-black uppercase">Commercial, доступ навсегда</span>
               </div>
               <div className="flex justify-between pb-1.5 items-start">
                 <span className="text-slate-500">Mini App URL:</span>
@@ -282,17 +279,9 @@ export default function OnboardWizard() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-                  <div>
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Тарифный план</label>
-                    <select
-                      value={subscriptionPlan}
-                      onChange={(e) => setSubscriptionPlan(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl bg-slate-950/80 border border-slate-850 text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all duration-300"
-                    >
-                      <option value="START">START (Бесплатный)</option>
-                      <option value="PRO">PRO (Рекомендуемый)</option>
-                      <option value="BUSINESS">BUSINESS (Премиум)</option>
-                    </select>
+                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
+                    <span className="block text-xs font-bold uppercase tracking-wider text-emerald-300">Тариф Commercial</span>
+                    <span className="mt-1 block text-xs text-slate-300">30 000 ₽ разово, доступ навсегда</span>
                   </div>
                   
                   <div>

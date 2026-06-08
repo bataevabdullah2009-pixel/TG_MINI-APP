@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
 import { BottomSheetPicker } from "@/components/ui/BottomSheetPicker";
+import { buildBusinessUrl } from "@/lib/production-url";
 
 interface SuperAdminHomeProps {
   session: any;
@@ -59,7 +60,11 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
   const [bizType, setBizType] = useState("CAFE");
   const [ownerEmail, setOwnerEmail] = useState("");
   const [ownerPassword, setOwnerPassword] = useState("");
+  const [ownerName, setOwnerName] = useState("");
+  const [ownerPhone, setOwnerPhone] = useState("");
+  const [ownerTelegramId, setOwnerTelegramId] = useState("");
   const [formSubmitting, setFormSubmitting] = useState(false);
+  const [businessActionId, setBusinessActionId] = useState<string | null>(null);
   const [createdLinkCode, setCreatedLinkCode] = useState<string | null>(null);
   const [createdSellerDeepLink, setCreatedSellerDeepLink] = useState<string | null>(null);
 
@@ -95,7 +100,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
 
       // 2. Fetch businesses list
       try {
-        const bizRes = await miniAppFetch("/api/admin/businesses");
+        const bizRes = await miniAppFetch("/api/admin/super/businesses");
         if (bizRes.ok) {
           const bData = await bizRes.json();
           setBusinesses(bData.data || []);
@@ -198,6 +203,10 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
           templateKey,
           ownerEmail,
           ownerPassword,
+          ownerName,
+          ownerPhone,
+          ownerTelegramId,
+          subscriptionStatus: "LIFETIME",
           aiEnabled: true,
           aiDailyLimit: defaultAiLimit.toString(),
         }),
@@ -210,6 +219,9 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
         setBizSlug("");
         setOwnerEmail("");
         setOwnerPassword("");
+        setOwnerName("");
+        setOwnerPhone("");
+        setOwnerTelegramId("");
         
         const linkCode = data.sellerLinkCode || data.owner?.telegramLinkCode;
         if (linkCode) {
@@ -234,6 +246,74 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
     showSuccess("Настройки платформы сохранены локально!");
   };
 
+  const runBusinessAction = async (
+    business: any,
+    action: string,
+    extra: Record<string, unknown> = {}
+  ) => {
+    setBusinessActionId(business.id);
+    setError(null);
+    try {
+      const response = await miniAppFetch(
+        `/api/admin/super/businesses/${business.id}/actions`,
+        {
+          method: "POST",
+          body: JSON.stringify({ action, ...extra }),
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok === false) {
+        throw new Error(data.error || "Не удалось выполнить действие");
+      }
+      showSuccess("Изменения сохранены.");
+      await fetchSaaSData();
+    } catch (actionError) {
+      showError(
+        actionError instanceof Error
+          ? actionError.message
+          : "Не удалось выполнить действие"
+      );
+    } finally {
+      setBusinessActionId(null);
+    }
+  };
+
+  const markManualPayment = async (business: any) => {
+    const amountText = window.prompt(
+      "Сумма платежа в рублях",
+      String(business.setupFeeAmount || 30000)
+    );
+    if (amountText === null) return;
+    const comment = window.prompt("Комментарий к оплате", "") || "";
+    await runBusinessAction(business, "PAYMENT", {
+      type: "MANUAL",
+      monthsAdded: 0,
+      amount: Number(amountText),
+      method: "MANUAL",
+      comment,
+    });
+  };
+
+  const editBusiness = async (business: any) => {
+    const name = window.prompt("Название бизнеса", business.name);
+    if (name === null) return;
+    const ownerNameValue = window.prompt(
+      "Имя владельца",
+      business.owner?.name || ""
+    );
+    if (ownerNameValue === null) return;
+    const ownerPhoneValue = window.prompt(
+      "Телефон владельца",
+      business.owner?.phone || ""
+    );
+    if (ownerPhoneValue === null) return;
+    await runBusinessAction(business, "EDIT", {
+      name,
+      ownerName: ownerNameValue,
+      ownerPhone: ownerPhoneValue,
+    });
+  };
+
   const showError = (msg: string) => {
     setError(msg);
     setTimeout(() => setError(null), 4000);
@@ -256,6 +336,26 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
       default: return "⚙️";
     }
   };
+
+  const subscriptionStatusLabel: Record<string, string> = {
+    ACTIVE: "Активна",
+    TRIAL: "Пробный период",
+    PAST_DUE: "Просрочена",
+    BLOCKED: "Заблокирована",
+    LIFETIME: "Бессрочная",
+    ARCHIVED: "Архив",
+    EXPIRED: "Истекла",
+  };
+
+  const renewalOptions = [
+    { action: "RENEW_1M", label: "Продлить 1 мес", months: 1 },
+    { action: "RENEW_3M", label: "Продлить 3 мес", months: 3 },
+    { action: "RENEW_6M", label: "Продлить 6 мес", months: 6 },
+    { action: "RENEW_12M", label: "Продлить 12 мес", months: 12 },
+  ];
+
+  const formatDate = (value?: string | null) =>
+    value ? new Date(value).toLocaleDateString("ru-RU") : "без срока";
 
   return (
     <div className="pb-24 text-slate-900 min-h-screen bg-slate-50">
@@ -439,42 +539,123 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
                             {biz.name}
                           </strong>
                           <p className="text-[10px] font-semibold text-slate-400 mt-0.5">
-                            Slug: <span className="text-slate-800 font-bold select-all">/app/{biz.slug}</span> | Тип: {biz.type}
+                            Ссылка: <span className="text-slate-800 font-bold select-all">/app/{biz.slug}</span> | Тип: {biz.type}
+                          </p>
+                          <p className="mt-1 text-[10px] font-semibold text-slate-500">
+                            Владелец: {biz.owner?.name || "не указан"} · {biz.owner?.phone || "телефон не указан"}
                           </p>
                         </div>
-                        <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
-                          {biz.subscriptionPlan?.name || "PRO PLAN"}
+                        <span className={`text-[9px] font-black px-2 py-1 rounded-full ${
+                          biz.subscriptionStatus === "BLOCKED" || biz.isBlocked
+                            ? "bg-rose-50 text-rose-700"
+                            : biz.subscriptionStatus === "PAST_DUE"
+                              ? "bg-amber-50 text-amber-700"
+                              : biz.isArchived || biz.isDeleted
+                                ? "bg-slate-100 text-slate-600"
+                                : "bg-emerald-50 text-emerald-700"
+                        }`}>
+                          {subscriptionStatusLabel[biz.subscriptionStatus] || biz.subscriptionStatus}
                         </span>
                       </div>
 
-                      {/* Counters */}
-                      <div className="grid grid-cols-4 gap-2 bg-slate-50 rounded-2xl p-2.5 text-center text-slate-600 text-[9px] font-bold">
+                      <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-50 p-3 text-[10px] font-bold text-slate-600">
                         <div>
-                          <span className="block text-slate-400 uppercase tracking-widest text-[7px] mb-0.5">Товары</span>
-                          <strong>{biz._count?.items || 0}</strong>
+                          <span className="block text-[8px] uppercase tracking-wider text-slate-400">Тариф</span>
+                          <strong>{biz.planName || biz.subscriptionPlan?.name || "Commercial"}</strong>
                         </div>
                         <div>
-                          <span className="block text-slate-400 uppercase tracking-widest text-[7px] mb-0.5">Клиенты</span>
-                          <strong>{biz._count?.customers || 0}</strong>
+                          <span className="block text-[8px] uppercase tracking-wider text-slate-400">Стоимость</span>
+                          <strong>{Number(biz.setupFeeAmount || 30000).toLocaleString("ru-RU")} ₽ + {Number(biz.monthlyFeeAmount || 3000).toLocaleString("ru-RU")} ₽/мес</strong>
                         </div>
                         <div>
-                          <span className="block text-slate-400 uppercase tracking-widest text-[7px] mb-0.5">Заказы</span>
+                          <span className="block text-[8px] uppercase tracking-wider text-slate-400">Доступ</span>
+                          <strong>{biz.subscriptionStatus === "LIFETIME" ? "Навсегда" : formatDate(biz.subscriptionEndDate)}</strong>
+                        </div>
+                        <div>
+                          <span className="block text-[8px] uppercase tracking-wider text-slate-400">Осталось дней</span>
+                          <strong>{biz.daysRemaining === null ? "∞" : biz.daysRemaining}</strong>
+                        </div>
+                        <div>
+                          <span className="block text-[8px] uppercase tracking-wider text-slate-400">Заказы</span>
                           <strong>{biz._count?.orders || 0}</strong>
                         </div>
                         <div>
-                          <span className="block text-slate-400 uppercase tracking-widest text-[7px] mb-0.5">Записи</span>
-                          <strong>{biz._count?.bookings || 0}</strong>
+                          <span className="block text-[8px] uppercase tracking-wider text-slate-400">Создан</span>
+                          <strong>{formatDate(biz.createdAt)}</strong>
                         </div>
                       </div>
 
-                      <div className="flex gap-2">
+                      <div className="grid grid-cols-2 gap-2">
                         <button
                           onClick={() => onManageBusiness?.(biz.id)}
-                          className="flex-1 rounded-xl bg-slate-900 text-white font-black text-xs py-2.5 hover:bg-indigo-600 transition flex items-center justify-center gap-1.5"
+                          disabled={businessActionId === biz.id}
+                          className="rounded-xl bg-slate-900 px-2 py-2.5 text-[10px] font-black text-white disabled:opacity-50"
                         >
-                          <Store size={12} />
-                          Управлять как продавец
+                          Управлять бизнесом
                         </button>
+                        <button
+                          onClick={() => window.location.assign(buildBusinessUrl(biz.slug))}
+                          className="rounded-xl bg-indigo-50 px-2 py-2.5 text-[10px] font-black text-indigo-700"
+                        >
+                          Открыть витрину
+                        </button>
+                        <button onClick={() => editBusiness(biz)} className="rounded-xl bg-slate-100 px-2 py-2 text-[10px] font-black text-slate-700">
+                          Редактировать
+                        </button>
+                        <button onClick={() => markManualPayment(biz)} disabled={businessActionId === biz.id} className="rounded-xl bg-amber-50 px-2 py-2 text-[10px] font-black text-amber-700 disabled:opacity-50">
+                          Отметить оплату
+                        </button>
+                        <button onClick={() => runBusinessAction(biz, "PAY_SETUP")} disabled={businessActionId === biz.id || biz.setupPaid} className="rounded-xl bg-violet-50 px-2 py-2 text-[10px] font-black text-violet-700 disabled:opacity-40">
+                          {biz.setupPaid ? "Подключение оплачено" : "Оплачено подключение"}
+                        </button>
+                        {renewalOptions.map((opt) => (
+                          <button
+                            key={opt.action}
+                            onClick={() => runBusinessAction(biz, opt.action)}
+                            disabled={businessActionId === biz.id}
+                            className="rounded-xl bg-indigo-50 px-2 py-2 text-[10px] font-black text-indigo-700 disabled:opacity-50"
+                          >
+                            {opt.label} ({(3000 * opt.months).toLocaleString("ru-RU")} ₽)
+                          </button>
+                        ))}
+                        {biz.isBlocked || biz.subscriptionStatus === "BLOCKED" ? (
+                          <button onClick={() => runBusinessAction(biz, "UNBLOCK")} disabled={businessActionId === biz.id} className="rounded-xl bg-emerald-600 px-2 py-2 text-[10px] font-black text-white disabled:opacity-50">
+                            Разблокировать
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              const reason = window.prompt("Причина блокировки", "Бизнес заблокирован администратором");
+                              if (reason !== null) runBusinessAction(biz, "BLOCK", { reason });
+                            }}
+                            disabled={businessActionId === biz.id}
+                            className="rounded-xl bg-rose-50 px-2 py-2 text-[10px] font-black text-rose-700 disabled:opacity-50"
+                          >
+                            Заблокировать вручную
+                          </button>
+                        )}
+                        {biz.isArchived || biz.isDeleted ? (
+                          <button onClick={() => runBusinessAction(biz, "RESTORE")} disabled={businessActionId === biz.id} className="rounded-xl bg-blue-600 px-2 py-2 text-[10px] font-black text-white disabled:opacity-50">
+                            Восстановить бизнес
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => window.confirm("Архивировать бизнес? Клиенты перестанут его видеть.") && runBusinessAction(biz, "ARCHIVE")}
+                            disabled={businessActionId === biz.id}
+                            className="rounded-xl bg-slate-100 px-2 py-2 text-[10px] font-black text-slate-700 disabled:opacity-50"
+                          >
+                            Архивировать бизнес
+                          </button>
+                        )}
+                        {!biz.isDeleted && (
+                          <button
+                            onClick={() => window.confirm("Безопасно удалить бизнес? Заказы сохранятся, бизнес можно восстановить.") && runBusinessAction(biz, "DELETE")}
+                            disabled={businessActionId === biz.id}
+                            className="col-span-2 rounded-xl bg-rose-600 px-2 py-2 text-[10px] font-black text-white disabled:opacity-50"
+                          >
+                            Удалить бизнес безопасно
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -555,13 +736,62 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
                   />
                 </div>
 
+                <div>
+                  <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Имя владельца</label>
+                  <input
+                    value={ownerName}
+                    onChange={(e) => setOwnerName(e.target.value)}
+                    placeholder="Абдуллах"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Телефон владельца</label>
+                  <input
+                    type="tel"
+                    value={ownerPhone}
+                    onChange={(e) => setOwnerPhone(e.target.value)}
+                    placeholder="+7 999 123-45-67"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Telegram ID владельца</label>
+                  <input
+                    inputMode="numeric"
+                    value={ownerTelegramId}
+                    onChange={(e) => setOwnerTelegramId(e.target.value.replace(/[^\d-]/g, ""))}
+                    placeholder="123456789"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none"
+                  />
+                </div>
+
+                <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-wider text-indigo-500">Тариф</p>
+                      <p className="mt-1 text-sm font-black text-slate-950">Commercial</p>
+                    </div>
+                    <div className="text-right text-[10px] font-bold text-slate-600">
+                          <p>30 000 ₽ подключение</p>
+                          <p>+ 3 000 ₽/мес подписка</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-amber-100 bg-amber-50 p-3 text-amber-800">
+                  После создания бизнес получает пробный период {14} дней. Для активации отметьте оплату подключения.
+                </div>
+
                 <button
                   type="submit"
                   disabled={formSubmitting}
                   className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-950 py-3 text-xs font-black text-white hover:bg-indigo-600 transition disabled:opacity-50 mt-1"
                 >
                   <Plus size={13} />
-                  {formSubmitting ? "⏳ Запускаем..." : "Создать и Сгенерировать код"}
+                  {formSubmitting ? "Создаём бизнес..." : "Создать бизнес и код продавца"}
                 </button>
               </div>
             </form>
@@ -715,9 +945,9 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
                     onChange={setDefaultAiProvider}
                     buttonClassName="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold outline-none"
                     options={[
-                      { value: "polza", label: "Polza AI", description: "Production provider", icon: <Sparkles size={16} /> },
+                    { value: "polza", label: "Polza AI", description: "Провайдер для production", icon: <Sparkles size={16} /> },
                       { value: "openrouter", label: "OpenRouter", icon: <ArrowRight size={16} /> },
-                      { value: "mock", label: "Mock AI", description: "Только для локальной разработки", icon: <Database size={16} /> },
+                    { value: "mock", label: "Тестовый ИИ", description: "Только для локальной разработки", icon: <Database size={16} /> },
                     ]}
                   />
                 </div>

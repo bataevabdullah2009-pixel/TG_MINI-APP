@@ -55,7 +55,7 @@ Run `npm run env:diagnose` before deploy. It reports missing variables and unsaf
 
 `CRON_SECRET`
 - Long random server-only secret for scheduled endpoints.
-- Required for `/api/cron/expire` and protected `/api/health/db?diagnose=1`.
+- Required for `/api/cron/expire`, `/api/cron/subscriptions/check` and protected `/api/health/db?diagnose=1`.
 - Send only as `Authorization: Bearer CRON_SECRET`.
 
 `NEXT_PUBLIC_SUPABASE_URL`
@@ -65,6 +65,14 @@ Run `npm run env:diagnose` before deploy. It reports missing variables and unsaf
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - Supabase anon key.
 - Source: Supabase Project Settings -> API.
+
+`SUPABASE_URL`
+- Optional server-side alias for `NEXT_PUBLIC_SUPABASE_URL`.
+- Storage and checkout URL validation accept either name.
+
+`SUPABASE_ANON_KEY`
+- Optional server-side alias for `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+- Storage accepts either name; do not expose the service role key as an anon key.
 
 `SUPABASE_SERVICE_ROLE_KEY`
 - Server-only service role key for storage/server operations.
@@ -183,7 +191,7 @@ Current upload routes use Supabase Storage server-side:
 - `/api/uploads`
 - `/api/admin/media/upload`
 
-Required variables for uploads are `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and server-only `SUPABASE_SERVICE_ROLE_KEY`.
+Required variables for uploads are `SUPABASE_URL` (or `NEXT_PUBLIC_SUPABASE_URL`), `SUPABASE_ANON_KEY` (or `NEXT_PUBLIC_SUPABASE_ANON_KEY`) and server-only `SUPABASE_SERVICE_ROLE_KEY`.
 Business media uses `SUPABASE_STORAGE_BUSINESS_MEDIA_BUCKET`, defaulting to public bucket `business-media`.
 Transfer receipts use `SUPABASE_STORAGE_PAYMENT_PROOFS_BUCKET`, defaulting to public bucket `payment-proofs`.
 
@@ -234,6 +242,9 @@ AI_TEMPERATURE="0.3"
 SMS_PROVIDER="mock"
 PHONE_TEST_CODE_ENABLED="false"
 ```
+
+Vercel runs the subscription check daily from `vercel.json` at `06:10 UTC`.
+The route changes expired subscriptions to `PAST_DUE`, applies the three-day grace period, then changes them to `BLOCKED`.
 
 ## Production URL rules
 

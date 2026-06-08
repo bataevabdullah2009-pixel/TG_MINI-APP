@@ -18,13 +18,16 @@ type UploadOptions = {
 };
 
 function requireSupabaseStorageEnv() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseUrl =
+    process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const anonKey =
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !serviceRoleKey || !anonKey) {
     throw new Error(
-      "Supabase Storage не настроен. Проверьте NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY и SUPABASE_SERVICE_ROLE_KEY."
+      "Supabase Storage не настроен. Проверьте SUPABASE_URL (или NEXT_PUBLIC_SUPABASE_URL), SUPABASE_ANON_KEY (или NEXT_PUBLIC_SUPABASE_ANON_KEY) и SUPABASE_SERVICE_ROLE_KEY."
     );
   }
 

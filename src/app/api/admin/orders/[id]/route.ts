@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { NotificationService } from "@/lib/notifications/notification-service";
+import {
+  SELLER_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
 
 // Strict Prisma OrderStatus values
 const ALLOWED_STATUSES = new Set([
@@ -45,6 +49,12 @@ export async function PATCH(
     // 3. Verify administrative rights for the order's business
     if (!canUseBusiness(session, order.businessId)) {
       return jsonError("Нет доступа к управлению заказами этого бизнеса.", 403);
+    }
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(order.businessId);
+      if (!access.canManageOrders) {
+        return jsonError(access.reason || SELLER_BLOCKED_MESSAGE, 403);
+      }
     }
 
     const body = await request.json();

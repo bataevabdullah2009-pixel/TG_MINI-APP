@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import {
+  SELLER_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
 
 const currentBusinessSelect = {
   id: true,
@@ -27,6 +31,18 @@ const currentBusinessSelect = {
   language: true,
   timezone: true,
   subscriptionStatus: true,
+  subscriptionStartDate: true,
+  subscriptionEndDate: true,
+  setupFeeAmount: true,
+  monthlyFeeAmount: true,
+  lastPaidAt: true,
+  nextPaymentAt: true,
+  blockedAt: true,
+  blockedReason: true,
+  isBlocked: true,
+  gracePeriodUntil: true,
+  isArchived: true,
+  isDeleted: true,
   modulesEnabled: true,
   aiProvider: true,
   aiModel: true,
@@ -72,7 +88,15 @@ export async function GET(request: NextRequest) {
     if (!business) return jsonError("Бизнес не найден.", 404);
     if (!canUseBusiness(session, business.id)) return jsonError("Нет доступа к этому бизнесу.", 403);
 
-    return NextResponse.json({ ok: true, data: { ...business, telegramAdminChatId: business.telegramAdminChatId?.toString() || null } });
+    const operationAccess = await canBusinessOperate(business.id);
+    return NextResponse.json({
+      ok: true,
+      data: {
+        ...business,
+        telegramAdminChatId: business.telegramAdminChatId?.toString() || null,
+        operationAccess,
+      },
+    });
   } catch (error) {
     console.error("GET /api/admin/current-business failed:", error);
     if (isBusinessIsDemoMissingColumnError(error)) {
@@ -92,6 +116,16 @@ export async function PATCH(request: NextRequest) {
     const businessId = body.businessId || session.businessId;
     if (!businessId) return jsonError("Бизнес не выбран.", 400);
     if (!canUseBusiness(session, businessId)) return jsonError("Нет доступа к этому бизнесу.", 403);
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(businessId);
+      if (
+        !access.canManageProducts ||
+        !access.canManageOrders ||
+        !access.canUseDelivery
+      ) {
+        return jsonError(access.reason || SELLER_BLOCKED_MESSAGE, 403);
+      }
+    }
 
     // Convert telegramAdminChatId to BigInt safely
     let telegramAdminChatIdValue = undefined;

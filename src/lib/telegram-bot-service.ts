@@ -1,4 +1,4 @@
-import { getAppBaseUrl } from "@/lib/production-url";
+import { buildAdminUrl } from "@/lib/production-url";
 
 export class TelegramBotService {
   private token: string;
@@ -65,7 +65,7 @@ export class TelegramBotService {
 <b>Телефон:</b> ${customerPhone}
 <b>Сумма:</b> ${totalPrice} RUB
 
-<a href="${getAppBaseUrl()}/admin/orders">Открыть в админке</a>
+<a href="${buildAdminUrl("/admin/orders")}">Открыть в админке</a>
     `;
 
     await this.sendNotification(chatId, message);
@@ -87,7 +87,7 @@ export class TelegramBotService {
 <b>Услуга:</b> ${serviceName}
 <b>Время:</b> ${time}
 
-<a href="${getAppBaseUrl()}/admin/bookings">Открыть в админке</a>
+<a href="${buildAdminUrl("/admin/bookings")}">Открыть в админке</a>
     `;
 
     await this.sendNotification(chatId, message);

@@ -3,6 +3,10 @@ import { AIService } from "@/lib/ai/ai-service";
 import { aiRawPreview, safeParseAiJson, validateProductCardJson } from "@/lib/ai/safe-ai-json";
 import { prisma } from "@/lib/prisma";
 import { canUseBusiness, getAdminSession } from "@/lib/admin-auth";
+import {
+  SELLER_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
 
 const aiContentBusinessSelect = {
   id: true,
@@ -31,6 +35,15 @@ export async function POST(request: NextRequest) {
     }
     if (!canUseBusiness(session, targetBusinessId)) {
       return NextResponse.json({ error: "Нет доступа к этому бизнесу." }, { status: 403 });
+    }
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(targetBusinessId);
+      if (!access.canUseAI) {
+        return NextResponse.json(
+          { error: access.reason || SELLER_BLOCKED_MESSAGE },
+          { status: 403 }
+        );
+      }
     }
 
     const business = await prisma.business.findUnique({ where: { id: targetBusinessId }, select: aiContentBusinessSelect });

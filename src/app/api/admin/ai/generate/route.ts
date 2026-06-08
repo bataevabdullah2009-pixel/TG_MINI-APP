@@ -5,6 +5,10 @@ import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { getAIProviderConfig } from "@/lib/ai/ai-service";
 import { estimateAiCost, getAiRouting, getDailyUsage, incrementAiUsage } from "@/lib/ai/ai-cost-control";
 import { aiRawPreview, safeParseAiJson, validateProductCardJson } from "@/lib/ai/safe-ai-json";
+import {
+  SELLER_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
 
 const featureLabels: Record<string, string> = {
   post: "пост для Telegram",
@@ -69,6 +73,12 @@ export async function POST(request: NextRequest) {
 
     if (!business) return jsonError("Бизнес не найден.", 404);
     if (!canUseBusiness(session, business.id)) return jsonError("Нет доступа к этому бизнесу.", 403);
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(business.id);
+      if (!access.canUseAI) {
+        return jsonError(access.reason || SELLER_BLOCKED_MESSAGE, 403);
+      }
+    }
 
     const routing = await getAiRouting(business.id);
     if (!routing) return jsonError("ИИ-провайдер не настроен. Проверьте OpenRouter или Polza AI в настройках.", 400);

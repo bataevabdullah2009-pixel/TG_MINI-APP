@@ -35,8 +35,26 @@ enum BusinessType {
 enum SubscriptionStatus {
   TRIAL
   ACTIVE
+  PAST_DUE
   EXPIRED
   BLOCKED
+  LIFETIME
+  ARCHIVED
+}
+
+enum BusinessPaymentType {
+  SETUP
+  MONTHLY
+  MANUAL
+  REFUND
+  BONUS
+}
+
+enum BusinessPaymentMethod {
+  CASH
+  TRANSFER
+  CARD
+  MANUAL
 }
 
 enum ItemType {
@@ -98,6 +116,10 @@ enum PaymentProvider {
 
 enum PaymentStatus {
   PENDING
+  AWAITING_PROOF
+  PROOF_UPLOADED
+  AI_REVIEW
+  NEEDS_MANUAL_REVIEW
   AWAITING_REVIEW
   PAID
   PAYMENT_REJECTED
@@ -131,12 +153,13 @@ model User {
   telegramLinkCode      String?   @unique
   telegramLinkExpiresAt DateTime?
 
-  role            Role       @default(CUSTOMER)
-  businessId      String?
-  business        Business?  @relation("BusinessUsers", fields: [businessId], references: [id], onDelete: SetNull)
-  ownedBusinesses Business[] @relation("BusinessOwner")
-  customers       Customer[]
-  courierProfile  Courier?
+  role                    Role              @default(CUSTOMER)
+  businessId              String?
+  business                Business?         @relation("BusinessUsers", fields: [businessId], references: [id], onDelete: SetNull)
+  ownedBusinesses         Business[]        @relation("BusinessOwner")
+  businessPaymentsCreated BusinessPayment[] @relation("BusinessPaymentsCreatedBy")
+  customers               Customer[]
+  courierProfile          Courier?
 
   isActive Boolean @default(true)
 
@@ -190,11 +213,26 @@ model Business {
   timezone String @default("Europe/Moscow")
 
   // Subscription
-  subscriptionStatus    SubscriptionStatus @default(TRIAL)
+  subscriptionStatus    SubscriptionStatus @default(LIFETIME)
   subscriptionPlanId    String?
   subscriptionPlan      SubscriptionPlan?  @relation(fields: [subscriptionPlanId], references: [id])
   subscriptionStartDate DateTime?
   subscriptionEndDate   DateTime?
+  setupFeeAmount        Int                @default(30000)
+  monthlyFeeAmount      Int                @default(3000)
+  lastPaidAt            DateTime?
+  nextPaymentAt         DateTime?
+  blockedAt             DateTime?
+  blockedReason         String?
+  isBlocked             Boolean            @default(false)
+  gracePeriodUntil      DateTime?
+  paymentComment        String?
+
+  // Subscription reminder delivery is persisted to keep cron idempotent.
+  subscriptionReminder3dSentAt    DateTime?
+  subscriptionReminder1dSentAt    DateTime?
+  subscriptionExpiredNoticeSentAt DateTime?
+  subscriptionBlockedNoticeSentAt DateTime?
 
   // Features
   modulesEnabled String @default("catalog,cart,profile")
@@ -214,9 +252,13 @@ model Business {
   transferPaymentCommentRequired Boolean @default(false)
   transferPaymentInstructions    String?
 
-  isActive Boolean @default(true)
-  isOpen   Boolean @default(true)
-  isDemo   Boolean @default(false)
+  isActive   Boolean   @default(true)
+  isOpen     Boolean   @default(true)
+  isDemo     Boolean   @default(false)
+  isArchived Boolean   @default(false)
+  isDeleted  Boolean   @default(false)
+  archivedAt DateTime?
+  deletedAt  DateTime?
 
   // Relations
   owner   User?   @relation("BusinessOwner", fields: [ownerId], references: [id])
@@ -242,6 +284,7 @@ model Business {
   aiRequestLogs      AiRequestLog[]     @relation("BusinessAiRequestLogs")
   couriers           Courier[]
   deliveryZones      DeliveryZone[]
+  saasPayments       BusinessPayment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -249,6 +292,9 @@ model Business {
   @@index([slug])
   @@index([templateKey])
   @@index([subscriptionStatus])
+  @@index([subscriptionEndDate])
+  @@index([isBlocked])
+  @@index([isArchived, isDeleted])
   @@index([isDemo])
   @@index([transferPaymentEnabled])
 }
@@ -273,10 +319,13 @@ model BusinessTemplate {
 // ============= SUBSCRIPTIONS =============
 
 model SubscriptionPlan {
-  id          String  @id @default(cuid())
-  name        String
-  description String?
-  price       Float
+  id                  String  @id @default(cuid())
+  name                String
+  description         String?
+  price               Float
+  setupFeeAmount      Int     @default(30000)
+  monthlyFeeAmount    Int     @default(3000)
+  billingPeriodMonths Int     @default(1)
 
   maxItems          Int @default(50)
   maxOrdersPerMonth Int @default(200)
@@ -290,6 +339,28 @@ model SubscriptionPlan {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model BusinessPayment {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  amount      Int
+  type        BusinessPaymentType
+  monthsAdded Int                   @default(0)
+  paidAt      DateTime              @default(now())
+  method      BusinessPaymentMethod @default(MANUAL)
+  comment     String?
+
+  createdByAdminId String?
+  createdByAdmin   User?   @relation("BusinessPaymentsCreatedBy", fields: [createdByAdminId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([businessId, paidAt])
+  @@index([createdByAdminId])
+  @@index([type])
 }
 
 // ============= BUSINESS SETTINGS =============
@@ -553,9 +624,10 @@ model FavoriteItem {
 // ============= ORDERS =============
 
 model Order {
-  id         String   @id @default(cuid())
-  businessId String
-  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id              String   @id @default(cuid())
+  clientRequestId String?  @unique
+  businessId      String
+  business        Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   customerId String?
   customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)

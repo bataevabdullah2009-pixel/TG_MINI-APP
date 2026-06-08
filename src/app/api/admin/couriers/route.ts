@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 import { toJsonSafe } from "@/lib/prisma-schema-guard";
+import { canBusinessOperate } from "@/lib/subscriptions/business-subscription-service";
 
 function parseTelegramId(value: unknown) {
   if (value === undefined || value === null || value === "") return null;
@@ -39,6 +40,12 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const businessId = body.businessId || session.businessId;
   if (!businessId || !canUseBusiness(session, businessId)) return jsonError("Нет доступа к курьерам.", 403);
+  if (session.role !== "SUPER_ADMIN") {
+    const access = await canBusinessOperate(businessId);
+    if (!access.canUseDelivery) {
+      return jsonError(access.reason || "Управление курьерами временно недоступно.", 403);
+    }
+  }
 
   const name = String(body.name || "").trim();
   const phone = String(body.phone || "").trim();

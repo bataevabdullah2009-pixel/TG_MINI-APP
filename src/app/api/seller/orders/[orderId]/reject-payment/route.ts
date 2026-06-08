@@ -3,6 +3,10 @@ import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 import { toJsonSafe } from "@/lib/prisma-schema-guard";
 import { telegramBot } from "@/lib/telegram-bot-service";
+import {
+  SELLER_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
 
 export async function POST(
   request: NextRequest,
@@ -30,6 +34,12 @@ export async function POST(
     if (!canUseBusiness(session, order.businessId)) {
       return jsonError("Нет доступа к этому заказу.", 403);
     }
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(order.businessId);
+      if (!access.canManageOrders) {
+        return jsonError(access.reason || SELLER_BLOCKED_MESSAGE, 403);
+      }
+    }
     if (order.paymentMethod !== "TRANSFER") {
       return jsonError("У заказа не выбран перевод.", 400);
     }
@@ -37,7 +47,7 @@ export async function POST(
     const updated = await prisma.order.update({
       where: { id: order.id },
       data: {
-        paymentStatus: "PAYMENT_REJECTED",
+        paymentStatus: "REJECTED",
         status: "CANCELLED",
         paymentReviewedAt: new Date(),
         paymentReviewedBy: session.id,

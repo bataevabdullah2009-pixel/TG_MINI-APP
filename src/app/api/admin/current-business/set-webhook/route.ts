@@ -4,6 +4,7 @@ import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { getTelegramWebhookUrl } from "@/lib/production-url";
 import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 import { buildTelegramSetWebhookUrl } from "@/lib/telegram-webhook-config";
+import { canBusinessOperate } from "@/lib/subscriptions/business-subscription-service";
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,6 +17,12 @@ export async function POST(request: NextRequest) {
 
     if (!businessId) return jsonError("Бизнес не выбран.", 400);
     if (!canUseBusiness(session, businessId)) return jsonError("Нет доступа к этому бизнесу.", 403);
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(businessId);
+      if (!access.canManageProducts) {
+        return jsonError(access.reason || "Настройки бизнеса временно недоступны.", 403);
+      }
+    }
 
     const business = await prisma.business.findUnique({
       where: { id: businessId },
@@ -47,6 +54,6 @@ export async function POST(request: NextRequest) {
     if (isBusinessIsDemoMissingColumnError(error)) {
       warnPrismaSchemaDrift("Set webhook business lookup failed while Business.isDemo is missing", error);
     }
-    return jsonError("Could not configure Telegram webhook right now.", 500);
+    return jsonError("Не удалось настроить Telegram webhook. Повторите попытку позже.", 500);
   }
 }

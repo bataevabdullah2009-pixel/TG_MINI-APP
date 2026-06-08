@@ -3,6 +3,7 @@ import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 import { bucketForUploadType, publicUploadErrorMessage, uploadImageToSupabaseStorage } from "@/lib/supabase-storage";
 import { isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { canBusinessOperate } from "@/lib/subscriptions/business-subscription-service";
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,6 +23,12 @@ export async function POST(request: NextRequest) {
     });
     if (!business) return jsonError("Бизнес не найден.", 404);
     if (!canUseBusiness(session, business.id)) return jsonError("Нет доступа к этому бизнесу.", 403);
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(business.id);
+      if (!access.canManageProducts) {
+        return jsonError(access.reason || "Загрузка файлов временно недоступна.", 403);
+      }
+    }
 
     const uploaded = await uploadImageToSupabaseStorage({
       file,

@@ -3,71 +3,25 @@ import Link from "next/link";
 export default function PricingPage() {
   const plans = [
     {
-      id: "plan-start",
-      name: "🚀 START",
-      price: "$0",
-      period: "навсегда",
-      desc: "Отличный вариант для тестирования платформы или небольших локальных магазинов на этапе запуска.",
+      id: "plan-commercial",
+      name: "Commercial",
+      price: "3 000 ₽",
+      period: "мес",
+      setupFee: "Подключение: 30 000 ₽ (разово)",
+      desc: "Коммерческий тариф для локального бизнеса с готовой Telegram-витриной, заказами, доставкой, уведомлениями и ИИ.",
       features: [
-        "1 активная витрина",
-        "До 50 товаров/услуг в каталоге",
-        "Лимит: 200 заказов в месяц",
-        "Обработка заказов в админке",
-        "Самовывоз и курьерская доставка",
-        "Базовая мобильная аналитика",
-      ],
-      missing: [
-        "Форма онлайн-записи и календаря",
-        "AI-помощник (генератор постов/акций)",
-        "Связь с реальным Telegram-ботом",
-        "Кастомные цвета оформления витрины",
-        "Интеграция сторонних CRM систем",
-      ],
-      actionText: "Начать бесплатно",
-      color: "border-slate-900/60 bg-slate-900/20"
-    },
-    {
-      id: "plan-pro",
-      name: "🔥 PRO",
-      price: "$99",
-      period: "в месяц",
-      desc: "Идеально подходит для развивающегося бизнеса: кафе, салонов красоты, барбершопов и автосервисов.",
-      features: [
-        "Все функции тарифа START",
-        "До 300 товаров или услуг",
-        "Календарь онлайн-записи (Booking)",
-        "Интеграция с личным Telegram-ботом",
-        "Свободный кастомный брендинг (цвета, лого)",
-        "Лимит заказов: 2000 в месяц",
-        "До 5 сотрудников/мастеров в штате",
-        "Интеллектуальный ИИ: 30 запросов в день",
-      ],
-      missing: [
-        "Кастомные интеграции через API",
-        "Персональный менеджер поддержки",
-      ],
-      actionText: "Подключить тариф PRO",
-      color: "border-indigo-500/50 bg-slate-900/50 shadow-2xl relative"
-    },
-    {
-      id: "plan-business",
-      name: "👑 BUSINESS",
-      price: "$299",
-      period: "в месяц",
-      desc: "Для торговых сетей, ресторанов с большим потоком заказов и крупных сервисных центров.",
-      features: [
-        "Все функции тарифа PRO",
-        "Неограниченное число товаров",
-        "Безлимитный ИИ для бизнеса",
-        "До 20 сотрудников/мастеров",
-        "Открытый API для синхронизации CRM/1C",
-        "Приоритетная поддержка 24/7",
-        "Индивидуальный аудит нагрузок",
-        "Помощь в сборке уникального Mini App",
+        "Подключение и настройка бизнеса",
+        "Telegram Mini App с каталогом товаров и услуг",
+        "Панель продавца и управление заказами",
+        "Самовывоз, зоны доставки и работа с курьерами",
+        "Оплата переводом и проверка чеков",
+        "ИИ-помощник по данным текущего бизнеса",
+        "Telegram-уведомления продавцу и клиентам",
+        "Поддержка и обновления платформы",
       ],
       missing: [],
-      actionText: "Подключить BUSINESS",
-      color: "border-slate-900/60 bg-slate-900/20"
+      actionText: "Подключить тариф",
+      color: "border-indigo-500/50 bg-slate-900/50 shadow-2xl relative"
     }
   ];
 
@@ -89,27 +43,27 @@ export default function PricingPage() {
           <span className="text-sm font-bold text-slate-300 group-hover:text-white transition">Вернуться на главную</span>
         </Link>
         
-        <span className="text-slate-500 text-xs font-bold font-mono">Vitrina AI / Pricing</span>
+        <span className="text-slate-500 text-xs font-bold font-mono">Vitrina AI / Тарифы</span>
       </header>
 
       {/* Heading */}
       <section className="relative z-10 max-w-4xl mx-auto px-6 pt-12 pb-16 text-center">
         <h1 className="text-4xl sm:text-5xl font-black tracking-tight mb-4">
-          Тарифные планы для любого масштаба
+          Коммерческий тариф Vitrina AI
         </h1>
         <p className="text-slate-400 text-sm sm:text-base max-w-2xl mx-auto">
-          Подключайте заведение, загружайте меню или услуги и привлекайте клиентов прямо из Telegram. Никаких скрытых платежей.
+          Подключение 30 000 ₽ + 3 000 ₽/мес подписка. Каталог, заказы, ИИ, доставка и уведомления для вашего бизнеса.
         </p>
       </section>
 
       {/* Plans Section */}
-      <section className="relative z-10 max-w-6xl mx-auto px-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+      <section className="relative z-10 mx-auto max-w-xl px-6">
         {plans.map((p) => (
           <div 
             key={p.id}
             className={`border rounded-3xl p-6 flex flex-col justify-between transition-all duration-300 hover:shadow-2xl hover:border-slate-700/80 ${p.color}`}
           >
-            {p.id === "plan-pro" && (
+            {p.id === "plan-commercial" && (
               <div className="absolute top-0 right-0 bg-indigo-500 text-white text-[9px] font-black uppercase tracking-wider px-3 py-1 rounded-bl-xl shadow-lg">
                 Рекомендуемый
               </div>
@@ -123,6 +77,9 @@ export default function PricingPage() {
                 <span className="text-4xl font-black text-white">{p.price}</span>
                 <span className="text-slate-500 text-xs">/ {p.period}</span>
               </div>
+              <p className="-mt-4 mb-8 rounded-xl bg-indigo-500/10 px-3 py-2 text-center text-xs font-bold text-indigo-200">
+                {p.setupFee}
+              </p>
 
               {/* Feature items */}
               <div className="space-y-3 mb-8">
@@ -151,7 +108,7 @@ export default function PricingPage() {
             <Link
               href="/admin/login"
               className={`w-full py-4 text-center font-extrabold text-xs rounded-xl transition-all shadow-md ${
-                p.id === "plan-pro" 
+                p.id === "plan-commercial"
                   ? "bg-gradient-to-r from-indigo-500 to-cyan-500 hover:brightness-110 text-white shadow-indigo-500/20" 
                   : "bg-slate-950 hover:bg-slate-900 text-slate-200 border border-slate-800 hover:border-slate-700"
               }`}

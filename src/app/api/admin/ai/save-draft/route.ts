@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
+import { canBusinessOperate } from "@/lib/subscriptions/business-subscription-service";
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,6 +12,12 @@ export async function POST(request: NextRequest) {
     const businessId = body.businessId || session.businessId;
     if (!businessId) return jsonError("Бизнес не выбран.", 400);
     if (!canUseBusiness(session, businessId)) return jsonError("Нет доступа к этому бизнесу.", 403);
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(businessId);
+      if (!access.canUseAI) {
+        return jsonError(access.reason || "Сохранение ИИ-черновиков временно недоступно.", 403);
+      }
+    }
 
     const draft = await prisma.marketingPost.create({
       data: {

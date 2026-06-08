@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
+import {
+  SELLER_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
 
 async function loadItem(request: NextRequest, id: string) {
   const session = await getAdminSession(request);
@@ -16,6 +20,12 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { id } = await context.params;
     const loaded = await loadItem(request, id);
     if ("error" in loaded) return loaded.error;
+    if (loaded.session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(loaded.item.businessId);
+      if (!access.canManageProducts) {
+        return jsonError(access.reason || SELLER_BLOCKED_MESSAGE, 403);
+      }
+    }
 
     const body = await request.json();
     let categoryId = undefined;
@@ -69,6 +79,12 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
     const { id } = await context.params;
     const loaded = await loadItem(request, id);
     if ("error" in loaded) return loaded.error;
+    if (loaded.session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(loaded.item.businessId);
+      if (!access.canManageProducts) {
+        return jsonError(access.reason || SELLER_BLOCKED_MESSAGE, 403);
+      }
+    }
     await prisma.item.delete({ where: { id } });
     return NextResponse.json({ ok: true });
   } catch (error) {

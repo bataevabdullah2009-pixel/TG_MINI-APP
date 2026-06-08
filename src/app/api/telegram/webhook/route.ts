@@ -6,10 +6,15 @@ import { AI_MANAGER_HANDOFF_MESSAGE, AIService, resolveAIProviderName } from "@/
 import { getPolzaChatEndpoint } from "@/lib/ai/polza-provider";
 import { ensureTelegramUser, trySyncUserPhone } from "@/lib/auth/telegram-user-service";
 import { ensureCustomerForTelegramUser } from "@/lib/customer/customer-service";
-import { getMiniAppUrl } from "@/lib/production-url";
+import {
+  buildBusinessUrl,
+  buildMiniAppUrl,
+  buildProductUrl,
+} from "@/lib/production-url";
 import { looksLikeSellerLinkAttempt, parseSellerLinkText } from "@/lib/seller-link";
 import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 import { getTelegramWebhookSecret } from "@/lib/telegram-webhook-config";
+import { canBusinessOperate } from "@/lib/subscriptions/business-subscription-service";
 
 type TelegramBusinessContext = {
   id: string;
@@ -19,8 +24,31 @@ type TelegramBusinessContext = {
   description: string | null;
   phone: string | null;
   address: string | null;
+  isOpen: boolean;
+  transferPaymentEnabled: boolean;
+  transferBankName: string | null;
+  transferPaymentInstructions: string | null;
   aiProvider: string | null;
   aiModel: string | null;
+  workingHours: Array<{
+    dayOfWeek: number;
+    openTime: string;
+    closeTime: string;
+    isClosed: boolean;
+  }>;
+  settings?: {
+    deliveryEnabled: boolean;
+    pickupEnabled: boolean;
+    minOrderAmount: number;
+    deliveryFee: number;
+    deliveryTime: number | null;
+  } | null;
+  deliveryZones: Array<{
+    name: string;
+    cityArea: string;
+    fee: number;
+    estimatedMinutes: number | null;
+  }>;
   telegramAdminChatId?: bigint | null;
   owner?: { telegramId: bigint | null } | null;
 };
@@ -33,8 +61,40 @@ const telegramBusinessContextSelect = {
   description: true,
   phone: true,
   address: true,
+  isOpen: true,
+  transferPaymentEnabled: true,
+  transferBankName: true,
+  transferPaymentInstructions: true,
   aiProvider: true,
   aiModel: true,
+  workingHours: {
+    select: {
+      dayOfWeek: true,
+      openTime: true,
+      closeTime: true,
+      isClosed: true,
+    },
+    orderBy: { dayOfWeek: "asc" as const },
+  },
+  settings: {
+    select: {
+      deliveryEnabled: true,
+      pickupEnabled: true,
+      minOrderAmount: true,
+      deliveryFee: true,
+      deliveryTime: true,
+    },
+  },
+  deliveryZones: {
+    where: { isActive: true },
+    select: {
+      name: true,
+      cityArea: true,
+      fee: true,
+      estimatedMinutes: true,
+    },
+    orderBy: { name: "asc" as const },
+  },
   telegramAdminChatId: true,
   owner: { select: { telegramId: true } },
 } as const;
@@ -83,16 +143,59 @@ type TelegramMessageFrom = {
 };
 
 function sellerPanelUrl() {
-  return withTelegramWebAppCacheBust(`${getMiniAppUrl()}?mode=seller`);
+  return withTelegramWebAppCacheBust(buildMiniAppUrl("/app?mode=seller"));
 }
 
 function safeMiniAppUrl(path = "/app") {
   try {
-    return getMiniAppUrl(path);
+    return buildMiniAppUrl(path);
   } catch (error) {
     console.error("[URL CONFIG] Telegram Mini App URL unavailable:", error);
     return null;
   }
+}
+
+const WEEKDAY_NAMES = [
+  "воскресенье",
+  "понедельник",
+  "вторник",
+  "среда",
+  "четверг",
+  "пятница",
+  "суббота",
+];
+
+function formatWorkingHours(business: TelegramBusinessContext) {
+  if (business.workingHours.length === 0) return "не указан";
+  return business.workingHours
+    .map((entry) => {
+      const day = WEEKDAY_NAMES[entry.dayOfWeek] || `день ${entry.dayOfWeek}`;
+      return entry.isClosed
+        ? `${day}: выходной`
+        : `${day}: ${entry.openTime}-${entry.closeTime}`;
+    })
+    .join(", ");
+}
+
+function formatDelivery(business: TelegramBusinessContext) {
+  if (!business.settings?.deliveryEnabled) return "доставка отключена";
+  const zones = business.deliveryZones
+    .map(
+      (zone) =>
+        `${zone.name} (${zone.cityArea}), ${zone.fee} ₽${
+          zone.estimatedMinutes ? `, около ${zone.estimatedMinutes} мин.` : ""
+        }`
+    )
+    .join("; ");
+  return [
+    `доставка включена, базовая стоимость ${business.settings.deliveryFee} ₽`,
+    business.settings.deliveryTime
+      ? `срок около ${business.settings.deliveryTime} мин.`
+      : null,
+    zones ? `зоны: ${zones}` : "зоны не указаны",
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
 
 function managerChatIdForBusiness(business: TelegramBusinessContext) {
@@ -338,6 +441,9 @@ export async function POST(request: NextRequest) {
 
     if (command === "/start") {
       const payload = text.split(" ")[1]?.trim();
+      const storePayload = payload?.startsWith("store_")
+        ? payload.slice("store_".length)
+        : payload;
       const miniAppUrl = safeMiniAppUrl();
       if (!miniAppUrl) {
         await telegramBot.sendNotification(
@@ -366,15 +472,15 @@ export async function POST(request: NextRequest) {
         targetUrl = `${miniAppUrl}?mode=super`;
         buttonText = "SaaS Панель";
         message = "Добро пожаловать в SaaS Панель управления! 👑\n\nНажмите на кнопку ниже, чтобы открыть кабинет...";
-      } else if (payload === "demo-cafe" || payload === "cafe") {
-        targetUrl = `${miniAppUrl}/demo-cafe`;
+      } else if (storePayload === "demo-cafe" || storePayload === "cafe") {
+        targetUrl = buildBusinessUrl("demo-cafe");
 
         buttonText = "Открыть Demo Cafe";
         message = "Добро пожаловать в <b>Demo Cafe</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.";
-      } else if (payload) {
+      } else if (storePayload) {
         // Deep link payload: check if link code
-        if (payload.startsWith("link-") || payload.startsWith("link_") || payload.length === 6) {
-          const cleanCode = payload.replace("link-", "").replace("link_", "").toUpperCase();
+        if (storePayload.startsWith("link-") || storePayload.startsWith("link_") || storePayload.length === 6) {
+          const cleanCode = storePayload.replace("link-", "").replace("link_", "").toUpperCase();
           const ownerUser = await prisma.user.findFirst({
             where: {
               telegramLinkCode: cleanCode,
@@ -402,19 +508,28 @@ export async function POST(request: NextRequest) {
           const targetBusiness = await prisma.business.findFirst({
             where: {
               isActive: true,
+              isArchived: false,
+              isDeleted: false,
               OR: [
-                { slug: payload },
-                { id: payload },
-                { slug: { equals: payload, mode: "insensitive" } },
+                { slug: storePayload },
+                { id: storePayload },
+                { slug: { equals: storePayload, mode: "insensitive" } },
               ],
             },
             select: telegramBusinessContextSelect,
           });
           if (targetBusiness) {
             business = targetBusiness;
-            targetUrl = `${miniAppUrl}/${targetBusiness.slug}`;
-            buttonText = `Открыть ${targetBusiness.name}`;
-            message = `Добро пожаловать в <b>${targetBusiness.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
+            const access = await canBusinessOperate(targetBusiness.id);
+            if (access.canCreateOrder) {
+              targetUrl = buildBusinessUrl(targetBusiness.slug);
+              buttonText = `Открыть ${targetBusiness.name}`;
+              message = `Добро пожаловать в <b>${targetBusiness.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
+            } else {
+              targetUrl = buildBusinessUrl(targetBusiness.slug);
+              buttonText = `Каталог ${targetBusiness.name}`;
+              message = `Добро пожаловать в <b>${targetBusiness.name}</b>!\n\n⚠️ ${access.reason || "Магазин временно недоступен для заказов."}\n\nВы можете посмотреть каталог, но оформление заказов временно недоступно.`;
+            }
           } else {
             targetUrl = miniAppUrl;
 
@@ -423,10 +538,16 @@ export async function POST(request: NextRequest) {
           }
         }
       } else if (business) {
-        targetUrl = `${miniAppUrl}/${business.slug}`;
-
-        buttonText = `Открыть ${business.name}`;
-        message = `Добро пожаловать в <b>${business.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
+        const access = await canBusinessOperate(business.id);
+        if (access.canCreateOrder) {
+          targetUrl = buildBusinessUrl(business.slug);
+          buttonText = `Открыть ${business.name}`;
+          message = `Добро пожаловать в <b>${business.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
+        } else {
+          targetUrl = buildBusinessUrl(business.slug);
+          buttonText = `Каталог ${business.name}`;
+          message = `Добро пожаловать в <b>${business.name}</b>!\n\n⚠️ ${access.reason || "Магазин временно недоступен для заказов."}`;
+        }
       }
 
       if (targetUrl === miniAppUrl) {
@@ -524,7 +645,7 @@ export async function POST(request: NextRequest) {
         select: { id: true },
       });
 
-      const miniAppUrl = getMiniAppUrl();
+      const miniAppUrl = buildMiniAppUrl();
 
 
       await telegramBot.sendNotification(
@@ -545,7 +666,7 @@ export async function POST(request: NextRequest) {
     if (isCommand) {
       await telegramBot.sendNotification(chatId, "Доступные команды: /start и /link CODE. Обычный вопрос отправьте без команды.", {
         reply_markup: {
-          inline_keyboard: [[{ text: "Открыть Vitrina AI", web_app: { url: withTelegramWebAppCacheBust(getMiniAppUrl()) } }]],
+          inline_keyboard: [[{ text: "Открыть Vitrina AI", web_app: { url: withTelegramWebAppCacheBust(buildMiniAppUrl()) } }]],
         },
       });
       logTelegramResponseSent({ chatId, type: "unknown_command", command });
@@ -573,19 +694,71 @@ export async function POST(request: NextRequest) {
       : activeBusiness?.aiModel || "";
 
     if (activeBusiness) {
+      const operationAccess = await canBusinessOperate(activeBusiness.id);
+      const storeUrl = buildBusinessUrl(activeBusiness.slug);
+      if (!operationAccess.canUseAI) {
+        const message = operationAccess.canViewCatalog
+          ? "Магазин временно недоступен для заказов."
+          : "Бизнес временно недоступен.";
+        await telegramBot.sendNotification(chatId, message, {
+          reply_markup: operationAccess.canViewCatalog
+            ? {
+                inline_keyboard: [
+                  [
+                    {
+                      text: `Открыть ${activeBusiness.name}`,
+                      web_app: { url: storeUrl },
+                    },
+                  ],
+                ],
+              }
+            : undefined,
+        });
+        logTelegramResponseSent({
+          chatId,
+          type: "business_subscription_blocked",
+          businessId: activeBusiness.id,
+        });
+        return NextResponse.json({ ok: true });
+      }
+
       const catalogItems = await prisma.item.findMany({
-        where: { businessId: activeBusiness.id, isAvailable: true, type: "PRODUCT" },
-        select: { id: true, name: true, price: true },
+        where: {
+          businessId: activeBusiness.id,
+          isAvailable: true,
+          type: { in: ["PRODUCT", "SERVICE"] },
+        },
+        select: { id: true, name: true, price: true, type: true },
         orderBy: [{ isPopular: "desc" }, { sortOrder: "asc" }],
         take: 100,
       });
-      const storeUrl = getMiniAppUrl(`/app/${activeBusiness.slug}`);
       const knowledgeBase = [
         `Название: ${activeBusiness.name}.`,
+        `Категория: ${activeBusiness.type}.`,
         `Описание: ${activeBusiness.description || "нет"}.`,
         `Телефон: ${activeBusiness.phone || "нет"}.`,
         `Адрес: ${activeBusiness.address || "нет"}.`,
-        `Текущий каталог: ${catalogItems.map((item) => `${item.name} — ${item.price} ₽`).join("; ") || "товаров нет"}.`,
+        `Сейчас бизнес ${activeBusiness.isOpen ? "открыт" : "закрыт"}.`,
+        `График: ${formatWorkingHours(activeBusiness)}.`,
+        `Самовывоз: ${activeBusiness.settings?.pickupEnabled ? "доступен" : "недоступен"}.`,
+        `Доставка: ${formatDelivery(activeBusiness)}.`,
+        `Минимальная сумма заказа: ${activeBusiness.settings?.minOrderAmount || 0} ₽.`,
+        `Оплата: наличные${
+          activeBusiness.transferPaymentEnabled
+            ? `, перевод${activeBusiness.transferBankName ? ` через ${activeBusiness.transferBankName}` : ""}`
+            : ""
+        }.`,
+        activeBusiness.transferPaymentInstructions
+          ? `Инструкция по переводу: ${activeBusiness.transferPaymentInstructions}.`
+          : "",
+        `Текущий каталог: ${
+          catalogItems
+            .map(
+              (item) =>
+                `${item.type === "SERVICE" ? "услуга" : "товар"} ${item.name} — ${item.price} ₽`
+            )
+            .join("; ") || "товаров и услуг нет"
+        }.`,
         `Mini App: ${storeUrl}.`,
         "Не выдумывай товары. Если товара нет в текущем каталоге, честно скажи, что его нет.",
       ].join(" ");
@@ -626,14 +799,33 @@ export async function POST(request: NextRequest) {
           return itemName.includes(searchQuery) || searchQuery.includes(itemName);
         });
         if (matches.length > 0) {
+          const matchedItemUrl = buildProductUrl(
+            activeBusiness.slug,
+            matches[0].id
+          );
           await telegramBot.sendNotification(
             chatId,
             `Есть: ${matches.slice(0, 5).map((item) => `${item.name} — ${item.price} ₽`).join(", ")}. Откройте Mini App, чтобы добавить товар в корзину.`,
-            { reply_markup: { inline_keyboard: [[{ text: `Открыть ${activeBusiness.name}`, web_app: { url: storeUrl } }]] } }
+            { reply_markup: { inline_keyboard: [[{ text: "Открыть товар", web_app: { url: matchedItemUrl } }]] } }
           );
           logTelegramResponseSent({ chatId, type: "catalog_match", businessId: activeBusiness.id });
         } else {
-          await telegramBot.sendNotification(chatId, `В каталоге ${activeBusiness.name} такого товара сейчас нет.`);
+          await telegramBot.sendNotification(
+            chatId,
+            `В каталоге ${activeBusiness.name} такого товара сейчас нет.`,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: `Открыть ${activeBusiness.name}`,
+                      web_app: { url: storeUrl },
+                    },
+                  ],
+                ],
+              },
+            }
+          );
           logTelegramResponseSent({ chatId, type: "catalog_no_match", businessId: activeBusiness.id });
         }
         return NextResponse.json({ ok: true });
@@ -667,7 +859,18 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      await telegramBot.sendNotification(chatId, answer);
+      await telegramBot.sendNotification(chatId, answer, {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: `Открыть ${activeBusiness.name}`,
+                web_app: { url: storeUrl },
+              },
+            ],
+          ],
+        },
+      });
       logTelegramResponseSent({
         chatId,
         type: "ai_answer",

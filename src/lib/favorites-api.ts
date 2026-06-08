@@ -14,6 +14,9 @@ export const favoriteBusinessSelect = {
   accentColor: true,
   isOpen: true,
   isActive: true,
+  isArchived: true,
+  isDeleted: true,
+  subscriptionStatus: true,
 } as const;
 
 export const favoriteItemInclude = {

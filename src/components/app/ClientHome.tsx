@@ -3,6 +3,7 @@
 import React, { useMemo } from "react";
 import Link from "next/link";
 import { Search, Store, Star, Heart } from "lucide-react";
+import { buildBusinessUrl } from "@/lib/production-url";
 
 type Business = {
   id: string;
@@ -18,6 +19,8 @@ type Business = {
   accentColor: string;
   rating: number;
   isOpen: boolean;
+  isBlocked?: boolean;
+  subscriptionStatus?: string;
 };
 
 const categories = [
@@ -169,12 +172,14 @@ export function ClientHome({
                     </div>
                     <span
                       className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
-                        business.isOpen
-                          ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/60"
-                          : "bg-slate-100 text-slate-500 ring-1 ring-slate-200/60"
+                        business.isBlocked || business.subscriptionStatus === "BLOCKED" || business.subscriptionStatus === "PAST_DUE"
+                          ? "bg-rose-50 text-rose-600 ring-1 ring-rose-200/60"
+                          : business.isOpen
+                            ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/60"
+                            : "bg-slate-100 text-slate-500 ring-1 ring-slate-200/60"
                       }`}
                     >
-                      {business.isOpen ? "Открыто" : "Закрыто"}
+                      {business.isBlocked || business.subscriptionStatus === "BLOCKED" ? "Недоступен" : business.subscriptionStatus === "PAST_DUE" ? "Ограничен" : business.isOpen ? "Открыто" : "Закрыто"}
                     </span>
                   </div>
                   <p className="mt-2 line-clamp-2 text-xs font-medium text-slate-500 leading-relaxed">
@@ -188,8 +193,14 @@ export function ClientHome({
 
               <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3.5">
                 <div className="flex items-center gap-1 text-xs font-black text-amber-500">
-                  <Star size={15} fill="currentColor" />
-                  {business.rating.toFixed(1)}
+                  {business.rating > 0 ? (
+                    <>
+                      <Star size={15} fill="currentColor" />
+                      {business.rating.toFixed(1)}
+                    </>
+                  ) : (
+                    <span className="text-slate-400 text-[10px] font-bold">Нет отзывов</span>
+                  )}
                 </div>
                 
                 <div className="flex gap-2">
@@ -204,7 +215,7 @@ export function ClientHome({
                     <Heart size={15} fill={favorites.includes(business.slug) ? "currentColor" : "none"} />
                   </button>
                   <Link
-                    href={`/app/${business.slug}`}
+                    href={buildBusinessUrl(business.slug)}
                     className="rounded-xl bg-slate-900 px-4 py-1.5 text-xs font-black text-white hover:bg-indigo-600 transition active:scale-95"
                   >
                     Открыть

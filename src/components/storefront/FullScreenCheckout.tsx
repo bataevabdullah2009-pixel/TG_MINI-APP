@@ -59,6 +59,9 @@ type Props = {
   paymentProofUploading: boolean;
   onPaymentProofUpload: (file: File) => void;
   checkoutError: string;
+  canCreateOrder: boolean;
+  blockedReason?: string | null;
+  submitting: boolean;
   needsPhoneVerification: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onClose: () => void;
@@ -80,6 +83,9 @@ export function FullScreenCheckout({
   paymentProofUploading,
   onPaymentProofUpload,
   checkoutError,
+  canCreateOrder,
+  blockedReason,
+  submitting,
   needsPhoneVerification,
   onSubmit,
   onClose,
@@ -96,6 +102,8 @@ export function FullScreenCheckout({
   const pickupEnabled = business.settings?.pickupEnabled !== false;
   const deliveryEnabled = business.settings?.deliveryEnabled === true && zones.length > 0;
   const canSubmit =
+    canCreateOrder &&
+    !submitting &&
     cart.length > 0 &&
     form.firstName.trim().length > 1 &&
     /^\+7\d{10}$/.test(form.phone.trim()) &&
@@ -126,6 +134,12 @@ export function FullScreenCheckout({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-4">
           <div className="mx-auto max-w-3xl space-y-4">
+            {!canCreateOrder && (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-4 text-sm font-black text-rose-700">
+                {blockedReason ||
+                  "Магазин временно недоступен. Продавец должен продлить подписку."}
+              </div>
+            )}
             <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <h3 className="flex items-center gap-2 text-sm font-black">
@@ -278,7 +292,8 @@ export function FullScreenCheckout({
                 </Field>
               </div>
               <Field icon={<Phone size={17} />} label="Телефон">
-                <input required value={form.phone} onChange={(event) => updateForm({ phone: event.target.value })} placeholder="+79991234567" className="checkout-field" />
+                <input required type="tel" value={form.phone} onChange={(event) => updateForm({ phone: event.target.value })} placeholder="+79991234567" className="checkout-field" />
+                <p className="text-[10px] font-semibold text-slate-400 mt-1">Формат: +7XXXXXXXXXX (10 цифр после +7)</p>
               </Field>
               {form.deliveryType === "DELIVERY" && (
                 <>
@@ -345,7 +360,11 @@ export function FullScreenCheckout({
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-4 text-sm font-black text-white shadow-xl shadow-slate-900/15 disabled:opacity-50"
             >
               <CheckCircle2 size={18} />
-              Подтвердить заказ на {formatPrice(orderTotal)}
+              {submitting
+                ? "Оформляем заказ..."
+                : canCreateOrder
+                  ? `Подтвердить заказ на ${formatPrice(orderTotal)}`
+                  : "Магазин временно недоступен"}
             </button>
           </div>
         </div>

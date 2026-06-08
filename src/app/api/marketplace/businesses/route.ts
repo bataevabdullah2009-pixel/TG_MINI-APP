@@ -23,6 +23,8 @@ const marketplaceBusinessSelect = {
   primaryColor: true,
   accentColor: true,
   isOpen: true,
+  isBlocked: true,
+  subscriptionStatus: true,
   _count: { select: { orders: true, bookings: true } },
 } as const;
 
@@ -42,7 +44,12 @@ export async function GET(request: NextRequest) {
     const superAdmin = isSuperAdmin(telegramUserId);
 
     const businesses = await prisma.business.findMany({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        isArchived: false,
+        isDeleted: false,
+        subscriptionStatus: { not: "ARCHIVED" },
+      },
       select: marketplaceBusinessSelect,
       orderBy: { createdAt: "desc" },
     });

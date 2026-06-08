@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Store, Heart, ShoppingBag, Eye } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
+import { buildBusinessUrl, buildProductUrl } from "@/lib/production-url";
 
 interface ClientFavoritesProps {
   telegramUserId?: string;
@@ -19,6 +20,7 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!telegramUserId) {
@@ -28,24 +30,32 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
 
     setLoading(true);
     setError(null);
-    Promise.all([
+    Promise.allSettled([
       miniAppFetch(`/api/favorites/business?telegramUserId=${encodeURIComponent(telegramUserId)}`).then((res) => res.json()),
       miniAppFetch(`/api/favorites/product?telegramUserId=${encodeURIComponent(telegramUserId)}`).then((res) => res.json()),
     ])
-      .then(([businessRes, productRes]) => {
-        if (!businessRes.ok) {
-          setError(businessRes.error || "Не удалось загрузить избранные заведения");
-          return;
-        }
-        if (!productRes.ok) {
-          setError(productRes.error || "Не удалось загрузить избранные товары");
-          return;
+      .then(([businessResult, productResult]) => {
+        const newData = { favoriteBusinesses: [] as any[], favoriteItems: [] as any[] };
+        let loadError: string | null = null;
+
+        if (businessResult.status === "fulfilled" && businessResult.value.ok) {
+          newData.favoriteBusinesses = businessResult.value.data?.favoriteBusinesses || [];
+        } else if (businessResult.status === "fulfilled" && !businessResult.value.ok) {
+          loadError = businessResult.value.error || "Не удалось загрузить избранные заведения";
+        } else {
+          loadError = "Ошибка загрузки заведений";
         }
 
-        setData({
-          favoriteBusinesses: businessRes.data?.favoriteBusinesses || [],
-          favoriteItems: productRes.data?.favoriteProducts || productRes.data?.favoriteItems || [],
-        });
+        if (productResult.status === "fulfilled" && productResult.value.ok) {
+          newData.favoriteItems = productResult.value.data?.favoriteProducts || productResult.value.data?.favoriteItems || [];
+        } else if (productResult.status === "fulfilled" && !productResult.value.ok) {
+          if (!loadError) loadError = productResult.value.error || "Не удалось загрузить избранные товары";
+        } else {
+          if (!loadError) loadError = "Ошибка загрузки товаров";
+        }
+
+        setData(newData);
+        if (loadError) setError(loadError);
       })
       .catch((e) => {
         console.error(e);
@@ -87,8 +97,8 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
     } catch (e) {
       console.error(e);
       setData(previous);
-      setError("Не удалось обновить избранное. Попробуйте ещё раз.");
-      setTimeout(() => setError(null), 4000);
+      setActionError("Не удалось обновить избранное. Попробуйте ещё раз.");
+      setTimeout(() => setActionError(null), 4000);
     }
   };
 
@@ -97,12 +107,24 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
     const productId = fav.item?.id || fav.itemId;
 
     if (!businessTarget || !productId) {
-      setError("Не удалось открыть товар: магазин или товар не найден.");
-      setTimeout(() => setError(null), 4000);
+      setActionError("Не удалось открыть товар: магазин или товар не найден.");
+      setTimeout(() => setActionError(null), 4000);
       return;
     }
 
-    router.push(`/app/${encodeURIComponent(businessTarget)}?product=${encodeURIComponent(productId)}`);
+    try {
+      router.push(buildProductUrl(businessTarget, productId));
+    } catch {
+      router.push(`/app/${encodeURIComponent(businessTarget)}?product=${encodeURIComponent(productId)}`);
+    }
+  };
+
+  const businessHref = (slug: string) => {
+    try {
+      return buildBusinessUrl(slug);
+    } catch {
+      return `/app/${encodeURIComponent(slug)}`;
+    }
   };
 
   return (
@@ -112,7 +134,6 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
         <p className="text-xs font-semibold text-slate-400 mt-0.5">Ваши любимые заведения и товары</p>
       </div>
 
-      {/* Tabs */}
       <div className="grid grid-cols-2 gap-1 rounded-2xl bg-slate-100 p-1 mb-5">
         <button
           onClick={() => setActiveTab("SHOPS")}
@@ -120,7 +141,7 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
             activeTab === "SHOPS" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"
           }`}
         >
-          Заведения ({data.favoriteBusinesses.length})
+          Заведения ({loading ? "..." : data.favoriteBusinesses.length})
         </button>
         <button
           onClick={() => setActiveTab("ITEMS")}
@@ -128,7 +149,7 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
             activeTab === "ITEMS" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"
           }`}
         >
-          Товары ({data.favoriteItems.length})
+          Товары ({loading ? "..." : data.favoriteItems.length})
         </button>
       </div>
 
@@ -139,15 +160,29 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
         </div>
       )}
 
-      {error && (
-        <div className="rounded-2xl bg-rose-50 p-4 text-center text-xs font-bold text-rose-700 ring-1 ring-rose-200/50">
-          ⚠️ {error}
+      {!telegramUserId && !loading && (
+        <div className="rounded-3xl bg-white p-8 text-center ring-1 ring-slate-100/80">
+          <Store className="mx-auto mb-3 text-slate-300" size={40} />
+          <h4 className="font-extrabold text-slate-800">Требуется авторизация</h4>
+          <p className="mt-1 text-xs text-slate-400">Войдите через Telegram, чтобы увидеть избранное.</p>
         </div>
       )}
 
-      {!loading && !error && (
+      {actionError && (
+        <div className="rounded-2xl bg-rose-50 p-4 text-center text-xs font-bold text-rose-700 ring-1 ring-rose-200/50">
+          {actionError}
+        </div>
+      )}
+
+      {!loading && telegramUserId && (
         <div>
-          {/* Shops Tab */}
+          {error && (
+            <div className="rounded-2xl bg-rose-50 p-3 text-center text-xs font-bold text-rose-700 ring-1 ring-rose-200/50 mb-4">
+              {error}
+              <button onClick={() => { setError(null); setLoading(true); }} className="ml-2 underline">Повторить</button>
+            </div>
+          )}
+
           {activeTab === "SHOPS" && (
             <div className="grid gap-3">
               {data.favoriteBusinesses.length === 0 ? (
@@ -193,7 +228,7 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
                       </button>
                       {fav.business?.slug && fav.business?.isActive !== false ? (
                         <Link
-                          href={`/app/${fav.business.slug}`}
+                          href={businessHref(fav.business.slug)}
                           className="grid h-8 w-8 place-items-center rounded-xl bg-slate-900 text-white hover:bg-indigo-600 transition"
                         >
                           <Eye size={14} />
@@ -210,7 +245,6 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
             </div>
           )}
 
-          {/* Items Tab */}
           {activeTab === "ITEMS" && (
             <div className="grid gap-3">
               {data.favoriteItems.length === 0 ? (

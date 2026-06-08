@@ -4,6 +4,10 @@ import { claimDelivery } from "@/lib/delivery/delivery-service";
 import { NotificationService } from "@/lib/notifications/notification-service";
 import { prisma } from "@/lib/prisma";
 import { toJsonSafe } from "@/lib/prisma-schema-guard";
+import {
+  SELLER_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
 
 async function loadCourierOrder(orderId: string) {
   return prisma.order.findUnique({
@@ -24,6 +28,17 @@ export async function POST(request: NextRequest, context: { params: Promise<{ or
   }
   if (!access.courier) {
     return NextResponse.json({ ok: false, code: "COURIER_ACCESS_DENIED", error: "У вас нет доступа к кабинету курьера." }, { status: 403 });
+  }
+  const businessAccess = await canBusinessOperate(access.courier.businessId);
+  if (!businessAccess.canUseDelivery) {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "BUSINESS_BLOCKED",
+        error: businessAccess.reason || SELLER_BLOCKED_MESSAGE,
+      },
+      { status: 403 }
+    );
   }
 
   const { orderId } = await context.params;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { classifyDatabaseError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { canBusinessOperate } from "@/lib/subscriptions/business-subscription-service";
 
 const catalogBusinessBaseSelect = {
   id: true,
@@ -40,6 +41,10 @@ const catalogBusinessBaseSelect = {
   aiDailyLimit: true,
   aiMonthlyLimit: true,
   isActive: true,
+  isArchived: true,
+  isDeleted: true,
+  isBlocked: true,
+  blockedReason: true,
   ownerId: true,
   createdAt: true,
   updatedAt: true,
@@ -152,8 +157,35 @@ export async function GET(
       business = await findCatalogBusiness(slug, search, false, false);
     }
 
-    if (!business || !business.isActive) {
+    if (!business) {
       return NextResponse.json({ ok: false, code: "BUSINESS_NOT_FOUND", error: "Бизнес не найден." }, { status: 404 });
+    }
+    if (
+      !business.isActive ||
+      business.isArchived ||
+      business.isDeleted ||
+      business.subscriptionStatus === "ARCHIVED"
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "BUSINESS_UNAVAILABLE",
+          error: "Бизнес временно недоступен.",
+        },
+        { status: 404 }
+      );
+    }
+
+    const operationAccess = await canBusinessOperate(business.id);
+    if (!operationAccess.canViewCatalog) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "BUSINESS_UNAVAILABLE",
+          error: "Бизнес временно недоступен.",
+        },
+        { status: 404 }
+      );
     }
 
     if (business.categories.length === 0) {
@@ -182,6 +214,7 @@ export async function GET(
     return NextResponse.json({
       ok: true,
       business: normalizedBusiness,
+      operationAccess,
       categories: business.categories,
       items: business.items,
       staff: business.staff,

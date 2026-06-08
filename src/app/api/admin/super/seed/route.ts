@@ -18,6 +18,10 @@ const DEMO_BUSINESSES: Array<{
   { slug: "demo-carwash", name: "Демо Автомойка", templateKey: "carwash", ownerEmail: "owner-carwash@example.com" },
 ];
 
+function productionSeedBlocked() {
+  return process.env.NODE_ENV === "production";
+}
+
 async function runSeedProcess() {
   console.log("🚀 Seeding database with demo data...");
 
@@ -63,6 +67,31 @@ async function runSeedProcess() {
         maxOrdersPerMonth: 50000,
         maxStaff: 20,
         features: JSON.stringify(["all_templates", "ai", "staff", "integrations", "priority_support"]),
+      },
+    }),
+    prisma.subscriptionPlan.upsert({
+      where: { id: "plan-commercial" },
+      update: {
+        name: "Commercial",
+        description: "Коммерческий тариф Vitrina AI: 30 000 ₽ разово, доступ навсегда.",
+        price: 30000,
+        setupFeeAmount: 30000,
+        monthlyFeeAmount: 0,
+        billingPeriodMonths: 0,
+        isActive: true,
+      },
+      create: {
+        id: "plan-commercial",
+        name: "Commercial",
+        description: "Коммерческий тариф Vitrina AI: 30 000 ₽ разово, доступ навсегда.",
+        price: 30000,
+        setupFeeAmount: 30000,
+        monthlyFeeAmount: 0,
+        billingPeriodMonths: 0,
+        maxItems: 1000,
+        maxOrdersPerMonth: 10000,
+        maxStaff: 20,
+        features: JSON.stringify(["catalog", "orders", "telegram-mini-app", "ai", "notifications", "delivery"]),
       },
     }),
   ]);
@@ -329,6 +358,12 @@ export async function POST(request: NextRequest) {
     if (!session || !requireRole(session, ["SUPER_ADMIN"])) {
       return jsonError("Недостаточно прав для выполнения этой операции.", 403);
     }
+    if (productionSeedBlocked()) {
+      return jsonError(
+        "Заполнение демо-данными отключено в production, чтобы не удалять рабочие заказы.",
+        409
+      );
+    }
 
     await runSeedProcess();
 
@@ -348,6 +383,12 @@ export async function GET(request: NextRequest) {
     const session = await getAdminSession(request);
     if (!session || !requireRole(session, ["SUPER_ADMIN"])) {
       return jsonError("Недостаточно прав для выполнения этой операции.", 403);
+    }
+    if (productionSeedBlocked()) {
+      return jsonError(
+        "Заполнение демо-данными отключено в production, чтобы не удалять рабочие заказы.",
+        409
+      );
     }
 
     console.log("⚡ Executing db seed bootstrapper via GET request...");

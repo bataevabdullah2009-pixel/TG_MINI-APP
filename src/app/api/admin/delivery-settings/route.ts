@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
+import {
+  SELLER_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
 
 function numberOrDefault(value: unknown, fallback: number) {
   const number = Number(value);
@@ -32,6 +36,12 @@ export async function PATCH(request: NextRequest) {
   const body = await request.json();
   const businessId = body.businessId || session.businessId;
   if (!businessId || !canUseBusiness(session, businessId)) return jsonError("Нет доступа к настройкам доставки.", 403);
+  if (session.role !== "SUPER_ADMIN") {
+    const access = await canBusinessOperate(businessId);
+    if (!access.canUseDelivery) {
+      return jsonError(access.reason || SELLER_BLOCKED_MESSAGE, 403);
+    }
+  }
 
   const settings = await prisma.businessSettings.upsert({
     where: { businessId },

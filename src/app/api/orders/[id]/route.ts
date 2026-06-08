@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { NotificationService } from "@/lib/notifications/notification-service";
 import { classifyDatabaseError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
+import {
+  SELLER_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
 
 const legacyOrderDetailSelect = {
   id: true,
@@ -77,9 +82,26 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getAdminSession(request);
+    if (!session) return jsonError("Нужен вход в панель продавца.", 401);
+
     const { id } = await context.params;
     const body = await request.json();
     const { status, internalNotes } = body;
+    const existing = await prisma.order.findUnique({
+      where: { id },
+      select: { businessId: true },
+    });
+    if (!existing) return jsonError("Заказ не найден.", 404);
+    if (!canUseBusiness(session, existing.businessId)) {
+      return jsonError("Нет доступа к этому заказу.", 403);
+    }
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(existing.businessId);
+      if (!access.canManageOrders) {
+        return jsonError(access.reason || SELLER_BLOCKED_MESSAGE, 403);
+      }
+    }
 
     const order = await prisma.order.update({
       where: { id },

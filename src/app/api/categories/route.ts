@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
+import {
+  SELLER_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
 
 export async function GET(request: NextRequest) {
   try {
@@ -39,6 +43,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Название и ID бизнеса обязательны" }, { status: 400 });
     }
     if (!canUseBusiness(session, businessId)) return jsonError("Нет доступа к категориям этого бизнеса.", 403);
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(businessId);
+      if (!access.canManageProducts) {
+        return jsonError(access.reason || SELLER_BLOCKED_MESSAGE, 403);
+      }
+    }
 
     const category = await prisma.category.create({
       data: {
@@ -74,6 +84,12 @@ export async function PATCH(request: NextRequest) {
     const existing = await prisma.category.findUnique({ where: { id }, select: { businessId: true } });
     if (!existing) return jsonError("Категория не найдена.", 404);
     if (!canUseBusiness(session, existing.businessId)) return jsonError("Нет доступа к категории.", 403);
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(existing.businessId);
+      if (!access.canManageProducts) {
+        return jsonError(access.reason || SELLER_BLOCKED_MESSAGE, 403);
+      }
+    }
 
     const body = await request.json();
     const { name, sortOrder, isActive } = body;
@@ -109,6 +125,12 @@ export async function DELETE(request: NextRequest) {
     const existing = await prisma.category.findUnique({ where: { id }, select: { businessId: true } });
     if (!existing) return jsonError("Категория не найдена.", 404);
     if (!canUseBusiness(session, existing.businessId)) return jsonError("Нет доступа к категории.", 403);
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(existing.businessId);
+      if (!access.canManageProducts) {
+        return jsonError(access.reason || SELLER_BLOCKED_MESSAGE, 403);
+      }
+    }
 
     await prisma.category.delete({
       where: { id },

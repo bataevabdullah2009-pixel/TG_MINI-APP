@@ -4,6 +4,7 @@ import path from "path";
 import { prisma } from "@/lib/prisma";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { PolzaMediaProvider } from "@/lib/ai/polza-media-provider";
+import { canBusinessOperate } from "@/lib/subscriptions/business-subscription-service";
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,6 +23,12 @@ export async function POST(request: NextRequest) {
 
     if (!business) return jsonError("Бизнес не найден.", 404);
     if (!canUseBusiness(session, business.id)) return jsonError("Нет доступа к этому бизнесу.", 403);
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(business.id);
+      if (!access.canUseAI) {
+        return jsonError(access.reason || "Генерация изображений временно недоступна.", 403);
+      }
+    }
 
     const apiKey = process.env.POLZA_AI_API_KEY;
     if (!apiKey) {

@@ -38,6 +38,16 @@ export function buildBusinessShareLinks(businessSlug: string) {
       : [configuredWebAppUrl, runtimeOrigin]
   ).find(isSafePublicUrl) || "";
   const baseUrl = publicUrl ? normalizeMiniAppBase(publicUrl) : "";
+  let webAppStoreUrl = "";
+  if (slug) {
+    try {
+      webAppStoreUrl = buildBusinessUrl(slug);
+    } catch {
+      webAppStoreUrl = baseUrl
+        ? `${baseUrl}/app/${encodeURIComponent(slug)}`
+        : "";
+    }
+  }
 
   const botUsername = cleanTelegramName(process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "");
   const miniAppShortName = cleanTelegramName(process.env.NEXT_PUBLIC_TELEGRAM_MINI_APP_SHORT_NAME || "");
@@ -50,7 +60,7 @@ export function buildBusinessShareLinks(businessSlug: string) {
     : "";
 
   return {
-    webAppStoreUrl: baseUrl && slug ? `${baseUrl}/app/${encodeURIComponent(slug)}` : "",
+    webAppStoreUrl,
     telegramMiniAppLink,
   };
 }
@@ -62,3 +72,4 @@ export function getStoreSlugFromStartParam(startParam?: string | null) {
   const slug = value.slice("store_".length).toLowerCase();
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) ? slug : null;
 }
+import { buildBusinessUrl } from "@/lib/production-url";

@@ -4,6 +4,10 @@ import { claimDelivery } from "@/lib/delivery/delivery-service";
 import { NotificationService } from "@/lib/notifications/notification-service";
 import { prisma } from "@/lib/prisma";
 import { toJsonSafe } from "@/lib/prisma-schema-guard";
+import {
+  SELLER_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const session = await getAdminSession(request);
@@ -27,6 +31,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   });
   if (!order) return jsonError("Заказ не найден.", 404);
   if (!canUseBusiness(session, order.businessId)) return jsonError("Нет доступа к этому заказу.", 403);
+  if (session.role !== "SUPER_ADMIN") {
+    const access = await canBusinessOperate(order.businessId);
+    if (!access.canUseDelivery) {
+      return jsonError(access.reason || SELLER_BLOCKED_MESSAGE, 403);
+    }
+  }
   if (order.deliveryType !== "DELIVERY" || order.status !== "READY_FOR_DELIVERY") {
     return jsonError("Назначить курьера можно только на готовый заказ с доставкой.", 409);
   }

@@ -25,7 +25,19 @@ async function resolveProduct(body: FavoriteProductBody, searchParams: URLSearch
 
   return prisma.item.findUnique({
     where: { id: productId },
-    select: { id: true, businessId: true },
+    select: {
+      id: true,
+      businessId: true,
+      isAvailable: true,
+      business: {
+        select: {
+          isActive: true,
+          isArchived: true,
+          isDeleted: true,
+          subscriptionStatus: true,
+        },
+      },
+    },
   });
 }
 
@@ -58,7 +70,16 @@ export async function GET(request: NextRequest) {
     }
 
     const favoriteProducts = await prisma.favoriteItem.findMany({
-      where: { telegramUserId },
+      where: {
+        telegramUserId,
+        item: { isAvailable: true },
+        business: {
+          isActive: true,
+          isArchived: false,
+          isDeleted: false,
+          subscriptionStatus: { not: "ARCHIVED" },
+        },
+      },
       include: favoriteItemInclude,
       orderBy: { createdAt: "desc" },
     });
@@ -87,6 +108,18 @@ export async function POST(request: NextRequest) {
     const product = await resolveProduct(body, searchParams);
     if (!product) {
       return NextResponse.json({ ok: false, error: "Товар не найден." }, { status: 404 });
+    }
+    if (
+      !product.isAvailable ||
+      !product.business.isActive ||
+      product.business.isArchived ||
+      product.business.isDeleted ||
+      product.business.subscriptionStatus === "ARCHIVED"
+    ) {
+      return NextResponse.json(
+        { ok: false, error: "Товар временно недоступен." },
+        { status: 409 }
+      );
     }
 
     await prisma.favoriteItem.upsert({

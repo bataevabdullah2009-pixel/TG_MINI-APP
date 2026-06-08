@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
+import {
+  SELLER_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
 
 const adminItemBusinessSelect = {
   id: true,
@@ -53,6 +57,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const resolved = await resolveBusiness(request, body.businessId || body.businessSlug);
     if ("error" in resolved) return resolved.error;
+    if (resolved.session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(resolved.business.id);
+      if (!access.canManageProducts) {
+        return jsonError(access.reason || SELLER_BLOCKED_MESSAGE, 403);
+      }
+    }
 
     const itemName = String(body.name || body.title || "").trim();
     if (!itemName || body.price === undefined || body.price === "") {

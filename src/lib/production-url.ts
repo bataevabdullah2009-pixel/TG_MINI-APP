@@ -64,6 +64,13 @@ function stripMiniAppPath(value: string) {
 }
 
 export function getAppBaseUrl() {
+  if (
+    typeof window !== "undefined" &&
+    process.env.NODE_ENV !== "production"
+  ) {
+    return cleanUrl(window.location.origin);
+  }
+
   const configured =
     process.env.NEXT_PUBLIC_WEBAPP_URL ||
     process.env.NEXT_PUBLIC_APP_URL ||
@@ -79,6 +86,27 @@ export function getAppBaseUrl() {
 }
 
 export function getMiniAppUrl(path = "/app") {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${getAppBaseUrl()}${normalizedPath}`;
+}
+
+export function buildMiniAppUrl(path = "/app") {
+  return getMiniAppUrl(path);
+}
+
+export function buildBusinessUrl(slug: string) {
+  const normalizedSlug = slug.trim().replace(/^\/+|\/+$/g, "");
+  if (!normalizedSlug) return buildMiniAppUrl();
+  return buildMiniAppUrl(`/app/${encodeURIComponent(normalizedSlug)}`);
+}
+
+export function buildProductUrl(businessSlug: string, productId: string) {
+  const url = new URL(buildBusinessUrl(businessSlug));
+  url.searchParams.set("product", productId);
+  return url.toString();
+}
+
+export function buildAdminUrl(path = "/admin") {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${getAppBaseUrl()}${normalizedPath}`;
 }

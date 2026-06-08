@@ -3,6 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { getAdminSession, requireRole, canUseBusiness, jsonError } from "@/lib/admin-auth";
 import { classifyDatabaseError, isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 import { normalizeBusinessSlug } from "@/lib/business-slug";
+import {
+  COMMERCIAL_MONTHLY_FEE_RUB,
+  COMMERCIAL_PLAN_ID,
+  COMMERCIAL_SETUP_FEE_RUB,
+  canBusinessOperate,
+  ensureCommercialPlan,
+} from "@/lib/subscriptions/business-subscription-service";
 
 const businessListSelect = {
   id: true,
@@ -76,6 +83,9 @@ export async function GET(request: NextRequest) {
     const businesses = await prisma.business.findMany({
       where: {
         isActive: true,
+        isArchived: false,
+        isDeleted: false,
+        subscriptionStatus: { not: "ARCHIVED" },
         ...(businessId ? { id: businessId } : {}),
       },
       select: businessListSelect,
@@ -122,16 +132,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Такой slug уже занят." }, { status: 400 });
     }
 
-    const business = await prisma.business.create({
-      data: {
-        slug: normalizedSlug,
-        name,
-        type: type || "CUSTOM",
-        description,
-        primaryColor: primaryColor || "#3B82F6",
-        accentColor: accentColor || "#FF6347",
-      },
-      select: businessListSelect,
+    const now = new Date();
+    const business = await prisma.$transaction(async (tx) => {
+      await ensureCommercialPlan(tx);
+      return tx.business.create({
+        data: {
+          slug: normalizedSlug,
+          name,
+          type: type || "CUSTOM",
+          description,
+          primaryColor: primaryColor || "#3B82F6",
+          accentColor: accentColor || "#FF6347",
+          subscriptionPlanId: COMMERCIAL_PLAN_ID,
+          subscriptionStatus: "LIFETIME",
+          subscriptionStartDate: now,
+          subscriptionEndDate: null,
+          nextPaymentAt: null,
+          setupFeeAmount: COMMERCIAL_SETUP_FEE_RUB,
+          monthlyFeeAmount: COMMERCIAL_MONTHLY_FEE_RUB,
+        },
+        select: businessListSelect,
+      });
     });
 
     return NextResponse.json(
@@ -162,6 +183,12 @@ export async function PATCH(request: NextRequest) {
 
     if (!canUseBusiness(session, id)) {
       return jsonError("Нет доступа к этому бизнесу.", 403);
+    }
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(id);
+      if (!access.canManageProducts || !access.canUseDelivery) {
+        return jsonError(access.reason || "Настройки бизнеса временно недоступны.", 403);
+      }
     }
 
     const body = await request.json();

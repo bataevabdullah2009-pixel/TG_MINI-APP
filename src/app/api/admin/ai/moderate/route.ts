@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminSession, jsonError } from "@/lib/admin-auth";
+import { canBusinessOperate } from "@/lib/subscriptions/business-subscription-service";
 
 const risky = ["гарантируем лечение", "100% результат", "самый дешёвый в мире", "лучший на рынке"];
 
@@ -7,6 +8,12 @@ export async function POST(request: NextRequest) {
   try {
     const session = await getAdminSession(request);
     if (!session) return jsonError("Нужен вход в админку.", 401);
+    if (session.role !== "SUPER_ADMIN" && session.businessId) {
+      const access = await canBusinessOperate(session.businessId);
+      if (!access.canUseAI) {
+        return jsonError(access.reason || "ИИ временно недоступен.", 403);
+      }
+    }
 
     const { text = "", action = "improve" } = await request.json();
     const warnings: string[] = [];

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
+import { canBusinessOperate } from "@/lib/subscriptions/business-subscription-service";
 
 async function resolveBusiness(slugOrId: string) {
   return prisma.business.findFirst({
@@ -37,6 +38,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sl
     const business = await resolveBusiness(slug);
     if (!business) return jsonError("Бизнес не найден.", 404);
     if (!canUseBusiness(session, business.id)) return jsonError("Нет доступа к этому бизнесу.", 403);
+    if (session.role !== "SUPER_ADMIN") {
+      const access = await canBusinessOperate(business.id);
+      if (!access.canManageProducts) {
+        return jsonError(access.reason || "Категории временно недоступны.", 403);
+      }
+    }
 
     const body = await request.json();
     const name = String(body.name || "").trim();

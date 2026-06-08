@@ -8,6 +8,10 @@ import { analyzePaymentProof } from "@/lib/ai/payment-proof-analyzer";
 import { getTelegramSessionUser, parseTelegramInitData } from "@/lib/auth-telegram";
 import { classifyDatabaseError, isBusinessIsDemoMissingColumnError, isPrismaMissingColumnError, warnPrismaSchemaDrift, toJsonSafe } from "@/lib/prisma-schema-guard";
 import { isStrictRuPhoneInput, normalizeRuPhone, validateCustomerName } from "@/lib/phone/phone-utils";
+import {
+  BUSINESS_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
 
 const ORDER_ERROR = "Не удалось оформить заказ. Проверьте данные и попробуйте снова.";
 const PHONE_VERIFICATION_ERROR = "Для оформления заказа подтвердите номер телефона.";
@@ -201,7 +205,9 @@ function getClientIp(request: NextRequest) {
 }
 
 function isAllowedPaymentProofUrl(value: string) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/+$/, "");
+  const supabaseUrl = (
+    process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
+  )?.replace(/\/+$/, "");
   if (!supabaseUrl) return true;
   const bucket = process.env.SUPABASE_STORAGE_PAYMENT_PROOFS_BUCKET || "payment-proofs";
   return value.startsWith(`${supabaseUrl}/storage/v1/object/public/${bucket}/`);
@@ -236,6 +242,7 @@ export async function POST(request: NextRequest) {
       paymentProofUrl,
       paymentProofFileName,
       paymentProofMimeType,
+      clientRequestId,
     } = body;
 
     const businessValue = businessId || businessSlug;
@@ -338,9 +345,14 @@ export async function POST(request: NextRequest) {
     telegramAuthenticated = true;
     authenticatedUsername = telegramSession.username;
 
-    if (business.subscriptionStatus === "BLOCKED" || business.subscriptionStatus === "EXPIRED") {
+    const operationAccess = await canBusinessOperate(business.id);
+    if (!operationAccess.canCreateOrder) {
       await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "BUSINESS_BLOCKED" });
-      return orderError("BUSINESS_BLOCKED", "Заказы временно недоступны. Свяжитесь с продавцом.", 403);
+      return orderError(
+        "BUSINESS_BLOCKED",
+        operationAccess.reason || BUSINESS_BLOCKED_MESSAGE,
+        403
+      );
     }
 
     const deliverySettings = await prisma.businessSettings.findUnique({
@@ -534,6 +546,34 @@ export async function POST(request: NextRequest) {
       return orderError("PHONE_MISMATCH", PHONE_MISMATCH_ERROR, 403);
     }
 
+    const normalizedClientRequestId = cleanString(clientRequestId).slice(0, 100);
+    if (
+      normalizedClientRequestId &&
+      !/^[a-zA-Z0-9_-]{8,100}$/.test(normalizedClientRequestId)
+    ) {
+      return orderError(
+        "INVALID_REQUEST_ID",
+        "Не удалось подтвердить уникальность заказа. Обновите страницу и попробуйте снова."
+      );
+    }
+
+    if (normalizedClientRequestId) {
+      const existingOrder = await prisma.order.findFirst({
+        where: {
+          clientRequestId: normalizedClientRequestId,
+          businessId: business.id,
+          customerId: customer.id,
+        },
+        include: checkoutOrderInclude,
+      });
+      if (existingOrder) {
+        return NextResponse.json(
+          toJsonSafe({ ...existingOrder, ok: true, duplicate: true }),
+          { status: 200 }
+        );
+      }
+    }
+
     const rateLimited = await enforceOrderRateLimit({
       businessId: business.id,
       telegramUserId: telegramId,
@@ -565,6 +605,7 @@ export async function POST(request: NextRequest) {
     };
     const baseOrderData = {
       ...legacyBaseOrderData,
+      clientRequestId: normalizedClientRequestId || null,
       itemsSubtotal,
       deliveryFee: calculatedDeliveryFee,
       deliveryStatus: normalizedDeliveryType === "DELIVERY" ? "NEW" as const : "NONE" as const,
@@ -579,7 +620,12 @@ export async function POST(request: NextRequest) {
         data: {
           ...baseOrderData,
           paymentMethod: requestedPaymentMethod,
-          paymentStatus: requestedPaymentMethod === "TRANSFER" ? "AWAITING_REVIEW" : "PENDING",
+          paymentStatus:
+            requestedPaymentMethod === "TRANSFER"
+              ? cleanString(paymentProofMimeType).startsWith("image/")
+                ? "AI_REVIEW"
+                : "NEEDS_MANUAL_REVIEW"
+              : "PENDING",
           paymentProofUrl: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofUrl) : null,
           paymentProofFileName: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofFileName) || null : null,
           paymentProofMimeType: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofMimeType) || null : null,
@@ -598,7 +644,7 @@ export async function POST(request: NextRequest) {
             data: {
               ...legacyBaseOrderData,
               paymentMethod: "TRANSFER",
-              paymentStatus: "AWAITING_REVIEW",
+              paymentStatus: "NEEDS_MANUAL_REVIEW",
               paymentProofUrl: cleanString(paymentProofUrl),
               paymentProofAiStatus: null,
             },
@@ -667,6 +713,10 @@ export async function POST(request: NextRequest) {
           prisma.order.update({
             where: { id: order.id },
             data: {
+              paymentStatus:
+                analysis.status === "LIKELY_VALID"
+                  ? "PROOF_UPLOADED"
+                  : "NEEDS_MANUAL_REVIEW",
               paymentProofAiStatus: analysis.status,
               paymentProofAiSummary: analysis.summary,
               paymentProofAiConfidence: analysis.confidence,

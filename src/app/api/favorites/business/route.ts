@@ -26,14 +26,28 @@ async function resolveBusiness(body: FavoriteBusinessBody, searchParams: URLSear
   if (businessId) {
     return prisma.business.findUnique({
       where: { id: businessId },
-      select: { id: true, slug: true },
+      select: {
+        id: true,
+        slug: true,
+        isActive: true,
+        isArchived: true,
+        isDeleted: true,
+        subscriptionStatus: true,
+      },
     });
   }
 
   if (slug) {
     return prisma.business.findUnique({
       where: { slug },
-      select: { id: true, slug: true },
+      select: {
+        id: true,
+        slug: true,
+        isActive: true,
+        isArchived: true,
+        isDeleted: true,
+        subscriptionStatus: true,
+      },
     });
   }
 
@@ -69,7 +83,15 @@ export async function GET(request: NextRequest) {
     }
 
     const favoriteBusinesses = await prisma.favoriteBusiness.findMany({
-      where: { telegramUserId },
+      where: {
+        telegramUserId,
+        business: {
+          isActive: true,
+          isArchived: false,
+          isDeleted: false,
+          subscriptionStatus: { not: "ARCHIVED" },
+        },
+      },
       include: { business: { select: favoriteBusinessSelect } },
       orderBy: { createdAt: "desc" },
     });
@@ -98,6 +120,17 @@ export async function POST(request: NextRequest) {
     const business = await resolveBusiness(body, searchParams);
     if (!business) {
       return NextResponse.json({ ok: false, error: "Бизнес не найден." }, { status: 404 });
+    }
+    if (
+      !business.isActive ||
+      business.isArchived ||
+      business.isDeleted ||
+      business.subscriptionStatus === "ARCHIVED"
+    ) {
+      return NextResponse.json(
+        { ok: false, error: "Бизнес временно недоступен." },
+        { status: 409 }
+      );
     }
 
     await prisma.favoriteBusiness.upsert({

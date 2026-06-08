@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 import { toJsonSafe } from "@/lib/prisma-schema-guard";
+import { canBusinessOperate } from "@/lib/subscriptions/business-subscription-service";
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const session = await getAdminSession(request);
@@ -12,6 +13,12 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   const existing = await prisma.courier.findUnique({ where: { id }, select: { businessId: true, userId: true } });
   if (!existing) return jsonError("Курьер не найден.", 404);
   if (!canUseBusiness(session, existing.businessId)) return jsonError("Нет доступа к курьеру.", 403);
+  if (session.role !== "SUPER_ADMIN") {
+    const access = await canBusinessOperate(existing.businessId);
+    if (!access.canUseDelivery) {
+      return jsonError(access.reason || "Управление курьерами временно недоступно.", 403);
+    }
+  }
 
   const body = await request.json();
   const courier = await prisma.$transaction(async (tx) => {
@@ -53,6 +60,12 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
   });
   if (!existing) return jsonError("Курьер не найден.", 404);
   if (!canUseBusiness(session, existing.businessId)) return jsonError("Нет доступа к курьеру.", 403);
+  if (session.role !== "SUPER_ADMIN") {
+    const access = await canBusinessOperate(existing.businessId);
+    if (!access.canUseDelivery) {
+      return jsonError(access.reason || "Управление курьерами временно недоступно.", 403);
+    }
+  }
 
   if (existing._count.assignments > 0) {
     const courier = await prisma.courier.update({ where: { id }, data: { isActive: false } });

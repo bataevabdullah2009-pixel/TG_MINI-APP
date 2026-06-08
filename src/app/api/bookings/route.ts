@@ -5,6 +5,10 @@ import { ensureTelegramUser } from "@/lib/auth/telegram-user-service";
 import { classifyDatabaseError, isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 import { getAdminSession } from "@/lib/admin-auth";
+import {
+  BUSINESS_BLOCKED_MESSAGE,
+  canBusinessOperate,
+} from "@/lib/subscriptions/business-subscription-service";
 
 export async function GET(request: NextRequest) {
   try {
@@ -90,6 +94,17 @@ export async function POST(request: NextRequest) {
     });
     if (!business || !business.isActive) {
       return NextResponse.json({ error: "Бизнес не найден или временно недоступен." }, { status: 404 });
+    }
+    const operationAccess = await canBusinessOperate(business.id);
+    if (!operationAccess.canCreateOrder) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "BUSINESS_BLOCKED",
+          error: operationAccess.reason || BUSINESS_BLOCKED_MESSAGE,
+        },
+        { status: 403 }
+      );
     }
 
     // Calculate endTime from service duration if not provided
