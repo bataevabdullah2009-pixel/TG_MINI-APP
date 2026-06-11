@@ -23,7 +23,7 @@ export function CartBar({
   if (cartCount <= 0) return null;
 
   return (
-    <div className={`fixed inset-x-0 bottom-0 mx-auto max-w-3xl bg-white/95 p-4 shadow-2xl backdrop-blur ${cartPulse ? "animate-cart-bump" : ""}`}>
+    <div className={`fixed inset-x-0 bottom-0 z-40 mx-auto max-w-3xl bg-white/95 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl backdrop-blur ${cartPulse ? "animate-cart-bump" : ""}`}>
       <div className="mb-3 space-y-2">
         {cart.map((line) => (
           <div key={line.item.id} className="flex items-center justify-between text-sm">
@@ -40,7 +40,8 @@ export function CartBar({
               <button
                 type="button"
                 onClick={() => onQuantityChange(line.item.id, 1)}
-                className="grid h-7 w-7 place-items-center rounded-full bg-slate-100"
+                disabled={line.item.stock !== null && line.item.stock !== undefined && line.quantity >= line.item.stock}
+                className="grid h-7 w-7 place-items-center rounded-full bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Plus size={14} />
               </button>

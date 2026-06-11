@@ -8,11 +8,13 @@ export type ProductCardJson = {
 };
 
 export type PaymentProofAnalysisJson = {
-  isReceipt: boolean;
-  amount: number | null;
-  date: string | null;
+  extractedAmount: number | null;
+  extractedDate: string | null;
+  extractedRecipient: string | null;
+  extractedBank: string | null;
   confidence: number;
-  comment: string;
+  status: "likely_valid" | "manual_review" | "likely_invalid";
+  reason: string;
 };
 
 export function aiRawPreview(raw: string, limit = 200) {
@@ -91,18 +93,32 @@ export function validateProductCardJson(value: unknown): ProductCardJson {
 }
 
 export function validatePaymentProofAnalysisJson(value: unknown): PaymentProofAnalysisJson {
-  const input = value as Partial<PaymentProofAnalysisJson>;
-  if (typeof input.isReceipt !== "boolean") {
-    throw new Error("Invalid payment proof AI isReceipt value.");
-  }
+  const input = value as Partial<PaymentProofAnalysisJson> & {
+    amount?: unknown;
+    date?: unknown;
+    recipient?: unknown;
+    bank?: unknown;
+    comment?: unknown;
+  };
 
   const confidence = Number(input.confidence);
+  const rawStatus = String(input.status || "").toLowerCase();
+  const status =
+    rawStatus === "likely_valid" || rawStatus === "likely_invalid" || rawStatus === "manual_review"
+      ? rawStatus
+      : "manual_review";
+  const amount = input.extractedAmount ?? input.amount;
+  const date = input.extractedDate ?? input.date;
+  const recipient = input.extractedRecipient ?? input.recipient;
+  const bank = input.extractedBank ?? input.bank;
 
   return {
-    isReceipt: input.isReceipt,
-    amount: typeof input.amount === "number" && Number.isFinite(input.amount) ? input.amount : null,
-    date: typeof input.date === "string" && input.date.trim() ? input.date.trim() : null,
+    extractedAmount: typeof amount === "number" && Number.isFinite(amount) ? amount : null,
+    extractedDate: typeof date === "string" && date.trim() ? date.trim() : null,
+    extractedRecipient: typeof recipient === "string" && recipient.trim() ? recipient.trim().slice(0, 200) : null,
+    extractedBank: typeof bank === "string" && bank.trim() ? bank.trim().slice(0, 120) : null,
     confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(100, Math.round(confidence))) : 0,
-    comment: requiredString(input.comment, "comment").slice(0, 600),
+    status,
+    reason: requiredString(input.reason ?? input.comment, "reason").slice(0, 600),
   };
 }

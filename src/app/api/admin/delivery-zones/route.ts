@@ -8,7 +8,10 @@ export async function GET(request: NextRequest) {
   const businessId = new URL(request.url).searchParams.get("businessId") || session.businessId;
   if (!businessId || !canUseBusiness(session, businessId)) return jsonError("Нет доступа к зонам доставки.", 403);
 
-  const zones = await prisma.deliveryZone.findMany({ where: { businessId }, orderBy: [{ isActive: "desc" }, { name: "asc" }] });
+  const zones = await prisma.deliveryZone.findMany({
+    where: { businessId },
+    orderBy: [{ archivedAt: "asc" }, { isActive: "desc" }, { sortOrder: "asc" }, { name: "asc" }],
+  });
   return NextResponse.json({ ok: true, zones });
 }
 
@@ -28,8 +31,10 @@ export async function POST(request: NextRequest) {
       name: String(body.name).trim(),
       cityArea: String(body.cityArea).trim(),
       fee: Math.max(0, Number(body.fee) || 0),
+      minOrderAmount: Math.max(0, Number(body.minOrderAmount) || 0),
       estimatedMinutes: body.estimatedMinutes ? Math.max(1, Math.round(Number(body.estimatedMinutes))) : null,
       isActive: body.isActive === undefined ? true : Boolean(body.isActive),
+      sortOrder: Math.max(0, Math.round(Number(body.sortOrder) || 0)),
     },
   });
   return NextResponse.json({ ok: true, zone }, { status: 201 });

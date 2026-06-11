@@ -13,16 +13,17 @@ export async function GET(
 
     const business = await prisma.business.findUnique({
       where: { slug },
-      select: { id: true },
+      select: { id: true, isActive: true },
     });
 
-    if (!business) {
+    if (!business || !business.isActive) {
       return NextResponse.json({ error: "Бизнес не найден." }, { status: 404 });
     }
 
     const where: any = {
       businessId: business.id,
       isAvailable: true,
+      archivedAt: null,
     };
 
     if (categoryId) {

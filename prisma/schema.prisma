@@ -39,6 +39,16 @@ enum SubscriptionStatus {
   BLOCKED
 }
 
+enum BusinessAccessStatus {
+  ACTIVE
+  BLOCKED
+  ARCHIVED
+}
+
+enum PlanType {
+  LIFETIME
+}
+
 enum ItemType {
   PRODUCT
   SERVICE
@@ -195,6 +205,12 @@ model Business {
   subscriptionPlan      SubscriptionPlan?  @relation(fields: [subscriptionPlanId], references: [id])
   subscriptionStartDate DateTime?
   subscriptionEndDate   DateTime?
+  accessStatus          BusinessAccessStatus @default(ACTIVE)
+  planType              PlanType             @default(LIFETIME)
+  paidAmount            Float?
+  paidAt                DateTime?
+  blockedReason         String?
+  archivedAt            DateTime?
 
   // Features
   modulesEnabled String @default("catalog,cart,profile")
@@ -249,6 +265,8 @@ model Business {
   @@index([slug])
   @@index([templateKey])
   @@index([subscriptionStatus])
+  @@index([accessStatus])
+  @@index([archivedAt])
   @@index([isDemo])
   @@index([transferPaymentEnabled])
 }
@@ -364,6 +382,7 @@ model Item {
   isAvailable Boolean @default(true)
   isPopular   Boolean @default(false)
   sortOrder   Int     @default(0)
+  archivedAt  DateTime?
 
   orderItems    OrderItem[]
   bookings      Booking[]
@@ -374,6 +393,8 @@ model Item {
 
   @@index([businessId])
   @@index([categoryId])
+  @@index([businessId, archivedAt])
+  @@index([businessId, isAvailable, archivedAt])
 }
 
 // ============= STAFF & SCHEDULE =============
@@ -502,8 +523,11 @@ model DeliveryZone {
   name             String
   cityArea         String
   fee              Float   @default(0)
+  minOrderAmount   Float   @default(0)
   estimatedMinutes Int?
   isActive         Boolean @default(true)
+  sortOrder        Int     @default(0)
+  archivedAt       DateTime?
 
   orders Order[]
 
@@ -513,6 +537,7 @@ model DeliveryZone {
   @@unique([businessId, name])
   @@index([businessId])
   @@index([businessId, isActive])
+  @@index([businessId, archivedAt])
 }
 
 model FavoriteBusiness {
@@ -596,6 +621,7 @@ model Order {
   internalNotes String?
   expiredAt     DateTime?
   expireReason  String?
+  stockRestoredAt DateTime?
 
   payment Payment?
 
@@ -610,6 +636,7 @@ model Order {
   @@index([deliveryType, status, createdAt])
   @@index([deliveryStatus, status, createdAt])
   @@index([deliveryZoneId])
+  @@index([stockRestoredAt])
 }
 
 model DeliveryAssignment {

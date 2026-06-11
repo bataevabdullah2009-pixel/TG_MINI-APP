@@ -27,6 +27,7 @@ export function ProductCard({
   onFavoriteToggle,
 }: ProductCardProps) {
   const isGrid = viewMode === "grid";
+  const isOutOfStock = mode === "cart" && item.stock === 0;
 
   return (
     <article className={`${isGrid ? "min-h-[292px] rounded-2xl" : "rounded-3xl"} flex h-full min-w-0 flex-col overflow-hidden bg-white shadow-sm ring-1 ring-slate-200/70`}>
@@ -58,6 +59,7 @@ export function ProductCard({
           </div>
           <p className={`${isGrid ? "text-xs leading-4" : "text-sm"} line-clamp-2 text-slate-500`}>{item.description}</p>
           {item.durationMinutes && <p className="mt-1 text-xs font-bold text-slate-400">{item.durationMinutes} мин.</p>}
+          {isOutOfStock && <p className="mt-2 text-xs font-black text-rose-600">Нет в наличии</p>}
         </div>
         <div className={isGrid ? "mt-auto pt-2" : "text-right"}>
           <p className={`${isGrid ? "text-sm" : ""} whitespace-nowrap font-black`}>{formatPrice(item.price)}</p>
@@ -68,10 +70,11 @@ export function ProductCard({
         <button
           type="button"
           onClick={() => onAction(item)}
-          className={`${isGrid ? "px-2 text-[11px]" : "px-4 text-sm"} min-w-0 flex-1 truncate rounded-full py-2 font-bold text-white`}
-          style={{ backgroundColor: primaryColor }}
+          disabled={isOutOfStock}
+          className={`${isGrid ? "px-2 text-[11px]" : "px-4 text-sm"} min-w-0 flex-1 truncate rounded-full py-2 font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300`}
+          style={isOutOfStock ? undefined : { backgroundColor: primaryColor }}
         >
-          {cta}
+          {isOutOfStock ? "Нет в наличии" : cta}
         </button>
         <button
           type="button"

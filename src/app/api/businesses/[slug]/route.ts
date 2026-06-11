@@ -26,7 +26,6 @@ const businessDetailLegacySelect = {
   instagramUrl: true,
   telegramBotUsername: true,
   telegramUsername: true,
-  telegramAdminChatId: true,
   currency: true,
   language: true,
   timezone: true,
@@ -75,7 +74,10 @@ const businessDetailSelect = {
   ...businessDetailLegacySelect,
   ...currentBusinessFieldsSelect,
   settings: true,
-  deliveryZones: { where: { isActive: true }, orderBy: { name: "asc" } },
+  deliveryZones: {
+    where: { isActive: true, archivedAt: null },
+    orderBy: { sortOrder: "asc" },
+  },
 } as const;
 
 function normalizeLookup(value: string) {
@@ -108,7 +110,7 @@ export async function GET(
 
     try {
       business = await prisma.business.findFirst({
-        where: businessLookupWhere(slug),
+        where: { AND: [businessLookupWhere(slug), { isActive: true }] },
         select: businessDetailSelect,
       });
     } catch (error) {
@@ -117,7 +119,7 @@ export async function GET(
       schemaFallback = true;
       warnPrismaSchemaDrift(`Business detail ${slug} retried without optional payment/delivery schema`, error);
       business = await prisma.business.findFirst({
-        where: businessLookupWhere(slug),
+        where: { AND: [businessLookupWhere(slug), { isActive: true }] },
         select: businessDetailLegacySelect,
       });
     }
@@ -135,7 +137,6 @@ export async function GET(
       transferRecipientName: "transferRecipientName" in business ? business.transferRecipientName : null,
       transferPaymentCommentRequired: "transferPaymentCommentRequired" in business ? business.transferPaymentCommentRequired : false,
       transferPaymentInstructions: "transferPaymentInstructions" in business ? business.transferPaymentInstructions : null,
-      telegramAdminChatId: business.telegramAdminChatId?.toString() || null,
       schemaFallback,
     });
   } catch (error) {
@@ -196,7 +197,7 @@ export async function PATCH(
 
     return NextResponse.json({
       ok: true,
-      data: { ...updated, telegramAdminChatId: updated.telegramAdminChatId?.toString() || null },
+      data: updated,
     });
   } catch (error) {
     console.error("PATCH /api/businesses/[slug] failed:", error);

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
-import { toJsonSafe } from "@/lib/prisma-schema-guard";
+import { isPrismaMissingColumnError, toJsonSafe, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 import { telegramBot } from "@/lib/telegram-bot-service";
 
 export async function POST(
@@ -23,7 +23,7 @@ export async function POST(
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { business: true, customer: true },
+      include: { business: true, customer: true, items: true },
     });
 
     if (!order) return jsonError("Заказ не найден.", 404);
@@ -33,18 +33,63 @@ export async function POST(
     if (order.paymentMethod !== "TRANSFER") {
       return jsonError("У заказа не выбран перевод.", 400);
     }
+    if (order.paymentStatus !== "AWAITING_REVIEW") {
+      return jsonError("Оплата уже была обработана продавцом.", 409);
+    }
 
-    const updated = await prisma.order.update({
-      where: { id: order.id },
-      data: {
-        paymentStatus: "PAYMENT_REJECTED",
-        status: "CANCELLED",
-        paymentReviewedAt: new Date(),
-        paymentReviewedBy: session.id,
-        paymentRejectReason: reason,
-      },
-      include: { items: true, business: { select: { name: true, slug: true } }, customer: true },
-    });
+    let updated;
+    try {
+      updated = await prisma.$transaction(async (tx) => {
+        const claimed = await tx.order.updateMany({
+          where: {
+            id: order.id,
+            paymentStatus: "AWAITING_REVIEW",
+            stockRestoredAt: null,
+          },
+          data: {
+            paymentStatus: "PAYMENT_REJECTED",
+            status: "CANCELLED",
+            paymentReviewedAt: new Date(),
+            paymentReviewedBy: session.id,
+            paymentRejectReason: reason,
+            stockRestoredAt: new Date(),
+          },
+        });
+        if (claimed.count !== 1) {
+          throw new Error("PAYMENT_ALREADY_REVIEWED");
+        }
+
+        for (const item of order.items) {
+          if (!item.itemId || item.quantity <= 0) continue;
+          await tx.item.updateMany({
+            where: { id: item.itemId, stock: { not: null } },
+            data: { stock: { increment: item.quantity } },
+          });
+        }
+
+        return tx.order.findUniqueOrThrow({
+          where: { id: order.id },
+          include: { items: true, business: { select: { name: true, slug: true } }, customer: true },
+        });
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "PAYMENT_ALREADY_REVIEWED") {
+        return jsonError("Оплата уже была обработана продавцом.", 409);
+      }
+      if (!isPrismaMissingColumnError(error, "Order", "stockRestoredAt")) throw error;
+      warnPrismaSchemaDrift("Payment rejection could not restore stock because stockRestoredAt is missing", error);
+      updated = await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          paymentStatus: "PAYMENT_REJECTED",
+          status: "CANCELLED",
+          paymentReviewedAt: new Date(),
+          paymentReviewedBy: session.id,
+          paymentRejectReason: reason,
+        },
+        include: { items: true, business: { select: { name: true, slug: true } }, customer: true },
+      });
+    }
 
     if (order.customer?.telegramUserId) {
       telegramBot

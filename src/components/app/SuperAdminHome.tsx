@@ -244,6 +244,38 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
     setTimeout(() => setSuccess(null), 3000);
   };
 
+  const updateBusinessAccess = async (business: any, action: "ACTIVE" | "BLOCKED" | "ARCHIVED" | "MARK_PAID") => {
+    let reason: string | undefined;
+    let paidAmount: number | undefined;
+    if (action === "BLOCKED") {
+      reason = window.prompt("Причина блокировки", business.blockedReason || "Свяжитесь с администратором платформы.") || "";
+      if (!reason) return;
+    }
+    if (action === "ARCHIVED" && !window.confirm(`Архивировать бизнес «${business.name}»? История сохранится.`)) return;
+    if (action === "ACTIVE" && !window.confirm(`Восстановить доступ бизнесу «${business.name}»?`)) return;
+    if (action === "MARK_PAID") {
+      const input = window.prompt("Оплаченная сумма, ₽", String(business.paidAmount || 50000));
+      if (input === null) return;
+      paidAmount = Number(input);
+      if (!Number.isFinite(paidAmount) || paidAmount < 0) {
+        showError("Укажите корректную сумму.");
+        return;
+      }
+    }
+
+    const response = await miniAppFetch(`/api/admin/super/businesses/${business.id}/access`, {
+      method: "PATCH",
+      body: JSON.stringify({ action, reason, paidAmount }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      showError(data.error || "Не удалось изменить доступ бизнеса.");
+      return;
+    }
+    showSuccess(action === "MARK_PAID" ? "Оплата LIFETIME отмечена." : "Статус доступа обновлён.");
+    await fetchSaaSData();
+  };
+
   const getTemplateIcon = (key: string) => {
     switch (key) {
       case "cafe": return "🍔";
@@ -442,8 +474,12 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
                             Slug: <span className="text-slate-800 font-bold select-all">/app/{biz.slug}</span> | Тип: {biz.type}
                           </p>
                         </div>
-                        <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
-                          {biz.subscriptionPlan?.name || "PRO PLAN"}
+                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
+                          biz.accessStatus === "BLOCKED" ? "bg-rose-50 text-rose-700" :
+                          biz.accessStatus === "ARCHIVED" ? "bg-slate-100 text-slate-600" :
+                          "bg-emerald-50 text-emerald-700"
+                        }`}>
+                          {biz.accessStatus || (biz.isActive ? "ACTIVE" : "ARCHIVED")}
                         </span>
                       </div>
 
@@ -475,6 +511,17 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
                           <Store size={12} />
                           Управлять как продавец
                         </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button onClick={() => updateBusinessAccess(biz, "MARK_PAID")} className="rounded-xl bg-emerald-50 px-3 py-2 text-[10px] font-black text-emerald-700">
+                          {biz.paidAt ? `Оплачено ${biz.paidAmount || 50000} ₽` : "Отметить 50 000 ₽"}
+                        </button>
+                        {biz.accessStatus === "ACTIVE" || (!biz.accessStatus && biz.isActive) ? (
+                          <button onClick={() => updateBusinessAccess(biz, "BLOCKED")} className="rounded-xl bg-rose-50 px-3 py-2 text-[10px] font-black text-rose-700">Заблокировать</button>
+                        ) : (
+                          <button onClick={() => updateBusinessAccess(biz, "ACTIVE")} className="rounded-xl bg-indigo-50 px-3 py-2 text-[10px] font-black text-indigo-700">Восстановить</button>
+                        )}
+                        <button onClick={() => updateBusinessAccess(biz, "ARCHIVED")} className="col-span-2 rounded-xl bg-slate-100 px-3 py-2 text-[10px] font-black text-slate-700">Архивировать бизнес</button>
                       </div>
                     </div>
                   ))}

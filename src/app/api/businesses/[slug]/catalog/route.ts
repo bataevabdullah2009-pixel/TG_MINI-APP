@@ -25,7 +25,6 @@ const catalogBusinessBaseSelect = {
   instagramUrl: true,
   telegramBotUsername: true,
   telegramUsername: true,
-  telegramAdminChatId: true,
   currency: true,
   language: true,
   timezone: true,
@@ -84,8 +83,8 @@ function catalogRelations(search: string | undefined, includeDeliveryConfig: boo
     ...(includeDeliveryConfig
       ? {
           deliveryZones: {
-            where: { isActive: true },
-            orderBy: { name: "asc" as const },
+            where: { isActive: true, archivedAt: null },
+            orderBy: [{ sortOrder: "asc" as const }, { name: "asc" as const }],
           },
         }
       : {}),
@@ -96,6 +95,7 @@ function catalogRelations(search: string | undefined, includeDeliveryConfig: boo
         items: {
           where: {
             isAvailable: true,
+            archivedAt: null,
             ...(search ? { name: { contains: search, mode: "insensitive" as const } } : {}),
           },
           orderBy: [{ isPopular: "desc" as const }, { sortOrder: "asc" as const }],
@@ -105,6 +105,7 @@ function catalogRelations(search: string | undefined, includeDeliveryConfig: boo
     items: {
       where: {
         isAvailable: true,
+        archivedAt: null,
         ...(search ? { name: { contains: search, mode: "insensitive" as const } } : {}),
       },
       include: { category: true },
@@ -176,7 +177,6 @@ export async function GET(
       transferRecipientName: "transferRecipientName" in business ? business.transferRecipientName : null,
       transferPaymentCommentRequired: "transferPaymentCommentRequired" in business ? business.transferPaymentCommentRequired : false,
       transferPaymentInstructions: "transferPaymentInstructions" in business ? business.transferPaymentInstructions : null,
-      telegramAdminChatId: business.telegramAdminChatId?.toString() || null,
     };
 
     return NextResponse.json({

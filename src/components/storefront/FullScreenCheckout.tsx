@@ -40,6 +40,7 @@ type CheckoutBusiness = {
     name: string;
     cityArea: string;
     fee: number;
+    minOrderAmount?: number;
     estimatedMinutes?: number | null;
     isActive: boolean;
   }>;
@@ -124,7 +125,7 @@ export function FullScreenCheckout({
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(8rem+env(safe-area-inset-bottom))] pt-4">
           <div className="mx-auto max-w-3xl space-y-4">
             <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="mb-3 flex items-center justify-between gap-3">

@@ -28,6 +28,9 @@ export async function POST(
     if (order.paymentMethod !== "TRANSFER") {
       return jsonError("У заказа не выбран перевод.", 400);
     }
+    if (order.paymentStatus !== "AWAITING_REVIEW") {
+      return jsonError("Оплата уже была обработана продавцом.", 409);
+    }
 
     const updated = await prisma.order.update({
       where: { id: order.id },
