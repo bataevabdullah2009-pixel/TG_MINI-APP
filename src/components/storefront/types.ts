@@ -7,6 +7,7 @@ export type StorefrontItem = {
   type: "PRODUCT" | "SERVICE";
   durationMinutes?: number | null;
   stock?: number | null;
+  isAvailable?: boolean;
   isPopular: boolean;
   category?: { id: string; name: string } | null;
 };
@@ -43,8 +44,10 @@ export type StorefrontBusiness = {
     name: string;
     cityArea: string;
     fee: number;
+    minOrderAmount?: number;
     estimatedMinutes?: number | null;
     isActive: boolean;
+    sortOrder?: number;
   }>;
 };
 

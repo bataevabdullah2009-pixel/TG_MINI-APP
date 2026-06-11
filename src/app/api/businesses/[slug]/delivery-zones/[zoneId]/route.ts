@@ -23,18 +23,9 @@ export async function DELETE(
     return jsonError("Зона доставки не найдена.", 404);
   }
 
-  const usedInOrders = await prisma.order.count({
-    where: { businessId, deliveryZoneId: zoneId },
+  const archived = await prisma.deliveryZone.update({
+    where: { id: zoneId },
+    data: { isActive: false, archivedAt: new Date() },
   });
-
-  if (usedInOrders > 0) {
-    const archived = await prisma.deliveryZone.update({
-      where: { id: zoneId },
-      data: { isActive: false },
-    });
-    return NextResponse.json({ ok: true, archived: true, deleted: false, zone: archived });
-  }
-
-  await prisma.deliveryZone.delete({ where: { id: zoneId } });
-  return NextResponse.json({ ok: true, archived: false, deleted: true, zoneId });
+  return NextResponse.json({ ok: true, archived: true, deleted: false, zone: archived });
 }

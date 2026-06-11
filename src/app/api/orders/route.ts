@@ -103,6 +103,16 @@ type CheckoutCustomer = Prisma.CustomerGetPayload<{ select: typeof checkoutCusto
   blockReason: string | null;
 };
 
+class CheckoutStockError extends Error {
+  readonly itemNames: string[];
+
+  constructor(itemNames: string[]) {
+    super("INSUFFICIENT_STOCK");
+    this.name = "CheckoutStockError";
+    this.itemNames = Array.from(new Set(itemNames));
+  }
+}
+
 function withCheckoutCustomerDefaults(
   customer: Prisma.CustomerGetPayload<{ select: typeof checkoutCustomerLegacySelect }>
 ): CheckoutCustomer {
@@ -115,8 +125,8 @@ function cleanString(value: unknown) {
 
 function toPositiveInt(value: unknown) {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return 0;
-  return Math.floor(parsed);
+  if (!Number.isInteger(parsed) || parsed <= 0) return 0;
+  return parsed;
 }
 
 function orderError(code: string, error: string, status = 400) {
@@ -347,7 +357,7 @@ export async function POST(request: NextRequest) {
       where: { businessId: business.id },
       select: { deliveryEnabled: true, pickupEnabled: true, minOrderAmount: true, deliveryFee: true },
     });
-    let deliveryZone: { id: string; name: string; cityArea: string; fee: number } | null = null;
+    let deliveryZone: { id: string; name: string; cityArea: string; fee: number; minOrderAmount: number } | null = null;
     let legacyDeliveryFee = 0;
     if (normalizedDeliveryType === "DELIVERY") {
       if (!deliverySettings?.deliveryEnabled) {
@@ -356,14 +366,16 @@ export async function POST(request: NextRequest) {
       try {
         if (cleanString(deliveryZoneId)) {
           deliveryZone = await prisma.deliveryZone.findFirst({
-            where: { id: cleanString(deliveryZoneId), businessId: business.id, isActive: true },
-            select: { id: true, name: true, cityArea: true, fee: true },
+            where: { id: cleanString(deliveryZoneId), businessId: business.id, isActive: true, archivedAt: null },
+            select: { id: true, name: true, cityArea: true, fee: true, minOrderAmount: true },
           });
           if (!deliveryZone) {
             return orderError("DELIVERY_ZONE_NOT_FOUND", "Выбранная зона доставки недоступна.");
           }
         } else {
-          const activeZones = await prisma.deliveryZone.count({ where: { businessId: business.id, isActive: true } });
+          const activeZones = await prisma.deliveryZone.count({
+            where: { businessId: business.id, isActive: true, archivedAt: null },
+          });
           if (activeZones > 0) {
             return orderError("DELIVERY_ZONE_REQUIRED", "Выберите город или район доставки.");
           }
@@ -394,23 +406,58 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    let totalPrice = 0;
-    const orderItems: Array<{ name: string; price: number; quantity: number; itemId: string }> = [];
-
+    const requestedItems = new Map<string, number>();
     for (const item of items) {
+      const itemId = cleanString(item.itemId);
       const quantity = toPositiveInt(item.quantity);
-      if (!item.itemId || quantity <= 0) {
+      if (!itemId || quantity <= 0) {
         await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "INVALID_ITEM" });
         return orderError("INVALID_ITEM", "В корзине есть некорректная позиция.");
       }
+      requestedItems.set(itemId, (requestedItems.get(itemId) || 0) + quantity);
+    }
 
-      const dbItem = await prisma.item.findUnique({
-        where: { id: item.itemId },
-        select: { id: true, businessId: true, name: true, price: true, isAvailable: true },
+    const itemIds = Array.from(requestedItems.keys());
+    let dbItems: Array<{
+      id: string;
+      businessId: string;
+      name: string;
+      price: number;
+      stock: number | null;
+      isAvailable: boolean;
+      archivedAt: Date | null;
+    }>;
+    try {
+      dbItems = await prisma.item.findMany({
+        where: { id: { in: itemIds } },
+        select: { id: true, businessId: true, name: true, price: true, stock: true, isAvailable: true, archivedAt: true },
       });
-      if (!dbItem || dbItem.businessId !== business.id || !dbItem.isAvailable) {
-        await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "ITEM_UNAVAILABLE" });
-        return orderError("ITEM_UNAVAILABLE", "Одна из позиций больше недоступна. Обновите корзину.");
+    } catch (error) {
+      if (!isPrismaMissingColumnError(error, "Item", "archivedAt")) throw error;
+      usedCheckoutSchemaFallback = true;
+      warnPrismaSchemaDrift("Checkout item validation retried without Item.archivedAt", error);
+      const legacyItems = await prisma.item.findMany({
+        where: { id: { in: itemIds } },
+        select: { id: true, businessId: true, name: true, price: true, stock: true, isAvailable: true },
+      });
+      dbItems = legacyItems.map((item) => ({ ...item, archivedAt: null }));
+    }
+
+    const dbItemsById = new Map(dbItems.map((item) => [item.id, item]));
+    const unavailableItems: string[] = [];
+    const insufficientItems: string[] = [];
+    let totalPrice = 0;
+    const orderItems: Array<{ name: string; price: number; quantity: number; itemId: string; stock: number | null }> = [];
+
+    for (const [itemId, quantity] of requestedItems) {
+      const dbItem = dbItemsById.get(itemId);
+      if (!dbItem || dbItem.businessId !== business.id || !dbItem.isAvailable || dbItem.archivedAt) {
+        unavailableItems.push(dbItem?.name || "Позиция из корзины");
+        continue;
+      }
+      if (dbItem.stock !== null && dbItem.stock < quantity) {
+        insufficientItems.push(dbItem.name);
+        continue;
       }
 
       totalPrice += dbItem.price * quantity;
@@ -419,7 +466,23 @@ export async function POST(request: NextRequest) {
         price: dbItem.price,
         quantity,
         itemId: dbItem.id,
+        stock: dbItem.stock,
       });
+    }
+
+    if (unavailableItems.length > 0) {
+      await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "ITEM_UNAVAILABLE" });
+      return NextResponse.json(
+        { ok: false, code: "ITEM_UNAVAILABLE", error: `Недоступны: ${unavailableItems.join(", ")}. Обновите корзину.`, items: unavailableItems },
+        { status: 409 }
+      );
+    }
+    if (insufficientItems.length > 0) {
+      await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "INSUFFICIENT_STOCK" });
+      return NextResponse.json(
+        { ok: false, code: "INSUFFICIENT_STOCK", error: `Недостаточно товара: ${insufficientItems.join(", ")}. Обновите корзину.`, items: insufficientItems },
+        { status: 409 }
+      );
     }
 
     const user = await ensureTelegramUser({
@@ -543,12 +606,17 @@ export async function POST(request: NextRequest) {
     if (rateLimited) return rateLimited;
 
     const itemsSubtotal = totalPrice;
-    if (normalizedDeliveryType === "DELIVERY" && itemsSubtotal < (deliverySettings?.minOrderAmount || 0)) {
-      return orderError("MIN_DELIVERY_AMOUNT", `Минимальная сумма заказа для доставки: ${deliverySettings?.minOrderAmount || 0} ₽.`);
+    const minimumDeliveryAmount = Math.max(
+      deliverySettings?.minOrderAmount || 0,
+      deliveryZone?.minOrderAmount || 0
+    );
+    if (normalizedDeliveryType === "DELIVERY" && itemsSubtotal < minimumDeliveryAmount) {
+      return orderError("MIN_DELIVERY_AMOUNT", `Минимальная сумма заказа для доставки: ${minimumDeliveryAmount} ₽.`);
     }
     const calculatedDeliveryFee = normalizedDeliveryType === "DELIVERY" ? deliveryZone?.fee ?? legacyDeliveryFee : 0;
     totalPrice = itemsSubtotal + calculatedDeliveryFee;
 
+    const snapshotItems = orderItems.map(({ stock: _stock, ...snapshot }) => snapshot);
     const legacyBaseOrderData = {
       businessId: business.id,
       customerId: customer.id,
@@ -560,7 +628,7 @@ export async function POST(request: NextRequest) {
       deliveryType: normalizedDeliveryType,
       comment: cleanString(comment) || null,
       items: {
-        create: orderItems,
+        create: snapshotItems,
       },
     };
     const baseOrderData = {
@@ -574,40 +642,68 @@ export async function POST(request: NextRequest) {
     };
     let orderResult: CurrentCheckoutOrder | PaymentCheckoutOrder | LegacyCheckoutOrder;
 
-    try {
-      orderResult = await prisma.order.create({
-        data: {
-          ...baseOrderData,
-          paymentMethod: requestedPaymentMethod,
-          paymentStatus: requestedPaymentMethod === "TRANSFER" ? "AWAITING_REVIEW" : "PENDING",
-          paymentProofUrl: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofUrl) : null,
-          paymentProofFileName: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofFileName) || null : null,
-          paymentProofMimeType: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofMimeType) || null : null,
-          paymentProofAiStatus: requestedPaymentMethod === "TRANSFER"
-            ? cleanString(paymentProofMimeType).startsWith("image/") ? "PENDING" : "MANUAL_REVIEW"
-            : null,
-        },
-        include: checkoutOrderInclude,
+    const createOrderTransaction = (useCurrentSchema: boolean) =>
+      prisma.$transaction(async (tx) => {
+        for (const item of orderItems) {
+          const reservation = await tx.item.updateMany({
+            where: {
+              id: item.itemId,
+              businessId: business.id,
+              isAvailable: true,
+              price: item.price,
+              ...(useCurrentSchema ? { archivedAt: null } : {}),
+              ...(item.stock === null ? { stock: null } : { stock: { gte: item.quantity } }),
+            },
+            data: item.stock === null ? { stock: null } : { stock: { decrement: item.quantity } },
+          });
+
+          if (reservation.count !== 1) {
+            throw new CheckoutStockError([item.name]);
+          }
+        }
+
+        if (useCurrentSchema) {
+          return tx.order.create({
+            data: {
+              ...baseOrderData,
+              paymentMethod: requestedPaymentMethod,
+              paymentStatus: requestedPaymentMethod === "TRANSFER" ? "AWAITING_REVIEW" : "PENDING",
+              paymentProofUrl: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofUrl) : null,
+              paymentProofFileName: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofFileName) || null : null,
+              paymentProofMimeType: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofMimeType) || null : null,
+              paymentProofAiStatus: requestedPaymentMethod === "TRANSFER"
+                ? cleanString(paymentProofMimeType).startsWith("image/") ? "PENDING" : "manual_review"
+                : null,
+            },
+            include: checkoutOrderInclude,
+          });
+        }
+
+        return requestedPaymentMethod === "TRANSFER"
+          ? tx.order.create({
+              data: {
+                ...legacyBaseOrderData,
+                paymentMethod: "TRANSFER",
+                paymentStatus: "AWAITING_REVIEW",
+                paymentProofUrl: cleanString(paymentProofUrl),
+                paymentProofAiStatus: null,
+              },
+              select: paymentCheckoutOrderSelect,
+            })
+          : tx.order.create({
+              data: legacyBaseOrderData,
+              select: legacyCheckoutOrderSelect,
+            });
       });
+
+    try {
+      orderResult = await createOrderTransaction(true);
     } catch (error) {
+      if (error instanceof CheckoutStockError) throw error;
       if (!isPrismaMissingColumnError(error)) throw error;
       usedCheckoutSchemaFallback = true;
       warnPrismaSchemaDrift("Checkout retried without courier/delivery columns", error);
-      orderResult = requestedPaymentMethod === "TRANSFER"
-        ? await prisma.order.create({
-            data: {
-              ...legacyBaseOrderData,
-              paymentMethod: "TRANSFER",
-              paymentStatus: "AWAITING_REVIEW",
-              paymentProofUrl: cleanString(paymentProofUrl),
-              paymentProofAiStatus: null,
-            },
-            select: paymentCheckoutOrderSelect,
-          })
-        : await prisma.order.create({
-            data: legacyBaseOrderData,
-            select: legacyCheckoutOrderSelect,
-          });
+      orderResult = await createOrderTransaction(false);
     }
 
     const order = {
@@ -653,9 +749,17 @@ export async function POST(request: NextRequest) {
       warnPrismaSchemaDrift("Order created, but customer counters could not be updated", error);
     }
 
-    if (requestedPaymentMethod === "TRANSFER" && order.paymentProofUrl && order.paymentProofMimeType?.startsWith("image/")) {
+    const paymentProofUrlForAnalysis =
+      typeof order.paymentProofUrl === "string" ? order.paymentProofUrl : null;
+    const paymentProofMimeTypeForAnalysis =
+      typeof order.paymentProofMimeType === "string" ? order.paymentProofMimeType : null;
+    if (
+      requestedPaymentMethod === "TRANSFER" &&
+      paymentProofUrlForAnalysis &&
+      paymentProofMimeTypeForAnalysis?.startsWith("image/")
+    ) {
       analyzePaymentProof({
-        imageUrl: order.paymentProofUrl,
+        imageUrl: paymentProofUrlForAnalysis,
         orderTotal: order.totalPrice,
         businessName: business.name,
         recipientName: business.transferRecipientName,
@@ -686,6 +790,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(toJsonSafe({ ...order, ok: true, schemaFallback: usedCheckoutSchemaFallback }), { status: 201 });
   } catch (error) {
     console.error("Error creating order:", error);
+    if (error instanceof CheckoutStockError) {
+      if (telegramId) {
+        await recordAttempt({
+          businessId: resolvedBusinessId,
+          telegramUserId: telegramId,
+          phone: normalizedPhone,
+          success: false,
+          reason: "INSUFFICIENT_STOCK",
+        });
+      }
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "INSUFFICIENT_STOCK",
+          error: `Недостаточно товара: ${error.itemNames.join(", ")}. Обновите корзину.`,
+          items: error.itemNames,
+        },
+        { status: 409 }
+      );
+    }
     const classification = classifyDatabaseError(error);
     if (classification.type !== "database_error") {
       warnPrismaSchemaDrift("Order creation failed because production schema is behind", error);

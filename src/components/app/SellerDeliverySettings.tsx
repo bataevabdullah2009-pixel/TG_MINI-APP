@@ -1,14 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { MapPin, Plus, Save, Trash2, Truck } from "lucide-react";
+import { Archive, MapPin, Plus, Save, Truck } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
 
 export function SellerDeliverySettings({ businessId, onMessage }: { businessId: string; onMessage: (message: string, error?: boolean) => void }) {
   const [settings, setSettings] = useState<any>(null);
   const [zones, setZones] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [zoneForm, setZoneForm] = useState({ name: "", cityArea: "", fee: "", estimatedMinutes: "" });
+  const [zoneForm, setZoneForm] = useState({
+    name: "",
+    cityArea: "",
+    fee: "",
+    minOrderAmount: "",
+    estimatedMinutes: "",
+    sortOrder: "",
+  });
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
 
   const load = useCallback(async () => {
@@ -46,7 +53,7 @@ export function SellerDeliverySettings({ businessId, onMessage }: { businessId: 
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) return onMessage(data.error || "Не удалось добавить зону доставки.", true);
-    setZoneForm({ name: "", cityArea: "", fee: "", estimatedMinutes: "" });
+    setZoneForm({ name: "", cityArea: "", fee: "", minOrderAmount: "", estimatedMinutes: "", sortOrder: "" });
     onMessage("Зона доставки добавлена.");
     await load();
   };
@@ -71,14 +78,8 @@ export function SellerDeliverySettings({ businessId, onMessage }: { businessId: 
     }
 
     setDeleteTarget(null);
-    if (data.deleted) {
-      setZones((current) => current.filter((item) => item.id !== zone.id));
-      onMessage("Зона доставки удалена.");
-      return;
-    }
-
     setZones((current) => current.map((item) => item.id === zone.id ? data.zone : item));
-    onMessage("Зона доставки отключена, история заказов сохранена.");
+    onMessage("Зона доставки архивирована, история заказов сохранена.");
   };
 
   if (loading || !settings) return <div className="rounded-3xl bg-white p-8 text-center text-xs font-black text-slate-400">Загрузка настроек доставки...</div>;
@@ -106,22 +107,37 @@ export function SellerDeliverySettings({ businessId, onMessage }: { businessId: 
             <input type="number" min="0" value={zoneForm.fee} onChange={(event) => setZoneForm({ ...zoneForm, fee: event.target.value })} placeholder="Стоимость, ₽" className="rounded-xl border bg-slate-50 p-3 text-xs font-bold" />
             <input type="number" min="1" value={zoneForm.estimatedMinutes} onChange={(event) => setZoneForm({ ...zoneForm, estimatedMinutes: event.target.value })} placeholder="Время, мин." className="rounded-xl border bg-slate-50 p-3 text-xs font-bold" />
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input type="number" min="0" value={zoneForm.minOrderAmount} onChange={(event) => setZoneForm({ ...zoneForm, minOrderAmount: event.target.value })} placeholder="Мин. заказ, ₽" className="rounded-xl border bg-slate-50 p-3 text-xs font-bold" />
+            <input type="number" min="0" value={zoneForm.sortOrder} onChange={(event) => setZoneForm({ ...zoneForm, sortOrder: event.target.value })} placeholder="Порядок" className="rounded-xl border bg-slate-50 p-3 text-xs font-bold" />
+          </div>
           <button onClick={addZone} className="flex items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-3 text-xs font-black text-white"><Plus size={15} /> Добавить зону</button>
         </div>
         <div className="mt-4 grid gap-2">
           {zones.map((zone) => (
-            <div key={zone.id} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-100">
-              <div className="min-w-0"><p className="truncate text-xs font-black">{zone.name}</p><p className="text-[10px] font-bold text-slate-400">{zone.cityArea} · {zone.fee} ₽{zone.estimatedMinutes ? ` · ~${zone.estimatedMinutes} мин.` : ""}</p></div>
+            <div key={zone.id} className={`flex items-center justify-between gap-3 rounded-2xl p-3 ring-1 ${zone.archivedAt ? "bg-slate-100 opacity-70 ring-slate-200" : "bg-slate-50 ring-slate-100"}`}>
+              <div className="min-w-0">
+                <p className="truncate text-xs font-black">{zone.name}{zone.archivedAt ? " · Архив" : ""}</p>
+                <p className="text-[10px] font-bold text-slate-400">
+                  {zone.cityArea} · {zone.fee} ₽
+                  {zone.minOrderAmount ? ` · от ${zone.minOrderAmount} ₽` : ""}
+                  {zone.estimatedMinutes ? ` · ~${zone.estimatedMinutes} мин.` : ""}
+                </p>
+              </div>
               <div className="flex shrink-0 items-center gap-1.5">
-                <button onClick={() => toggleZone(zone)} className={`rounded-full px-3 py-1 text-[9px] font-black ${zone.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"}`}>{zone.isActive ? "Активна" : "Выключена"}</button>
-                <button
-                  type="button"
-                  onClick={() => setDeleteTarget(zone)}
-                  className="grid h-8 w-8 place-items-center rounded-xl bg-rose-50 text-rose-600"
-                  title="Удалить зону"
-                >
-                  <Trash2 size={13} />
-                </button>
+                {!zone.archivedAt && (
+                  <>
+                    <button onClick={() => toggleZone(zone)} className={`rounded-full px-3 py-1 text-[9px] font-black ${zone.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"}`}>{zone.isActive ? "Активна" : "Выключена"}</button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget(zone)}
+                      className="grid h-8 w-8 place-items-center rounded-xl bg-amber-50 text-amber-700"
+                      title="Архивировать зону"
+                    >
+                      <Archive size={13} />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))}
@@ -133,16 +149,16 @@ export function SellerDeliverySettings({ businessId, onMessage }: { businessId: 
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55">
           <button className="absolute inset-0" aria-label="Закрыть" onClick={() => setDeleteTarget(null)} />
           <section className="relative w-full max-w-[480px] rounded-t-[28px] bg-white p-5 pb-8 shadow-2xl">
-            <h3 className="text-base font-black text-slate-950">Удалить зону доставки?</h3>
+            <h3 className="text-base font-black text-slate-950">Архивировать зону доставки?</h3>
             <p className="mt-2 text-xs font-bold leading-relaxed text-slate-500">
-              Зона «{deleteTarget.name}» исчезнет из checkout. Если она уже была в заказах, история сохранится, а зона будет отключена.
+              Зона «{deleteTarget.name}» исчезнет из checkout. История заказов и сохранённая стоимость доставки останутся без изменений.
             </p>
             <div className="mt-5 grid grid-cols-2 gap-2">
               <button type="button" onClick={() => setDeleteTarget(null)} className="rounded-2xl bg-slate-100 px-4 py-3 text-xs font-black text-slate-700">
                 Отмена
               </button>
               <button type="button" onClick={() => deleteZone(deleteTarget)} className="rounded-2xl bg-rose-600 px-4 py-3 text-xs font-black text-white">
-                Удалить
+                В архив
               </button>
             </div>
           </section>

@@ -19,8 +19,11 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       ...(body.name !== undefined ? { name: String(body.name).trim() } : {}),
       ...(body.cityArea !== undefined ? { cityArea: String(body.cityArea).trim() } : {}),
       ...(body.fee !== undefined ? { fee: Math.max(0, Number(body.fee) || 0) } : {}),
+      ...(body.minOrderAmount !== undefined ? { minOrderAmount: Math.max(0, Number(body.minOrderAmount) || 0) } : {}),
       ...(body.estimatedMinutes !== undefined ? { estimatedMinutes: body.estimatedMinutes ? Math.max(1, Math.round(Number(body.estimatedMinutes))) : null } : {}),
-      ...(body.isActive !== undefined ? { isActive: Boolean(body.isActive) } : {}),
+      ...(body.sortOrder !== undefined ? { sortOrder: Math.max(0, Math.round(Number(body.sortOrder) || 0)) } : {}),
+      ...(body.isActive !== undefined ? { isActive: Boolean(body.isActive), ...(body.isActive ? { archivedAt: null } : {}) } : {}),
+      ...(body.archived === false ? { archivedAt: null } : {}),
     },
   });
   return NextResponse.json({ ok: true, zone });

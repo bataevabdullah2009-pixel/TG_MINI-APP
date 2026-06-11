@@ -30,6 +30,7 @@ export function ItemCard({
   layout = "grid",
 }: ItemCardProps) {
   const isFeed = layout === "feed";
+  const isOutOfStock = item.type === "PRODUCT" && item.stock === 0;
 
   const image = item.imageUrl ? (
     <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
@@ -116,8 +117,8 @@ export function ItemCard({
           </div>
 
           {item.stock !== null && item.stock !== undefined && (
-            <p className="mb-2 text-[9px] font-bold text-slate-500">
-              Осталось: {item.stock} шт
+            <p className={`mb-2 text-[9px] font-bold ${isOutOfStock ? "text-rose-600" : "text-slate-500"}`}>
+              {isOutOfStock ? "Нет в наличии" : `Осталось: ${item.stock} шт`}
             </p>
           )}
         </div>
@@ -127,11 +128,12 @@ export function ItemCard({
         {onAddToCart && (
           <Button
             onClick={() => onAddToCart(item)}
+            disabled={isOutOfStock}
             size="sm"
-            className="flex-1 rounded-xl py-2 text-[10px] font-black text-white transition active:scale-[0.97]"
-            style={{ backgroundColor: primaryColor }}
+            className="flex-1 rounded-xl py-2 text-[10px] font-black text-white transition active:scale-[0.97] disabled:bg-slate-300"
+            style={isOutOfStock ? undefined : { backgroundColor: primaryColor }}
           >
-            Купить
+            {isOutOfStock ? "Нет в наличии" : "Купить"}
           </Button>
         )}
         {onViewDetails && (

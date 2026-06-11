@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
 
     const where =
       session.role === "SUPER_ADMIN"
-        ? { isActive: true }
+        ? {}
         : { isActive: true, id: session.businessId || "__none__" };
 
     const businesses = await prisma.business.findMany({
@@ -28,6 +28,13 @@ export async function GET(request: NextRequest) {
         phone: true,
         address: true,
         isOpen: true,
+        accessStatus: true,
+        planType: true,
+        paidAmount: true,
+        paidAt: true,
+        blockedReason: true,
+        archivedAt: true,
+        subscriptionStatus: true,
         subscriptionPlan: { select: { name: true } },
         _count: { select: { orders: true, bookings: true, customers: true, items: true } },
       },

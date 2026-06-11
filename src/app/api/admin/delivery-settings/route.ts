@@ -19,7 +19,10 @@ export async function GET(request: NextRequest) {
     update: {},
     create: { businessId },
   });
-  const zones = await prisma.deliveryZone.findMany({ where: { businessId }, orderBy: [{ isActive: "desc" }, { name: "asc" }] });
+  const zones = await prisma.deliveryZone.findMany({
+    where: { businessId },
+    orderBy: [{ archivedAt: "asc" }, { isActive: "desc" }, { sortOrder: "asc" }, { name: "asc" }],
+  });
 
   return NextResponse.json({ ok: true, settings, zones });
 }

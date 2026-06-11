@@ -161,14 +161,14 @@ export function ClientHome({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-3">
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <h3 className="truncate text-base font-black text-slate-900 group-hover:text-indigo-600 transition-colors">
                         {business.name}
                       </h3>
                       <p className="text-[11px] font-bold text-slate-400 mt-0.5">{business.typeLabel}</p>
                     </div>
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
+                      className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-black ${
                         business.isOpen
                           ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/60"
                           : "bg-slate-100 text-slate-500 ring-1 ring-slate-200/60"

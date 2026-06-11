@@ -96,8 +96,11 @@ export interface DeliveryZone {
   name: string;
   cityArea: string;
   fee: number;
+  minOrderAmount: number;
   estimatedMinutes: number | null;
   isActive: boolean;
+  sortOrder: number;
+  archivedAt: Date | null;
 }
 
 export interface Category {

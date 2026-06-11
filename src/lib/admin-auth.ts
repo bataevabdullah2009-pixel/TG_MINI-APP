@@ -29,6 +29,31 @@ function tokenUserId(request: NextRequest) {
   return match?.[1] || null;
 }
 
+async function loadAdminSessionByUserId(id: string): Promise<AdminSession | null> {
+  const user = await prisma.user.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      businessId: true,
+      isActive: true,
+      business: { select: { id: true, slug: true } },
+      ownedBusinesses: { select: { id: true, slug: true } },
+    },
+  });
+  if (!user || !user.isActive || user.role === "CUSTOMER" || user.role === "COURIER") return null;
+
+  const business = user.business || user.ownedBusinesses[0] || null;
+  return {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    businessId: business?.id || null,
+    businessSlug: business?.slug || null,
+  };
+}
+
 export async function getAdminSession(request: NextRequest): Promise<AdminSession | null> {
   // 1. Try authorizing via Telegram WebApp initData header or query parameter
   let tgInitData = request.headers.get("x-telegram-init-data") || "";
@@ -69,42 +94,15 @@ export async function getAdminSession(request: NextRequest): Promise<AdminSessio
 
   // 2. Fallback to standard cookie session
   const cookieUser = safeJson(request.cookies.get("adminUser")?.value);
-  if (cookieUser?.id && cookieUser?.role) {
-    return {
-      id: cookieUser.id,
-      email: cookieUser.email || null,
-      role: cookieUser.role,
-      businessId: cookieUser.businessId || null,
-      businessSlug: cookieUser.businessSlug || null,
-    };
+  if (typeof cookieUser?.id === "string" && cookieUser.id) {
+    const session = await loadAdminSessionByUserId(cookieUser.id);
+    if (session) return session;
   }
 
   // 3. Fallback to token header
   const id = tokenUserId(request);
   if (!id) return null;
-
-  const user = await prisma.user.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      email: true,
-      role: true,
-      businessId: true,
-      isActive: true,
-      business: { select: { id: true, slug: true } },
-      ownedBusinesses: { select: { id: true, slug: true } },
-    },
-  });
-  if (!user || !user.isActive || user.role === "CUSTOMER" || user.role === "COURIER") return null;
-
-  const business = user.business || user.ownedBusinesses[0] || null;
-  return {
-    id: user.id,
-    email: user.email,
-    role: user.role,
-    businessId: business?.id || null,
-    businessSlug: business?.slug || null,
-  };
+  return loadAdminSessionByUserId(id);
 }
 
 export function jsonError(message: string, status = 400) {

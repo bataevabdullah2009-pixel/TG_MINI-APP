@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { 
   TrendingUp, 
@@ -28,11 +28,15 @@ import {
   Pencil,
   Bike,
   Truck,
+  Archive,
+  Minus,
+  RotateCcw,
 } from "lucide-react";
 import { MediaUpload } from "./MediaUpload";
 import { SellerStoreTools } from "./SellerStoreTools";
 import { SellerDeliverySettings } from "./SellerDeliverySettings";
 import { SellerCouriers } from "./SellerCouriers";
+import { AccessDeniedScreen } from "./AccessDeniedScreen";
 import { miniAppFetch } from "@/lib/miniAppFetch";
 
 interface SellerHomeProps {
@@ -42,8 +46,9 @@ interface SellerHomeProps {
 
 function paymentProofAiLabel(status: string) {
   if (status === "PENDING") return "ИИ проверяет чек";
-  if (status === "LIKELY_VALID") return "Похоже на чек";
-  if (status === "AI_UNAVAILABLE") return "ИИ временно недоступен, чек отправлен продавцу";
+  if (status === "likely_valid") return "Вероятно корректный";
+  if (status === "likely_invalid") return "Вероятно некорректный";
+  if (status === "manual_review") return "Нужна ручная проверка";
   return "Нужна ручная проверка";
 }
 
@@ -87,7 +92,11 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const [newItemDesc, setNewItemDesc] = useState("");
   const [newItemType, setNewItemType] = useState<"PRODUCT" | "SERVICE">("PRODUCT");
   const [newItemImage, setNewItemImage] = useState("");
+  const [newItemStockMode, setNewItemStockMode] = useState<"TRACKED" | "UNTRACKED">("UNTRACKED");
+  const [newItemStock, setNewItemStock] = useState("");
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [itemSearch, setItemSearch] = useState("");
+  const [itemAvailabilityFilter, setItemAvailabilityFilter] = useState<"ACTIVE" | "AVAILABLE" | "OUT_OF_STOCK" | "HIDDEN" | "ARCHIVED">("ACTIVE");
   
   // Category management inside catalog
   const [newCatName, setNewCatName] = useState("");
@@ -181,12 +190,17 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       const catRes = await miniAppFetch(`/api/businesses/${businessId}/catalog`);
       if (catRes.ok) {
         const cData = await catRes.json();
-        setItems(cData.items || []);
-        fetchedItemsCount = cData.items?.length || 0;
         setCategories(cData.categories || []);
         if (cData.categories?.length > 0 && !newItemCategory) {
           setNewItemCategory(cData.categories[0].id);
         }
+      }
+      const itemsRes = await miniAppFetch(`/api/admin/items?businessId=${encodeURIComponent(businessId)}`);
+      if (itemsRes.ok) {
+        const itemData = await itemsRes.json();
+        const sellerItems = itemData.data || [];
+        setItems(sellerItems);
+        fetchedItemsCount = sellerItems.filter((item: any) => !item.archivedAt).length;
       }
 
       // 3. Fetch CRM Customers
@@ -299,6 +313,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     setNewItemDesc("");
     setNewItemType("PRODUCT");
     setNewItemImage("");
+    setNewItemStockMode("UNTRACKED");
+    setNewItemStock("");
   };
 
   const startEditItem = (item: any) => {
@@ -309,6 +325,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     setNewItemDesc(item.description || "");
     setNewItemType(item.type === "SERVICE" ? "SERVICE" : "PRODUCT");
     setNewItemImage(item.imageUrl || "");
+    setNewItemStockMode(item.stock === null || item.stock === undefined ? "UNTRACKED" : "TRACKED");
+    setNewItemStock(item.stock === null || item.stock === undefined ? "" : String(item.stock));
     setActiveTab("ITEMS");
   };
 
@@ -330,6 +348,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
           description: newItemDesc,
           type: newItemType,
           imageUrl: newItemImage || undefined,
+          stock: newItemType === "PRODUCT" && newItemStockMode === "TRACKED" ? newItemStock : null,
           isAvailable: true,
         }),
       });
@@ -348,7 +367,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   };
 
   const handleDeleteItem = async (itemId: string) => {
-    if (!confirm("Вы действительно хотите удалить эту позицию?")) return;
+    if (!confirm("Архивировать позицию? Она исчезнет из каталога, но останется в старых заказах.")) return;
 
     try {
       const res = await miniAppFetch(`/api/admin/items/${itemId}`, {
@@ -356,14 +375,55 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       });
 
       if (res.ok) {
-        showSuccess("Позиция удалена!");
+        showSuccess("Позиция архивирована!");
         fetchSellerData();
       } else {
-        showError("Не удалось удалить товар");
+        showError("Не удалось архивировать товар");
       }
     } catch (err) {
-      showError("Не удалось удалить товар. Проверьте соединение и попробуйте снова.");
+      showError("Не удалось архивировать товар. Проверьте соединение и попробуйте снова.");
     }
+  };
+
+  const patchSellerItem = async (item: any, patch: Record<string, unknown>, successMessage?: string) => {
+    const res = await miniAppFetch(`/api/admin/items/${item.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      showError(data.error || "Не удалось обновить позицию.");
+      return;
+    }
+    setItems((current) => current.map((entry) => entry.id === item.id ? data.data : entry));
+    if (successMessage) showSuccess(successMessage);
+  };
+
+  const setSellerItemStock = async (item: any, stock: number) => {
+    if (!Number.isInteger(stock) || stock < 0) return;
+    await patchSellerItem(item, { stock });
+  };
+
+  const promptSellerItemStock = async (item: any) => {
+    const value = window.prompt("Количество в наличии", String(item.stock ?? 0));
+    if (value === null) return;
+    const stock = Number(value);
+    if (!Number.isInteger(stock) || stock < 0) {
+      showError("Количество должно быть целым числом не меньше нуля.");
+      return;
+    }
+    await setSellerItemStock(item, stock);
+  };
+
+  const promptSellerItemPrice = async (item: any) => {
+    const value = window.prompt("Новая цена, ₽", String(item.price));
+    if (value === null) return;
+    const price = Number(value);
+    if (!Number.isFinite(price) || price < 0) {
+      showError("Цена должна быть числом не меньше нуля.");
+      return;
+    }
+    await patchSellerItem(item, { price }, "Цена обновлена.");
   };
 
   const handleUpdateOrderStatus = async (orderId: string, newStatus: string) => {
@@ -540,6 +600,35 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       router.push(`/app/${businessData.slug}`);
     }
   };
+
+  const filteredSellerItems = useMemo(() => {
+    const needle = itemSearch.trim().toLowerCase();
+    return items.filter((item: any) => {
+      const searchMatches = !needle || item.name.toLowerCase().includes(needle) || String(item.description || "").toLowerCase().includes(needle);
+      const availabilityMatches =
+        itemAvailabilityFilter === "ARCHIVED" ? Boolean(item.archivedAt) :
+        itemAvailabilityFilter === "HIDDEN" ? !item.archivedAt && !item.isAvailable :
+        itemAvailabilityFilter === "OUT_OF_STOCK" ? !item.archivedAt && item.isAvailable && item.stock === 0 :
+        itemAvailabilityFilter === "AVAILABLE" ? !item.archivedAt && item.isAvailable && (item.stock === null || item.stock === undefined || item.stock > 0) :
+        !item.archivedAt;
+      return searchMatches && availabilityMatches;
+    });
+  }, [items, itemSearch, itemAvailabilityFilter]);
+
+  if (
+    session?.role !== "SUPER_ADMIN" &&
+    businessData &&
+    (businessData.accessStatus === "BLOCKED" || businessData.subscriptionStatus === "BLOCKED")
+  ) {
+    return (
+      <AccessDeniedScreen
+        title="Доступ заблокирован"
+        description={`${businessData.blockedReason || "Свяжитесь с администратором платформы."} История заказов и данные бизнеса сохранены.`}
+        backUrl="/app"
+        backText="Вернуться на главную"
+      />
+    );
+  }
 
   if (loading && items.length === 0) {
     return (
@@ -834,9 +923,9 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <span>ИИ:</span>
                                 <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${
-                                  order.paymentProofAiStatus === "LIKELY_VALID" ? "bg-emerald-100 text-emerald-700" :
-                                  order.paymentProofAiStatus === "SUSPICIOUS" ? "bg-amber-100 text-amber-700" :
-                                  order.paymentProofAiStatus === "INVALID" ? "bg-rose-100 text-rose-700" :
+                                  order.paymentProofAiStatus === "likely_valid" ? "bg-emerald-100 text-emerald-700" :
+                                  order.paymentProofAiStatus === "manual_review" ? "bg-amber-100 text-amber-700" :
+                                  order.paymentProofAiStatus === "likely_invalid" ? "bg-rose-100 text-rose-700" :
                                   "bg-slate-100 text-slate-600"
                                 }`}>
                                   {paymentProofAiLabel(order.paymentProofAiStatus)}
@@ -1261,6 +1350,35 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                   className="w-full text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none resize-none"
                 />
 
+                {newItemType === "PRODUCT" && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <select
+                      value={newItemStockMode}
+                      onChange={(e) => {
+                        const mode = e.target.value as "TRACKED" | "UNTRACKED";
+                        setNewItemStockMode(mode);
+                        setNewItemStock(mode === "TRACKED" ? (newItemStock || "0") : "");
+                      }}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold outline-none"
+                    >
+                      <option value="UNTRACKED">Просто в наличии / нет</option>
+                      <option value="TRACKED">Считать остатки</option>
+                    </select>
+                    {newItemStockMode === "TRACKED" && (
+                      <input
+                        required
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={newItemStock}
+                        onChange={(e) => setNewItemStock(e.target.value)}
+                        placeholder="Количество"
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold outline-none"
+                      />
+                    )}
+                  </div>
+                )}
+
                 <button
                   type="submit"
                   className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-950 py-3 text-xs font-black text-white hover:bg-indigo-650 transition"
@@ -1273,14 +1391,34 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
             {/* Listing grid catalog */}
             <div className="bg-white rounded-3xl p-5 shadow-sm ring-1 ring-slate-100/80">
-              <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3">Витрина заведения ({items.length})</h3>
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3">Витрина заведения ({filteredSellerItems.length})</h3>
+              <div className="mb-3 grid grid-cols-[1fr_auto] gap-2">
+                <input
+                  value={itemSearch}
+                  onChange={(e) => setItemSearch(e.target.value)}
+                  placeholder="Поиск товара"
+                  className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none"
+                />
+                <select
+                  value={itemAvailabilityFilter}
+                  onChange={(e) => setItemAvailabilityFilter(e.target.value as typeof itemAvailabilityFilter)}
+                  className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-[10px] font-black"
+                >
+                  <option value="ACTIVE">Активные</option>
+                  <option value="AVAILABLE">В наличии</option>
+                  <option value="OUT_OF_STOCK">Нет в наличии</option>
+                  <option value="HIDDEN">Скрытые</option>
+                  <option value="ARCHIVED">Архив</option>
+                </select>
+              </div>
               <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
-                {items.length === 0 ? (
+                {filteredSellerItems.length === 0 ? (
                   <p className="text-center py-8 text-xs text-slate-400 font-semibold">Ваш каталог пока пуст.</p>
                 ) : (
-                  items.map((it) => (
-                    <div key={it.id} className="flex gap-3 items-center justify-between p-2 rounded-2xl border border-slate-50 bg-slate-50/40">
-                      <div className="flex items-center gap-3">
+                  filteredSellerItems.map((it) => (
+                    <div key={it.id} className="rounded-2xl border border-slate-100 bg-slate-50/40 p-2">
+                      <div className="flex gap-3 items-center justify-between">
+                        <div className="flex min-w-0 items-center gap-3">
                         <div className="h-11 w-11 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center text-slate-400">
                           {it.imageUrl ? (
                             <img src={it.imageUrl} alt={it.name} className="h-full w-full object-cover" />
@@ -1288,8 +1426,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                             <ImageIcon size={14} />
                           )}
                         </div>
-                        <div>
-                          <strong className="text-xs font-black text-slate-900 block">{it.name}</strong>
+                        <div className="min-w-0">
+                          <strong className="block truncate text-xs font-black text-slate-900">{it.name}</strong>
                           <span className="text-[10px] font-black text-indigo-600">{it.price} ₽</span>
                           {it.category?.name && (
                             <span className="text-[9px] font-bold text-slate-400 ml-1.5">
@@ -1298,7 +1436,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
+                        <div className="flex shrink-0 items-center gap-1">
                         <button
                           onClick={() => startEditItem(it)}
                           className="p-2 rounded-xl text-indigo-600 hover:bg-indigo-50 active:scale-95 transition"
@@ -1306,14 +1444,30 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                         >
                           <Pencil size={13} />
                         </button>
-                        <button
-                          onClick={() => handleDeleteItem(it.id)}
-                          className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 active:scale-95 transition"
-                          title="Удалить"
-                        >
-                          <Trash2 size={13} />
-                        </button>
+                        {it.archivedAt ? (
+                          <button onClick={() => patchSellerItem(it, { archived: false }, "Позиция восстановлена.")} className="p-2 rounded-xl text-emerald-600 hover:bg-emerald-50" title="Восстановить"><RotateCcw size={13} /></button>
+                        ) : (
+                          <button onClick={() => handleDeleteItem(it.id)} className="p-2 rounded-xl text-rose-500 hover:bg-rose-50" title="В архив"><Archive size={13} /></button>
+                        )}
                       </div>
+                      </div>
+                      {!it.archivedAt && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2 text-[9px] font-black">
+                          {it.stock === null || it.stock === undefined ? (
+                            <span className="rounded-lg bg-blue-50 px-2 py-1 text-blue-700">Без учёта остатков</span>
+                          ) : (
+                            <>
+                              <button onClick={() => setSellerItemStock(it, Math.max(0, it.stock - 1))} disabled={it.stock <= 0} className="grid h-7 w-7 place-items-center rounded-lg bg-white disabled:opacity-40"><Minus size={11} /></button>
+                              <button onClick={() => promptSellerItemStock(it)} className="rounded-lg bg-white px-2 py-1.5">Остаток: {it.stock}</button>
+                              <button onClick={() => setSellerItemStock(it, it.stock + 1)} className="grid h-7 w-7 place-items-center rounded-lg bg-white"><Plus size={11} /></button>
+                            </>
+                          )}
+                          <button onClick={() => promptSellerItemPrice(it)} className="rounded-lg bg-indigo-50 px-2 py-1.5 text-indigo-700">Цена</button>
+                          <button onClick={() => patchSellerItem(it, { isAvailable: !it.isAvailable })} className={`rounded-lg px-2 py-1.5 ${it.isAvailable ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+                            {it.isAvailable ? "В наличии" : "Скрыт"}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}

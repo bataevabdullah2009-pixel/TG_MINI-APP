@@ -26,6 +26,13 @@ async function resolveBusiness(request: NextRequest, value?: string | null) {
   return { session, business };
 }
 
+function parseOptionalStock(value: unknown) {
+  if (value === undefined || value === "" || value === null) return null;
+  const stock = Number(value);
+  if (!Number.isInteger(stock) || stock < 0) return undefined;
+  return stock;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -64,8 +71,23 @@ export async function POST(request: NextRequest) {
       return jsonError("Укажите корректную цену.", 400);
     }
 
+    const stock = parseOptionalStock(body.stock);
+    if (body.stock !== undefined && stock === undefined) {
+      return jsonError("Количество должно быть целым числом не меньше нуля.", 400);
+    }
+
     const rawCategoryId = body.categoryId;
     let categoryId = (rawCategoryId === "" || rawCategoryId === "none" || rawCategoryId === "null" || !rawCategoryId) ? null : rawCategoryId;
+
+    if (categoryId) {
+      const category = await prisma.category.findFirst({
+        where: { id: categoryId, businessId: resolved.business.id },
+        select: { id: true },
+      });
+      if (!category) {
+        return jsonError("Категория не найдена в текущем бизнесе.", 400);
+      }
+    }
 
     if (!categoryId) {
       // Look up first active category
@@ -97,7 +119,7 @@ export async function POST(request: NextRequest) {
         price,
         imageUrl: body.imageUrl || undefined,
         durationMinutes: body.durationMinutes ? Number(body.durationMinutes) : undefined,
-        stock: body.stock !== undefined && body.stock !== "" ? Number(body.stock) : undefined,
+        stock: body.type === "SERVICE" ? null : stock,
         isAvailable: body.isAvailable ?? true,
         isPopular: body.isPopular ?? false,
       },

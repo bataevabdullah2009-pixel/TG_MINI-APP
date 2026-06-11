@@ -1,6 +1,10 @@
+"use client";
+
 import Link from "next/link";
-import { ArrowLeft, Heart } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Heart, Send } from "lucide-react";
 import type { StorefrontBusiness } from "./types";
+import { buildTelegramStartAppUrl } from "@/lib/business-share-links";
 
 type BusinessHeroProps = {
   business: StorefrontBusiness;
@@ -17,6 +21,13 @@ export function BusinessHero({
   isFavorite,
   onFavoriteToggle,
 }: BusinessHeroProps) {
+  const [showTelegramLink, setShowTelegramLink] = useState(false);
+  const telegramUrl = useMemo(() => buildTelegramStartAppUrl(business.slug), [business.slug]);
+
+  useEffect(() => {
+    setShowTelegramLink(!Boolean((window as any).Telegram?.WebApp?.initData));
+  }, []);
+
   return (
     <section className={`relative min-h-[340px] overflow-hidden bg-gradient-to-br ${accent} px-4 pb-8 pt-5 text-white`}>
       {business.coverImageUrl && (
@@ -63,6 +74,15 @@ export function BusinessHero({
             </span>
             {business.address && <span className="rounded-full bg-white/15 px-3 py-1">{business.address}</span>}
           </div>
+          {showTelegramLink && telegramUrl && (
+            <a
+              href={telegramUrl}
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-950"
+            >
+              <Send size={16} />
+              Открыть в Telegram
+            </a>
+          )}
         </div>
       </div>
     </section>

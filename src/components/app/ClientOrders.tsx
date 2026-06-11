@@ -192,9 +192,9 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
                         <div className="mt-3 border-t border-slate-100 pt-3 text-xs space-y-2">
                           <div className="font-bold text-slate-400 uppercase tracking-wider text-[9px] mb-1.5">Состав заказа</div>
                           {order.items.map((it: any) => (
-                            <div key={it.id} className="flex justify-between items-center text-slate-700">
-                              <span>{it.name} × {it.quantity}</span>
-                              <span className="font-bold">{it.price * it.quantity} ₽</span>
+                            <div key={it.id} className="flex items-start justify-between gap-3 text-slate-700">
+                              <span className="min-w-0 flex-1 break-words">{it.name} × {it.quantity}</span>
+                              <span className="shrink-0 whitespace-nowrap font-bold">{it.price * it.quantity} ₽</span>
                             </div>
                           ))}
                           {order.customerAddress && (
@@ -205,8 +205,8 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
                           )}
                           {order.deliveryType === "DELIVERY" && (
                             <div className="mt-2 grid gap-1 rounded-xl bg-slate-50 p-2 text-slate-500">
-                              <div className="flex justify-between"><span>Товары</span><span>{order.itemsSubtotal || order.totalPrice - (order.deliveryFee || 0)} ₽</span></div>
-                              <div className="flex justify-between"><span>Доставка {order.deliveryZoneName ? `(${order.deliveryZoneName})` : ""}</span><span>{order.deliveryFee || 0} ₽</span></div>
+                              <div className="flex justify-between gap-3"><span className="min-w-0">Товары</span><span className="shrink-0 whitespace-nowrap">{order.itemsSubtotal || order.totalPrice - (order.deliveryFee || 0)} ₽</span></div>
+                              <div className="flex items-start justify-between gap-3"><span className="min-w-0">Доставка {order.deliveryZoneName ? `(${order.deliveryZoneName})` : ""}</span><span className="shrink-0 whitespace-nowrap">{order.deliveryFee || 0} ₽</span></div>
                               {order.deliveryAssignment?.courier && <div className="font-bold text-indigo-700">Курьер: {order.deliveryAssignment.courier.name}</div>}
                             </div>
                           )}

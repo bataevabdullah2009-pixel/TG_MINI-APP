@@ -7,9 +7,12 @@ import { getPolzaChatEndpoint } from "@/lib/ai/polza-provider";
 import { ensureTelegramUser, trySyncUserPhone } from "@/lib/auth/telegram-user-service";
 import { ensureCustomerForTelegramUser } from "@/lib/customer/customer-service";
 import { getMiniAppUrl } from "@/lib/production-url";
+import { buildMiniAppUrl, getStoreSlugFromStartParam } from "@/lib/business-share-links";
 import { looksLikeSellerLinkAttempt, parseSellerLinkText } from "@/lib/seller-link";
 import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 import { getTelegramWebhookSecret } from "@/lib/telegram-webhook-config";
+import { routeCustomerIntent } from "@/lib/ai/customer-intent-router";
+import { isPrismaMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 type TelegramBusinessContext = {
   id: string;
@@ -48,10 +51,13 @@ function telegramWebhookAuth(request: NextRequest) {
     return { ok: false, status: 503 };
   }
   if (!expected) {
+    const production = process.env.NODE_ENV === "production";
     console.warn("[TELEGRAM_WEBHOOK_SECRET_MISSING]", {
-      reason: "TELEGRAM_WEBHOOK_SECRET is not set; accepting Telegram webhook without secret token check.",
+      reason: production
+        ? "TELEGRAM_WEBHOOK_SECRET is not set; rejecting production webhook."
+        : "TELEGRAM_WEBHOOK_SECRET is not set; development webhook accepted.",
     });
-    return { ok: true, status: 200 };
+    return { ok: !production, status: production ? 503 : 200 };
   }
 
   const received = request.headers.get("x-telegram-bot-api-secret-token") || "";
@@ -112,6 +118,89 @@ function logTelegramResponseSent(context: Record<string, unknown>) {
   console.info("[TELEGRAM_RESPONSE_SENT]", context);
 }
 
+type CustomerCatalogItem = {
+  id: string;
+  name: string;
+  price: number;
+  stock: number | null;
+};
+
+async function loadCustomerCatalog(businessId: string): Promise<CustomerCatalogItem[]> {
+  try {
+    return await prisma.item.findMany({
+      where: { businessId, isAvailable: true, archivedAt: null },
+      select: { id: true, name: true, price: true, stock: true },
+      orderBy: [{ isPopular: "desc" }, { sortOrder: "asc" }],
+      take: 100,
+    });
+  } catch (error) {
+    if (!isPrismaMissingColumnError(error, "Item", "archivedAt")) throw error;
+    warnPrismaSchemaDrift("Telegram AI catalog retried without Item.archivedAt", error);
+    return prisma.item.findMany({
+      where: { businessId, isAvailable: true },
+      select: { id: true, name: true, price: true, stock: true },
+      orderBy: [{ isPopular: "desc" }, { sortOrder: "asc" }],
+      take: 100,
+    });
+  }
+}
+
+async function recordCustomerIntent(input: {
+  businessId: string;
+  userId?: string | null;
+  businessSlug: string;
+  intent: string;
+  query: string;
+  foundProducts: CustomerCatalogItem[];
+  confidence: number;
+  provider: string;
+  model: string;
+}) {
+  const result = {
+    businessSlug: input.businessSlug,
+    intent: input.intent,
+    query: input.query,
+    foundProducts: input.foundProducts.map((item) => item.name),
+    confidence: input.confidence,
+  };
+  console.info("[CUSTOMER_AI_INTENT]", result);
+  try {
+    await prisma.aiRequestLog.create({
+      data: {
+        businessId: input.businessId,
+        userId: input.userId || null,
+        type: "CUSTOMER_CHAT_INTENT",
+        prompt: input.query,
+        result: JSON.stringify(result),
+        provider: input.provider,
+        model: input.model || null,
+        status: "ROUTED",
+      },
+    });
+  } catch (error) {
+    console.warn("[CUSTOMER_AI_INTENT_LOG_FAILED]", error);
+  }
+}
+
+function orderStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    NEW: "создан и ждёт подтверждения",
+    ACCEPTED: "принят продавцом",
+    PREPARING: "готовится",
+    READY: "готов",
+    READY_FOR_PICKUP: "готов к самовывозу",
+    READY_FOR_DELIVERY: "готов к передаче курьеру",
+    COURIER_ASSIGNED: "курьер назначен",
+    PICKED_UP: "курьер забрал заказ",
+    DELIVERING: "доставляется",
+    DELIVERED: "доставлен",
+    COMPLETED: "завершён",
+    CANCELLED: "отменён",
+    EXPIRED: "истёк",
+  };
+  return labels[status] || status.toLowerCase();
+}
+
 async function notifyManagerAboutAiFailure(
   business: TelegramBusinessContext,
   from: TelegramMessageFrom | null | undefined,
@@ -135,14 +224,6 @@ async function notifyManagerAboutAiFailure(
       `Question: ${escapeTelegramHtml(question.slice(0, 1000))}`,
     ].join("\n")
   );
-}
-
-function catalogSearchQuery(text: string) {
-  const normalized = text.toLowerCase().replace(/[?!.,;:]/g, " ").replace(/\s+/g, " ").trim();
-  const markers = ["есть ли у вас ", "у вас есть ", "есть ли ", "есть "];
-  const marker = markers.find((candidate) => normalized.includes(candidate));
-  if (!marker) return null;
-  return normalized.split(marker)[1]?.replace(/\b(в наличии|сейчас|товар)\b/g, "").trim() || null;
 }
 
 async function handleSellerLinkCode(text: string, chatId: string | number, from?: TelegramMessageFrom | null) {
@@ -399,20 +480,21 @@ export async function POST(request: NextRequest) {
             message = `✅ <b>Успешно привязано!</b>\n\nВы привязали аккаунт продавца <b>${ownerUser.email}</b>.\nТеперь вы можете управлять вашим бизнесом прямо внутри Telegram Mini App!`;
           }
         } else {
+          const storeSlug = getStoreSlugFromStartParam(payload) || payload;
           const targetBusiness = await prisma.business.findFirst({
             where: {
               isActive: true,
               OR: [
-                { slug: payload },
-                { id: payload },
-                { slug: { equals: payload, mode: "insensitive" } },
+                { slug: storeSlug },
+                { id: storeSlug },
+                { slug: { equals: storeSlug, mode: "insensitive" } },
               ],
             },
             select: telegramBusinessContextSelect,
           });
           if (targetBusiness) {
             business = targetBusiness;
-            targetUrl = `${miniAppUrl}/${targetBusiness.slug}`;
+            targetUrl = buildMiniAppUrl(targetBusiness.slug) || `${miniAppUrl}/${targetBusiness.slug}`;
             buttonText = `Открыть ${targetBusiness.name}`;
             message = `Добро пожаловать в <b>${targetBusiness.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
           } else {
@@ -423,7 +505,7 @@ export async function POST(request: NextRequest) {
           }
         }
       } else if (business) {
-        targetUrl = `${miniAppUrl}/${business.slug}`;
+        targetUrl = buildMiniAppUrl(business.slug) || `${miniAppUrl}/${business.slug}`;
 
         buttonText = `Открыть ${business.name}`;
         message = `Добро пожаловать в <b>${business.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
@@ -573,13 +655,16 @@ export async function POST(request: NextRequest) {
       : activeBusiness?.aiModel || "";
 
     if (activeBusiness) {
-      const catalogItems = await prisma.item.findMany({
-        where: { businessId: activeBusiness.id, isAvailable: true, type: "PRODUCT" },
-        select: { id: true, name: true, price: true },
-        orderBy: [{ isPopular: "desc" }, { sortOrder: "asc" }],
-        take: 100,
-      });
-      const storeUrl = getMiniAppUrl(`/app/${activeBusiness.slug}`);
+      const catalogItems = await loadCustomerCatalog(activeBusiness.id);
+      const storeUrl = buildMiniAppUrl(activeBusiness.slug) || getMiniAppUrl(`/app/${activeBusiness.slug}`);
+      const intent = routeCustomerIntent(text);
+      const normalizedQuery = intent.query.toLowerCase();
+      const matches = intent.intent === "product_search"
+        ? catalogItems.filter((item) => {
+            const itemName = item.name.toLowerCase();
+            return itemName.includes(normalizedQuery) || normalizedQuery.includes(itemName);
+          }).slice(0, 5)
+        : [];
       const knowledgeBase = [
         `Название: ${activeBusiness.name}.`,
         `Описание: ${activeBusiness.description || "нет"}.`,
@@ -602,6 +687,64 @@ export async function POST(request: NextRequest) {
         endpoint: activeBusinessProvider === "polza" ? getPolzaChatEndpoint() : null,
       });
 
+      await recordCustomerIntent({
+        businessId: activeBusiness.id,
+        userId: customer?.userId,
+        businessSlug: activeBusiness.slug,
+        intent: intent.intent,
+        query: intent.query,
+        foundProducts: matches,
+        confidence: intent.confidence,
+        provider: activeBusinessProvider,
+        model: activeBusinessModel,
+      });
+
+      if (intent.intent === "product_search") {
+        if (matches.length > 0) {
+          const firstAvailable = matches.find((item) => item.stock === null || item.stock > 0);
+          const productUrl = new URL(storeUrl);
+          if (firstAvailable) productUrl.searchParams.set("product", firstAvailable.id);
+          const description = matches
+            .map((item) => `${item.name} — ${item.price} ₽${item.stock === 0 ? " (нет в наличии)" : ""}`)
+            .join(", ");
+          await telegramBot.sendNotification(
+            chatId,
+            `${description}.`,
+            {
+              reply_markup: {
+                inline_keyboard: [[{
+                  text: firstAvailable ? "Открыть товар" : `Открыть ${activeBusiness.name}`,
+                  web_app: { url: productUrl.toString() },
+                }]],
+              },
+            }
+          );
+          logTelegramResponseSent({ chatId, type: "catalog_match", businessId: activeBusiness.id });
+        } else {
+          await telegramBot.sendNotification(chatId, `В каталоге ${activeBusiness.name} этого товара сейчас нет.`);
+          logTelegramResponseSent({ chatId, type: "catalog_no_match", businessId: activeBusiness.id });
+        }
+        return NextResponse.json({ ok: true });
+      }
+
+      if (intent.intent === "order_status") {
+        const latestOrder = customer
+          ? await prisma.order.findFirst({
+              where: { businessId: activeBusiness.id, customerId: customer.id },
+              select: { id: true, status: true },
+              orderBy: { createdAt: "desc" },
+            })
+          : null;
+        await telegramBot.sendNotification(
+          chatId,
+          latestOrder
+            ? `Последний заказ ${latestOrder.id.slice(-6)}: ${orderStatusLabel(latestOrder.status)}.`
+            : `В ${activeBusiness.name} у вас пока нет заказов.`
+        );
+        logTelegramResponseSent({ chatId, type: "order_status", businessId: activeBusiness.id });
+        return NextResponse.json({ ok: true });
+      }
+
       if (activeBusinessProvider === "polza" && !process.env.POLZA_AI_API_KEY) {
         console.error("[POLZA_AI_ERROR]", {
           businessId: activeBusiness.id,
@@ -616,26 +759,6 @@ export async function POST(request: NextRequest) {
           AI_MANAGER_HANDOFF_MESSAGE
         );
         logTelegramResponseSent({ chatId, type: "ai_handoff", businessId: activeBusiness.id });
-        return NextResponse.json({ ok: true });
-      }
-
-      const searchQuery = catalogSearchQuery(text);
-      if (searchQuery) {
-        const matches = catalogItems.filter((item) => {
-          const itemName = item.name.toLowerCase();
-          return itemName.includes(searchQuery) || searchQuery.includes(itemName);
-        });
-        if (matches.length > 0) {
-          await telegramBot.sendNotification(
-            chatId,
-            `Есть: ${matches.slice(0, 5).map((item) => `${item.name} — ${item.price} ₽`).join(", ")}. Откройте Mini App, чтобы добавить товар в корзину.`,
-            { reply_markup: { inline_keyboard: [[{ text: `Открыть ${activeBusiness.name}`, web_app: { url: storeUrl } }]] } }
-          );
-          logTelegramResponseSent({ chatId, type: "catalog_match", businessId: activeBusiness.id });
-        } else {
-          await telegramBot.sendNotification(chatId, `В каталоге ${activeBusiness.name} такого товара сейчас нет.`);
-          logTelegramResponseSent({ chatId, type: "catalog_no_match", businessId: activeBusiness.id });
-        }
         return NextResponse.json({ ok: true });
       }
 

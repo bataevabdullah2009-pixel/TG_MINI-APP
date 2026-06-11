@@ -261,11 +261,19 @@ export default function BusinessMiniAppPage() {
   }
 
   function addToCart(item: Item) {
+    if (item.stock === 0) {
+      setFavoriteToast(`«${item.name}» сейчас нет в наличии`);
+      window.setTimeout(() => setFavoriteToast(""), 4000);
+      return;
+    }
     setCartPulse(true);
     window.setTimeout(() => setCartPulse(false), 420);
     setCart((prev) => {
       const existing = prev.find((line) => line.item.id === item.id);
-      if (existing) return prev.map((line) => line.item.id === item.id ? { ...line, quantity: line.quantity + 1 } : line);
+      if (existing) {
+        if (item.stock !== null && item.stock !== undefined && existing.quantity >= item.stock) return prev;
+        return prev.map((line) => line.item.id === item.id ? { ...line, quantity: line.quantity + 1 } : line);
+      }
       return [...prev, { item, quantity: 1 }];
     });
   }
@@ -273,7 +281,14 @@ export default function BusinessMiniAppPage() {
   function updateCart(itemId: string, delta: number) {
     setCart((prev) =>
       prev
-        .map((line) => line.item.id === itemId ? { ...line, quantity: line.quantity + delta } : line)
+        .map((line) => {
+          if (line.item.id !== itemId) return line;
+          const nextQuantity = line.quantity + delta;
+          if (delta > 0 && line.item.stock !== null && line.item.stock !== undefined && nextQuantity > line.item.stock) {
+            return line;
+          }
+          return { ...line, quantity: nextQuantity };
+        })
         .filter((line) => line.quantity > 0)
     );
   }
@@ -396,7 +411,9 @@ export default function BusinessMiniAppPage() {
         setPaymentMethod("CASH");
         setSuccess("Заказ оформлен. Продавец уже получил уведомление.");
       } else {
-        const message = data.error || "Не удалось оформить заказ. Проверьте данные и попробуйте снова.";
+        const message = data.code === "INSUFFICIENT_STOCK"
+          ? data.error || "Некоторых товаров уже недостаточно. Обновите корзину."
+          : data.error || "Не удалось оформить заказ. Проверьте данные и попробуйте снова.";
         setCheckoutError(message);
         const phoneNotVerified = data.code === "PHONE_NOT_VERIFIED";
         setNeedsPhoneVerification(phoneNotVerified);
@@ -712,6 +729,7 @@ function ProductPreviewModal({
   onAction: () => void;
   onClose: () => void;
 }) {
+  const isOutOfStock = item.stock === 0;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 backdrop-blur-sm animate-fade-in sm:items-center sm:p-4">
       <button type="button" className="absolute inset-0 cursor-default" onClick={onClose} aria-label="Закрыть" />
@@ -745,13 +763,15 @@ function ProductPreviewModal({
           {item.description && (
             <p className="text-sm leading-6 text-slate-500">{item.description}</p>
           )}
+          {isOutOfStock && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm font-black text-rose-700">Нет в наличии</p>}
           <button
             type="button"
             onClick={onAction}
-            className="w-full rounded-2xl px-4 py-4 text-sm font-black text-white active:scale-[0.98] transition"
-            style={{ backgroundColor: primaryColor }}
+            disabled={isOutOfStock}
+            className="w-full rounded-2xl px-4 py-4 text-sm font-black text-white transition active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
+            style={isOutOfStock ? undefined : { backgroundColor: primaryColor }}
           >
-            {cta}
+            {isOutOfStock ? "Нет в наличии" : cta}
           </button>
         </div>
       </div>

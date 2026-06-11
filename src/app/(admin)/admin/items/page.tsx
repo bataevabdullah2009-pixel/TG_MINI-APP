@@ -4,7 +4,7 @@ import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ImagePlus, Pencil, Plus, RefreshCw, Save, ShoppingBag, Sparkles, Trash2, X } from "lucide-react";
+import { AlertCircle, Archive, ImagePlus, Minus, Pencil, Plus, RefreshCw, RotateCcw, Save, ShoppingBag, Sparkles, Trash2, X } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { formatPrice } from "@/lib/utils";
 import { AccessDeniedScreen } from "@/components/app/AccessDeniedScreen";
@@ -30,6 +30,7 @@ type Item = {
   isPopular: boolean;
   stock?: number | null;
   durationMinutes?: number | null;
+  archivedAt?: string | null;
   category?: { id: string; name: string } | null;
 };
 
@@ -38,6 +39,7 @@ type FormState = {
   name: string;
   description: string;
   price: string;
+  stockMode: "TRACKED" | "UNTRACKED";
   stock: string;
   durationMinutes: string;
   isPopular: boolean;
@@ -51,6 +53,7 @@ const initialForm: FormState = {
   name: "",
   description: "",
   price: "",
+  stockMode: "UNTRACKED",
   stock: "",
   durationMinutes: "",
   isPopular: false,
@@ -77,6 +80,8 @@ export default function AdminItemsPage() {
   const [toast, setToast] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"ALL" | "PRODUCT" | "SERVICE">("ALL");
+  const [categoryFilter, setCategoryFilter] = useState("ALL");
+  const [availabilityFilter, setAvailabilityFilter] = useState<"ALL" | "AVAILABLE" | "OUT_OF_STOCK" | "HIDDEN" | "ARCHIVED">("ALL");
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [form, setForm] = useState<FormState>(initialForm);
@@ -207,14 +212,54 @@ export default function AdminItemsPage() {
     }
   }
 
+  async function changeStock(item: Item, delta: number) {
+    if (item.stock === null || item.stock === undefined) return;
+    await toggleItem(item, { stock: Math.max(0, item.stock + delta) });
+  }
+
+  async function setExactStock(item: Item) {
+    const value = window.prompt("Количество в наличии", String(item.stock ?? 0));
+    if (value === null) return;
+    const stock = Number(value);
+    if (!Number.isInteger(stock) || stock < 0) {
+      setError("Количество должно быть целым числом не меньше нуля.");
+      return;
+    }
+    await toggleItem(item, { stock });
+  }
+
+  async function setExactPrice(item: Item) {
+    const value = window.prompt("Новая цена, ₽", String(item.price));
+    if (value === null) return;
+    const price = Number(value);
+    if (!Number.isFinite(price) || price < 0) {
+      setError("Цена должна быть числом не меньше нуля.");
+      return;
+    }
+    await toggleItem(item, { price });
+  }
+
+  async function restoreItem(item: Item) {
+    try {
+      const res = await apiClient.patch(`/admin/items/${item.id}`, { archived: false });
+      const updated = res.data?.data;
+      setItems((current) => current.map((entry) => (entry.id === item.id ? updated : entry)));
+      setToast("Позиция восстановлена");
+      setTimeout(() => setToast(""), 2500);
+    } catch (err) {
+      setError(apiError(err));
+    }
+  }
+
   async function deleteItem(item: Item) {
-    if (!confirm(`Удалить позицию "${item.name}"? Это действие нельзя отменить.`)) return;
+    if (!confirm(`Архивировать позицию "${item.name}"? Она исчезнет из каталога, но останется в старых заказах.`)) return;
     setError("");
     try {
-      await apiClient.delete(`/admin/items/${item.id}`);
-      setItems((current) => current.filter((entry) => entry.id !== item.id));
+      const res = await apiClient.delete(`/admin/items/${item.id}`);
+      const archived = res.data?.data;
+      setItems((current) => current.map((entry) => (entry.id === item.id ? archived : entry)));
       if (editingItem?.id === item.id) closeModal();
-      setToast("Позиция удалена");
+      setToast("Позиция архивирована");
       setTimeout(() => setToast(""), 2500);
     } catch (err) {
       setError(apiError(err));
@@ -259,6 +304,7 @@ export default function AdminItemsPage() {
       name: item.name || "",
       description: item.description || "",
       price: String(item.price ?? ""),
+      stockMode: item.stock === null || item.stock === undefined ? "UNTRACKED" : "TRACKED",
       stock: item.stock === null || item.stock === undefined ? "" : String(item.stock),
       durationMinutes:
         item.durationMinutes === null || item.durationMinutes === undefined ? "" : String(item.durationMinutes),
@@ -298,7 +344,7 @@ export default function AdminItemsPage() {
         businessId: business.id,
         ...form,
         price: Number(form.price),
-        stock: form.type === "PRODUCT" ? form.stock : "",
+        stock: form.type === "PRODUCT" && form.stockMode === "TRACKED" ? form.stock : null,
         durationMinutes: form.type === "SERVICE" ? form.durationMinutes : "",
       };
       const res = editingItem
@@ -322,10 +368,17 @@ export default function AdminItemsPage() {
     const needle = search.trim().toLowerCase();
     return items.filter((item) => {
       const typeMatch = filter === "ALL" || item.type === filter;
+      const categoryMatch = categoryFilter === "ALL" || item.categoryId === categoryFilter || item.category?.id === categoryFilter;
+      const availabilityMatch =
+        availabilityFilter === "ALL" ? !item.archivedAt :
+        availabilityFilter === "ARCHIVED" ? Boolean(item.archivedAt) :
+        availabilityFilter === "HIDDEN" ? !item.archivedAt && !item.isAvailable :
+        availabilityFilter === "OUT_OF_STOCK" ? !item.archivedAt && item.isAvailable && item.stock === 0 :
+        !item.archivedAt && item.isAvailable && (item.stock === null || item.stock === undefined || item.stock > 0);
       const searchMatch = !needle || item.name.toLowerCase().includes(needle) || (item.description || "").toLowerCase().includes(needle);
-      return typeMatch && searchMatch;
+      return typeMatch && categoryMatch && availabilityMatch && searchMatch;
     });
-  }, [items, search, filter]);
+  }, [items, search, filter, categoryFilter, availabilityFilter]);
 
   const isBookingBusiness = business?.templateKey === "barbershop" || business?.templateKey === "carwash";
 
@@ -396,7 +449,7 @@ export default function AdminItemsPage() {
           </div>
         </div>
 
-        <div className="mb-5 flex flex-col gap-3 rounded-2xl border bg-white p-4 md:flex-row md:items-center">
+        <div className="mb-5 grid gap-3 rounded-2xl border bg-white p-4 md:grid-cols-[minmax(220px,1fr)_auto_auto] md:items-center">
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск по названию или описанию" className="min-h-11 flex-1 rounded-xl border border-slate-200 px-4 text-sm outline-none focus:border-slate-400" />
           <div className="flex gap-2">
             {(["ALL", "PRODUCT", "SERVICE"] as const).map((value) => (
@@ -405,6 +458,17 @@ export default function AdminItemsPage() {
               </button>
             ))}
           </div>
+          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
+            <option value="ALL">Все категории</option>
+            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </select>
+          <select value={availabilityFilter} onChange={(e) => setAvailabilityFilter(e.target.value as typeof availabilityFilter)} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold md:col-start-3">
+            <option value="ALL">Активные</option>
+            <option value="AVAILABLE">В наличии</option>
+            <option value="OUT_OF_STOCK">Нет в наличии</option>
+            <option value="HIDDEN">Скрытые</option>
+            <option value="ARCHIVED">Архив</option>
+          </select>
         </div>
 
         {loading ? (
@@ -434,21 +498,45 @@ export default function AdminItemsPage() {
                     <p className="shrink-0 font-black text-blue-700">{formatPrice(item.price)}</p>
                   </div>
                   <p className="line-clamp-2 min-h-10 text-sm text-slate-500">{item.description || "Описание не указано."}</p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold">
+                    {item.archivedAt ? (
+                      <span className="rounded-lg bg-slate-200 px-2 py-1 text-slate-700">Архив</span>
+                    ) : item.stock === null || item.stock === undefined ? (
+                      <span className="rounded-lg bg-blue-50 px-2 py-1 text-blue-700">Без учёта остатков</span>
+                    ) : (
+                      <>
+                        <button onClick={() => changeStock(item, -1)} disabled={item.stock <= 0} className="grid h-8 w-8 place-items-center rounded-lg bg-slate-100 disabled:opacity-40"><Minus size={13} /></button>
+                        <button onClick={() => setExactStock(item)} className="min-w-16 rounded-lg bg-slate-100 px-2 py-2">Остаток: {item.stock}</button>
+                        <button onClick={() => changeStock(item, 1)} className="grid h-8 w-8 place-items-center rounded-lg bg-slate-100"><Plus size={13} /></button>
+                      </>
+                    )}
+                    <button onClick={() => setExactPrice(item)} className="rounded-lg bg-blue-50 px-2 py-2 text-blue-700">Изменить цену</button>
+                  </div>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button onClick={() => openEditModal(item)} className="inline-flex items-center gap-1 rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">
                       <Pencil size={13} />
                       Редактировать
                     </button>
-                    <button onClick={() => toggleItem(item, { isAvailable: !item.isAvailable })} className={`rounded-xl px-3 py-2 text-xs font-bold ${item.isAvailable ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
-                      {item.isAvailable ? "Активен" : "Скрыт"}
-                    </button>
-                    <button onClick={() => toggleItem(item, { isPopular: !item.isPopular })} className={`rounded-xl px-3 py-2 text-xs font-bold ${item.isPopular ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
-                      {item.isPopular ? "Популярный" : "Обычный"}
-                    </button>
-                    <button onClick={() => deleteItem(item)} className="inline-flex items-center gap-1 rounded-xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">
-                      <Trash2 size={13} />
-                      Удалить
-                    </button>
+                    {!item.archivedAt && (
+                      <>
+                        <button onClick={() => toggleItem(item, { isAvailable: !item.isAvailable })} className={`rounded-xl px-3 py-2 text-xs font-bold ${item.isAvailable ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                          {item.isAvailable ? "В наличии" : "Скрыт"}
+                        </button>
+                        <button onClick={() => toggleItem(item, { isPopular: !item.isPopular })} className={`rounded-xl px-3 py-2 text-xs font-bold ${item.isPopular ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
+                          {item.isPopular ? "Популярный" : "Обычный"}
+                        </button>
+                        <button onClick={() => deleteItem(item)} className="inline-flex items-center gap-1 rounded-xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">
+                          <Archive size={13} />
+                          В архив
+                        </button>
+                      </>
+                    )}
+                    {item.archivedAt && (
+                      <button onClick={() => restoreItem(item)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
+                        <RotateCcw size={13} />
+                        Восстановить
+                      </button>
+                    )}
                   </div>
                 </div>
               </article>
@@ -513,7 +601,19 @@ export default function AdminItemsPage() {
             <div className="grid gap-3 md:grid-cols-2">
               <Field label="Название"><input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="field" /></Field>
               <Field label="Цена, ₽"><input required type="number" min="0" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="field" /></Field>
-              <Field label={form.type === "SERVICE" ? "Длительность, минут" : "Остаток"}><input type="number" min="0" value={form.type === "SERVICE" ? form.durationMinutes : form.stock} onChange={(e) => setForm({ ...form, [form.type === "SERVICE" ? "durationMinutes" : "stock"]: e.target.value })} className="field" /></Field>
+              {form.type === "SERVICE" ? (
+                <Field label="Длительность, минут"><input type="number" min="0" value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} className="field" /></Field>
+              ) : (
+                <Field label="Учёт остатков">
+                  <select value={form.stockMode} onChange={(e) => setForm({ ...form, stockMode: e.target.value as FormState["stockMode"], stock: e.target.value === "TRACKED" ? (form.stock || "0") : "" })} className="field">
+                    <option value="UNTRACKED">Просто в наличии / нет</option>
+                    <option value="TRACKED">Считать остатки</option>
+                  </select>
+                </Field>
+              )}
+              {form.type === "PRODUCT" && form.stockMode === "TRACKED" && (
+                <Field label="Количество в наличии"><input required type="number" min="0" step="1" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} className="field" /></Field>
+              )}
               <Field label="Категория">
                 <div className="flex gap-2">
                   <BottomSheetPicker
