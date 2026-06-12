@@ -4,11 +4,19 @@ import { prisma } from "@/lib/prisma";
 import { telegramBot } from "@/lib/telegram-bot-service";
 import { ensureTelegramUser, trySyncUserPhone } from "@/lib/auth/telegram-user-service";
 import { ensureCustomerForTelegramUser } from "@/lib/customer/customer-service";
-import { getMiniAppUrl } from "@/lib/production-url";
+import {
+  buildBusinessMiniAppUrl,
+  buildMiniAppUrl,
+  buildSellerPanelUrl,
+} from "@/lib/production-url";
 import { looksLikeSellerLinkAttempt, parseSellerLinkText } from "@/lib/seller-link";
 import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 import { getTelegramWebhookSecret } from "@/lib/telegram-webhook-config";
-import { runTelegramMarketplaceAgent } from "@/lib/ai/telegram-marketplace-agent";
+import {
+  runTelegramMarketplaceAgent,
+  setSelectedBusinessContext,
+} from "@/lib/ai/telegram-marketplace-agent";
+import { isPrismaMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 type TelegramBusinessContext = {
   id: string;
@@ -39,10 +47,13 @@ function telegramWebhookAuth(request: NextRequest) {
     return { ok: false, status: 503 };
   }
   if (!expected) {
+    const production = process.env.NODE_ENV === "production";
     console.warn("[TELEGRAM_WEBHOOK_SECRET_MISSING]", {
-      reason: "TELEGRAM_WEBHOOK_SECRET is not set; accepting Telegram webhook without secret token check.",
+      reason: production
+        ? "TELEGRAM_WEBHOOK_SECRET is not set; rejecting production webhook."
+        : "TELEGRAM_WEBHOOK_SECRET is not set; development webhook accepted.",
     });
-    return { ok: true, status: 200 };
+    return { ok: !production, status: production ? 503 : 200 };
   }
 
   const received = request.headers.get("x-telegram-bot-api-secret-token") || "";
@@ -74,12 +85,12 @@ type TelegramMessageFrom = {
 };
 
 function sellerPanelUrl() {
-  return withTelegramWebAppCacheBust(`${getMiniAppUrl()}?mode=seller`);
+  return withTelegramWebAppCacheBust(buildSellerPanelUrl());
 }
 
 function safeMiniAppUrl(path = "/app") {
   try {
-    return getMiniAppUrl(path);
+    return buildMiniAppUrl(path);
   } catch (error) {
     console.error("[URL CONFIG] Telegram Mini App URL unavailable:", error);
     return null;
@@ -88,6 +99,44 @@ function safeMiniAppUrl(path = "/app") {
 
 function logTelegramResponseSent(context: Record<string, unknown>) {
   console.info("[TELEGRAM_RESPONSE_SENT]", context);
+}
+
+async function loadActiveBusiness(value: string | null | undefined): Promise<TelegramBusinessContext | null> {
+  if (!value || value === "global") return null;
+  const lookup = value.trim();
+  if (!lookup) return null;
+
+  const lookupFilter = {
+    OR: [
+      { id: lookup },
+      { slug: lookup },
+      { slug: { equals: lookup, mode: "insensitive" as const } },
+    ],
+  };
+
+  try {
+    return await prisma.business.findFirst({
+      where: {
+        ...lookupFilter,
+        isActive: true,
+        accessStatus: "ACTIVE",
+        archivedAt: null,
+        subscriptionStatus: { notIn: ["BLOCKED", "EXPIRED"] },
+      },
+      select: telegramBusinessContextSelect,
+    });
+  } catch (error) {
+    if (!isPrismaMissingColumnError(error)) throw error;
+    warnPrismaSchemaDrift("Telegram business context retried with legacy lifecycle fields", error);
+    return prisma.business.findFirst({
+      where: {
+        ...lookupFilter,
+        isActive: true,
+        subscriptionStatus: { notIn: ["BLOCKED", "EXPIRED"] },
+      },
+      select: telegramBusinessContextSelect,
+    });
+  }
 }
 
 async function handleSellerLinkCode(text: string, chatId: string | number, from?: TelegramMessageFrom | null) {
@@ -232,7 +281,7 @@ export async function POST(request: NextRequest) {
       });
 
       // 2. Ensure Customer exists
-      const effectiveBusinessId = (queryBusinessId && queryBusinessId !== "global") ? queryBusinessId : null;
+      const effectiveBusiness = await loadActiveBusiness(queryBusinessId);
       const customer = await ensureCustomerForTelegramUser({
         telegramId,
         username: from.username,
@@ -240,7 +289,7 @@ export async function POST(request: NextRequest) {
         lastName: from.last_name,
         phone,
         phoneVerified: true,
-        businessId: effectiveBusinessId,
+        businessId: effectiveBusiness?.id || null,
       });
 
       // 3. Mark the Customer as verified in DB
@@ -275,14 +324,7 @@ export async function POST(request: NextRequest) {
     // 1. Resolve Business
     let business: TelegramBusinessContext | null = null;
     if (queryBusinessId && queryBusinessId !== "global") {
-      business = await prisma.business.findFirst({
-        where: {
-          id: queryBusinessId,
-          isActive: true,
-          subscriptionStatus: { notIn: ["BLOCKED", "EXPIRED"] },
-        },
-        select: telegramBusinessContextSelect,
-      });
+      business = await loadActiveBusiness(queryBusinessId);
     }
 
     if (command === "/start") {
@@ -308,7 +350,7 @@ export async function POST(request: NextRequest) {
         .filter(Boolean);
 
       if (payload === "seller") {
-        targetUrl = `${miniAppUrl}?mode=seller`;
+        targetUrl = buildSellerPanelUrl();
         buttonText = "Панель продавца";
         message = "Добро пожаловать в Панель управления продавца! 💼\n\nНажмите на кнопку ниже, чтобы открыть ваш кабинет...";
       } else if (payload === "admin" && superAdminIds.includes(from.id.toString())) {
@@ -337,26 +379,19 @@ export async function POST(request: NextRequest) {
               },
               select: { id: true },
             });
-            targetUrl = `${miniAppUrl}?mode=seller`;
+            targetUrl = buildSellerPanelUrl();
 
             buttonText = "💼 Панель продавца";
             message = `✅ <b>Успешно привязано!</b>\n\nВы привязали аккаунт продавца <b>${ownerUser.email}</b>.\nТеперь вы можете управлять вашим бизнесом прямо внутри Telegram Mini App!`;
           }
         } else {
-          const targetBusiness = await prisma.business.findFirst({
-            where: {
-              isActive: true,
-              OR: [
-                { slug: payload },
-                { id: payload },
-                { slug: { equals: payload, mode: "insensitive" } },
-              ],
-            },
-            select: telegramBusinessContextSelect,
-          });
+          const businessPayload = payload.startsWith("store_")
+            ? payload.slice("store_".length)
+            : payload;
+          const targetBusiness = await loadActiveBusiness(businessPayload);
           if (targetBusiness) {
             business = targetBusiness;
-            targetUrl = `${miniAppUrl}/${targetBusiness.slug}`;
+            targetUrl = buildBusinessMiniAppUrl(targetBusiness.slug);
             buttonText = `Открыть ${targetBusiness.name}`;
             message = `Добро пожаловать в <b>${targetBusiness.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
           } else {
@@ -367,7 +402,7 @@ export async function POST(request: NextRequest) {
           }
         }
       } else if (business) {
-        targetUrl = `${miniAppUrl}/${business.slug}`;
+        targetUrl = buildBusinessMiniAppUrl(business.slug);
 
         buttonText = `Открыть ${business.name}`;
         message = `Добро пожаловать в <b>${business.name}</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.`;
@@ -408,6 +443,7 @@ export async function POST(request: NextRequest) {
               userId: syncedUser.id,
             },
           });
+          await setSelectedBusinessContext(String(from.id), business.id);
         } catch (err) {
           console.error("Failed to upsert customer on start command:", err);
         }
@@ -468,16 +504,13 @@ export async function POST(request: NextRequest) {
         select: { id: true },
       });
 
-      const miniAppUrl = getMiniAppUrl();
-
-
       await telegramBot.sendNotification(
         chatId,
         `✅ <b>Успешно привязано!</b>\n\nВы привязали аккаунт продавца <b>${ownerUser.email}</b>.\nТеперь вы можете управлять вашим бизнесом прямо внутри Telegram Mini App!`,
         {
           parse_mode: "HTML",
           reply_markup: {
-            inline_keyboard: [[{ text: "💼 Панель продавца", web_app: { url: withTelegramWebAppCacheBust(`${miniAppUrl}?mode=seller`) } }]],
+            inline_keyboard: [[{ text: "💼 Панель продавца", web_app: { url: sellerPanelUrl() } }]],
 
           },
         }
@@ -489,7 +522,7 @@ export async function POST(request: NextRequest) {
     if (isCommand) {
       await telegramBot.sendNotification(chatId, "Доступные команды: /start и /link CODE. Обычный вопрос отправьте без команды.", {
         reply_markup: {
-          inline_keyboard: [[{ text: "Открыть Vitrina AI", web_app: { url: withTelegramWebAppCacheBust(getMiniAppUrl()) } }]],
+          inline_keyboard: [[{ text: "Открыть Vitrina AI", web_app: { url: withTelegramWebAppCacheBust(buildMiniAppUrl()) } }]],
         },
       });
       logTelegramResponseSent({ chatId, type: "unknown_command", command });

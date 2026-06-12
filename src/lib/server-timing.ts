@@ -8,11 +8,7 @@ export function createServerTiming(endpoint: string, metadata: TimingMetadata = 
     response.headers.set("Server-Timing", `${endpoint};dur=${durationMs}`);
 
     if (durationMs > 1000) {
-      console.warn("[SLOW_ENDPOINT]", {
-        endpoint,
-        durationMs,
-        ...metadata,
-      });
+      console.warn("[slow-api]", endpoint, durationMs, metadata);
     }
 
     return response;

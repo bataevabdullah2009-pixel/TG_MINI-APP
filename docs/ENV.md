@@ -41,7 +41,7 @@ Run `npm run env:diagnose` before deploy. It reports missing variables and unsaf
 
 `TELEGRAM_WEBHOOK_SECRET`
 - Required for protected production webhook setup. Random server-only value used by Telegram's `secret_token` webhook protection.
-- The webhook route accepts requests without this variable only as a safety fallback and logs `[TELEGRAM_WEBHOOK_SECRET_MISSING]`; set it in Vercel and reinstall the webhook before production handoff.
+- The webhook route accepts requests without this variable only in development. Production requests are rejected with `503` and log `[TELEGRAM_WEBHOOK_SECRET_MISSING]`; set it in Vercel and reinstall the webhook before production handoff.
 - Allowed characters: `A-Z`, `a-z`, `0-9`, `_`, `-`; maximum 256 characters.
 - After setting or rotating it, run `npm run telegram:webhook:set` and reconnect each business bot webhook.
 

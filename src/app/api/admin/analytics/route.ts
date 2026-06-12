@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 import { createServerTiming } from "@/lib/server-timing";
+import { classifyDatabaseError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 const COMPLETED_STATUSES = ["COMPLETED", "DELIVERED"] as const;
 const INVALID_PAYMENT_STATUSES = ["PAYMENT_REJECTED", "REJECTED", "FAILED", "REFUNDED"] as const;
@@ -77,6 +78,7 @@ function growth(current: number, previous: number) {
 
 export async function GET(request: NextRequest) {
   const finishTiming = createServerTiming("seller_analytics");
+  try {
   const session = await getAdminSession(request);
   if (!session) return finishTiming(jsonError("Нужен вход в панель продавца.", 401));
   if (session.role === "MANAGER") return finishTiming(jsonError("У менеджера нет доступа к аналитике.", 403));
@@ -125,6 +127,7 @@ export async function GET(request: NextRequest) {
     topCustomers,
     repeatCustomerGroups,
     promoUsage,
+    discountAggregate,
     previousTotalOrders,
     previousCompleted,
     previousNewCustomers,
@@ -134,7 +137,7 @@ export async function GET(request: NextRequest) {
     prisma.order.aggregate({
       where: completedWhere,
       _count: { id: true },
-      _sum: { totalPrice: true, discountAmount: true },
+      _sum: { totalPrice: true },
       _avg: { totalPrice: true },
     }),
     prisma.order.count({ where: { ...currentWhere, status: "CANCELLED" } }),
@@ -183,6 +186,20 @@ export async function GET(request: NextRequest) {
       _sum: { discountAmount: true, totalPrice: true },
       orderBy: { _count: { id: "desc" } },
       take: 10,
+    }).catch((error) => {
+      const classification = classifyDatabaseError(error);
+      if (!["missing_column", "missing_table"].includes(classification.type)) throw error;
+      warnPrismaSchemaDrift("Seller analytics loaded without promo usage", error);
+      return [];
+    }),
+    prisma.order.aggregate({
+      where: completedWhere,
+      _sum: { discountAmount: true },
+    }).catch((error) => {
+      const classification = classifyDatabaseError(error);
+      if (!["missing_column", "missing_table"].includes(classification.type)) throw error;
+      warnPrismaSchemaDrift("Seller analytics loaded without discount totals", error);
+      return { _sum: { discountAmount: 0 } };
     }),
     prisma.order.count({ where: previousWhere }),
     prisma.order.aggregate({
@@ -234,7 +251,7 @@ export async function GET(request: NextRequest) {
       cancelledOrders,
       completionPercent: totalOrders ? Math.round((completed._count.id / totalOrders) * 1000) / 10 : 0,
       soldUnits: soldItems._sum.quantity || 0,
-      discountAmount: completed._sum.discountAmount || 0,
+      discountAmount: discountAggregate._sum.discountAmount || 0,
     },
     explanations: {
       revenue: "Только оплаченные, завершённые или доставленные заказы без отмены и отклонённой оплаты.",
@@ -275,4 +292,16 @@ export async function GET(request: NextRequest) {
       revenue: item._sum.totalPrice || 0,
     })),
   }));
+  } catch (error) {
+    const classification = classifyDatabaseError(error);
+    warnPrismaSchemaDrift("GET /api/admin/analytics failed", error);
+    return finishTiming(NextResponse.json(
+      {
+        ok: false,
+        code: classification.code,
+        error: "Не удалось загрузить аналитику. Повторите попытку.",
+      },
+      { status: 503 }
+    ));
+  }
 }

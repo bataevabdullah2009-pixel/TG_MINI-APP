@@ -125,7 +125,7 @@ export default function MarketplacePage() {
     }
 
     // Load global catalog businesses
-    fetch(`/api/marketplace/businesses`)
+    miniAppFetch(`/api/marketplace/businesses`)
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Не удалось загрузить каталог.");
@@ -168,7 +168,7 @@ export default function MarketplacePage() {
     setProfileError(null);
     try {
       sessionStorage.setItem("tgInitData", initData); // Save to sessionStorage
-      const res = await fetch("/api/auth/telegram-session", {
+      const res = await miniAppFetch("/api/auth/telegram-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ initData }),

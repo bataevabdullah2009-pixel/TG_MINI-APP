@@ -63,6 +63,7 @@ export function formatOrderStatusRu(status: string | null | undefined): string {
     READY_FOR_DELIVERY: "Ожидает курьера",
     COURIER_ASSIGNED: "Курьер назначен",
     PICKED_UP: "Забрал у продавца",
+    IN_DELIVERY: "В пути",
     DELIVERED: "Доставлен",
     READY: "Готов",
     DELIVERING: "В пути",

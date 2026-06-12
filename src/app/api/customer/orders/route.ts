@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTelegramSessionUser } from "@/lib/auth-telegram";
 import { prisma } from "@/lib/prisma";
 import { classifyDatabaseError, toJsonSafe, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
-import { recoverStalePaymentProofChecks } from "@/lib/ai/payment-proof-service";
 import { createServerTiming } from "@/lib/server-timing";
 
 const orderHistoryLegacySelect = {
@@ -94,19 +93,19 @@ async function resolveBusinessId(value: string) {
   return business?.id;
 }
 
-async function loadHistory(customerIds: string[], useLegacySelect: boolean) {
+async function loadHistory(customerIds: string[], useLegacySelect: boolean, limit: number) {
   const [orders, bookings] = await Promise.all([
     prisma.order.findMany({
       where: { customerId: { in: customerIds } },
       select: useLegacySelect ? orderHistoryLegacySelect : orderHistorySelect,
       orderBy: { createdAt: "desc" },
-      take: 20,
+      take: limit,
     }),
     prisma.booking.findMany({
       where: { customerId: { in: customerIds } },
       select: useLegacySelect ? bookingHistoryLegacySelect : bookingHistorySelect,
       orderBy: { startTime: "desc" },
-      take: 20,
+      take: limit,
     }),
   ]);
 
@@ -121,7 +120,9 @@ export async function GET(request: NextRequest) {
       return finishTiming(NextResponse.json({ ok: false, error: "Нужна авторизация через Telegram." }, { status: 401 }));
     }
 
-    const businessSlug = new URL(request.url).searchParams.get("businessSlug") || "";
+    const { searchParams } = new URL(request.url);
+    const businessSlug = searchParams.get("businessSlug") || "";
+    const limit = Math.min(20, Math.max(1, Number(searchParams.get("limit")) || 10));
     const businessId = await resolveBusinessId(businessSlug);
     const session = await getTelegramSessionUser(initData, businessId);
 
@@ -142,20 +143,17 @@ export async function GET(request: NextRequest) {
     }
 
     const customerIds = customers.map((customer) => customer.id);
-    await recoverStalePaymentProofChecks({ businessId }).catch((error) => {
-      console.warn("[PAYMENT PROOF AI] stale customer checks recovery skipped:", error);
-    });
     let schemaFallback = false;
     let history;
 
     try {
-      history = await loadHistory(customerIds, false);
+      history = await loadHistory(customerIds, false, limit);
     } catch (error) {
       const classification = classifyDatabaseError(error);
       if (classification.type !== "missing_table" && classification.type !== "missing_column") throw error;
       schemaFallback = true;
       warnPrismaSchemaDrift("Customer order history retried without optional payment/delivery schema", error);
-      history = await loadHistory(customerIds, true);
+      history = await loadHistory(customerIds, true, limit);
     }
 
     return finishTiming(NextResponse.json(toJsonSafe({

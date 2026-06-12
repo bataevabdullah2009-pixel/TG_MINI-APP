@@ -142,6 +142,15 @@ async function createTelegramUser(
     });
     return withCurrentDefaults(user);
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const concurrentUser = await findTelegramUser(telegramId);
+      if (concurrentUser) {
+        return updateTelegramUser(telegramId, {
+          username: username || concurrentUser.username,
+          name: name || concurrentUser.name,
+        });
+      }
+    }
     if (!isPrismaMissingColumnError(error)) throw error;
     warnPrismaSchemaDrift("Telegram user created without optional account columns", error);
     const data = { telegramId, username: username || null, name: name || null, role: "CUSTOMER" as const };

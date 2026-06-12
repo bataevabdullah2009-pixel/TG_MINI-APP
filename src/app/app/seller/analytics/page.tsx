@@ -77,6 +77,7 @@ function SellerAnalyticsContent() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     if (period === "custom" && (!from || !to)) {
@@ -85,6 +86,7 @@ function SellerAnalyticsContent() {
     }
 
     let cancelled = false;
+    const controller = new AbortController();
     const query = new URLSearchParams({ period });
     if (businessId) query.set("businessId", businessId);
     if (period === "custom") {
@@ -94,7 +96,9 @@ function SellerAnalyticsContent() {
 
     setLoading(true);
     setError("");
-    miniAppFetch(`/api/admin/analytics?${query.toString()}`)
+    miniAppFetch(`/api/admin/analytics?${query.toString()}`, {
+      signal: controller.signal,
+    })
       .then(async (response) => {
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.error || "Не удалось загрузить аналитику.");
@@ -112,8 +116,9 @@ function SellerAnalyticsContent() {
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [businessId, period, from, to]);
+  }, [businessId, period, from, to, retryKey]);
 
   const maxRevenue = useMemo(() => Math.max(1, ...(data?.daily.map((item) => item.revenue) || [1])), [data]);
 
@@ -165,7 +170,18 @@ function SellerAnalyticsContent() {
         </section>
 
         {loading && <div className="grid grid-cols-2 gap-3">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-28 animate-pulse rounded-3xl bg-white ring-1 ring-slate-100" />)}</div>}
-        {error && <div className="rounded-3xl bg-rose-50 p-5 text-sm font-bold text-rose-700 ring-1 ring-rose-100">{error}</div>}
+        {error && (
+          <div className="rounded-3xl bg-rose-50 p-5 text-sm font-bold text-rose-700 ring-1 ring-rose-100">
+            <p>{error}</p>
+            <button
+              type="button"
+              onClick={() => setRetryKey((value) => value + 1)}
+              className="mt-3 rounded-xl bg-rose-700 px-4 py-2 text-xs text-white"
+            >
+              Повторить
+            </button>
+          </div>
+        )}
 
         {!loading && !error && data && (
           <>

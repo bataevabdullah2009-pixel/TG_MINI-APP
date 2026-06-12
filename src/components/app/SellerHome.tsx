@@ -57,6 +57,8 @@ function paymentProofAiLabel(status: string) {
   if (status === "LIKELY_VALID" || status === "likely_valid") return "Вероятно корректный";
   if (status === "LIKELY_INVALID" || status === "likely_invalid") return "Вероятно некорректный";
   if (status === "MANUAL_REVIEW" || status === "manual_review") return "Нужна ручная проверка";
+  if (status === "AMOUNT_MATCHED") return "Сумма совпала";
+  if (status === "AMOUNT_MISMATCH") return "Сумма не совпала";
   if (status === "AI_FAILED" || status === "AI_UNAVAILABLE") return "ИИ не смог проверить чек";
   return "Нужна ручная проверка";
 }
@@ -218,6 +220,15 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   }, [businessId]);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("tab") === "orders" || params.get("orderId")) {
+      setActiveTab("ORDERS");
+    } else if (params.get("tab") === "bookings") {
+      setActiveTab("BOOKINGS");
+    }
+  }, []);
+
+  useEffect(() => {
     if (activeTab !== "CLIENTS" || customersLoaded) return;
     miniAppFetch(`/api/admin/customers?businessId=${encodeURIComponent(businessId)}&limit=50`)
       .then(async (response) => {
@@ -290,6 +301,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
   const fetchSellerData = async () => {
     setLoading(true);
+    setError(null);
     try {
       const [bizRes, catRes, itemRes, ordRes, bookRes] = await Promise.all([
         miniAppFetch(`/api/admin/current-business?businessId=${encodeURIComponent(businessId)}`),
@@ -304,6 +316,12 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         setBusinessData(null);
         setError(businessPayload.error || "Бизнес недоступен. Обратитесь к администратору платформы.");
         return;
+      }
+
+      if (!ordRes.ok || !bookRes.ok) {
+        const failedResponse = [bizRes, ordRes, bookRes].find((response) => !response.ok);
+        const body = await failedResponse?.json().catch(() => ({}));
+        throw new Error(body?.error || "Не удалось загрузить данные продавца.");
       }
 
       let fetchedItemsCount = 0;
@@ -324,10 +342,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       let ords = [] as any[];
       let bks = [] as any[];
 
-      if (ordRes.ok) ords = await ordRes.json();
+      ords = await ordRes.json();
       setOrdersHasMore(ordRes.headers.get("X-Has-More") === "true");
       setOrdersCursor(ordRes.headers.get("X-Next-Cursor"));
-      if (bookRes.ok) bks = await bookRes.json();
+      bks = await bookRes.json();
 
       // Calculate today's stats
       const startOfDay = new Date();
@@ -351,7 +369,9 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
     } catch (e) {
       console.error(e);
-      showError("Ошибка загрузки данных продавца");
+      showError(e instanceof Error && e.name === "AbortError"
+        ? "Панель не ответила за 15 секунд."
+        : e instanceof Error ? e.message : "Ошибка загрузки данных продавца", true);
     } finally {
       setLoading(false);
     }
@@ -769,9 +789,9 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     }
   };
 
-  const showError = (msg: string) => {
+  const showError = (msg: string, persistent = false) => {
     setError(msg);
-    setTimeout(() => setError(null), 4000);
+    if (!persistent) setTimeout(() => setError(null), 4000);
   };
 
   const showSuccess = (msg: string) => {
@@ -899,9 +919,12 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
       {/* Floating Notifications */}
       {error && (
-        <div className="fixed top-4 inset-x-4 z-50 flex items-center gap-2 rounded-2xl bg-rose-600 p-3.5 text-xs font-black text-white shadow-xl animate-bounce">
+        <div className="fixed top-4 inset-x-4 z-50 flex items-center gap-2 rounded-2xl bg-rose-600 p-3.5 text-xs font-black text-white shadow-xl">
           <AlertCircle size={16} />
-          <span>{error}</span>
+          <span className="flex-1">{error}</span>
+          <button type="button" onClick={fetchSellerData} className="rounded-lg bg-white/20 px-2 py-1">
+            Повторить
+          </button>
         </div>
       )}
 
@@ -1126,17 +1149,14 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <span>ИИ:</span>
                                 <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${
-                                  ["LIKELY_VALID", "likely_valid"].includes(order.paymentProofAiStatus) ? "bg-emerald-100 text-emerald-700" :
+                                  ["LIKELY_VALID", "likely_valid", "AMOUNT_MATCHED"].includes(order.paymentProofAiStatus) ? "bg-emerald-100 text-emerald-700" :
                                   ["MANUAL_REVIEW", "manual_review"].includes(order.paymentProofAiStatus) ? "bg-amber-100 text-amber-700" :
-                                  ["LIKELY_INVALID", "likely_invalid"].includes(order.paymentProofAiStatus) ? "bg-rose-100 text-rose-700" :
+                                  ["LIKELY_INVALID", "likely_invalid", "AMOUNT_MISMATCH"].includes(order.paymentProofAiStatus) ? "bg-rose-100 text-rose-700" :
                                   order.paymentProofAiStatus === "AI_FAILED" ? "bg-slate-200 text-slate-700" :
                                   "bg-slate-100 text-slate-600"
                                 }`}>
                                   {paymentProofAiLabel(order.paymentProofAiStatus)}
                                 </span>
-                                {typeof order.paymentProofAiConfidence === "number" && (
-                                  <span>{order.paymentProofAiConfidence}%</span>
-                                )}
                               </div>
                             )}
                             {order.paymentProofAiStatus && order.paymentProofAiStatus !== "PENDING" && (() => {
@@ -1196,9 +1216,9 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                       {/* Items Ordered */}
                       <div className="text-[11px] font-bold text-slate-500 space-y-1 pl-1">
                         {order.items?.map((item: any) => (
-                          <div key={item.id} className="flex justify-between">
-                            <span>{item.name || item.item?.name} × {item.quantity}</span>
-                            <span>{item.price * item.quantity} ₽</span>
+                          <div key={item.id} className="flex min-w-0 justify-between gap-2">
+                            <span className="min-w-0 break-words">{item.name || item.item?.name} × {item.quantity}</span>
+                            <span className="shrink-0 whitespace-nowrap">{item.price * item.quantity} ₽</span>
                           </div>
                         ))}
                         <div className="border-t pt-1.5 flex justify-between font-bold text-slate-600">
@@ -1367,7 +1387,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                   type="button"
                   onClick={loadMoreOrders}
                   disabled={ordersLoadingMore}
-                  className="mt-3 w-full rounded-xl bg-slate-100 px-4 py-2.5 text-xs font-black text-slate-700 disabled:opacity-50"
+                  className="mb-20 mt-3 w-full rounded-xl bg-slate-100 px-4 py-2.5 text-xs font-black text-slate-700 disabled:opacity-50"
                 >
                   {ordersLoadingMore ? "Загружаем..." : "Загрузить ещё"}
                 </button>

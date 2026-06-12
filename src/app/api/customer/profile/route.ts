@@ -3,6 +3,7 @@ import { getTelegramSessionUser } from "@/lib/auth-telegram";
 import { prisma } from "@/lib/prisma";
 import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 import { classifyDatabaseError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { createServerTiming } from "@/lib/server-timing";
 
 async function resolveBusinessId(value: string) {
   if (!value) return undefined;
@@ -20,10 +21,11 @@ async function resolveBusinessId(value: string) {
 }
 
 export async function GET(request: NextRequest) {
+  const finishTiming = createServerTiming("customer_profile");
   try {
     const initData = request.headers.get("x-telegram-init-data") || "";
     if (!initData) {
-      return NextResponse.json({ ok: false, error: "Init data missing" }, { status: 401 });
+      return finishTiming(NextResponse.json({ ok: false, error: "Init data missing" }, { status: 401 }));
     }
 
     const businessSlug = new URL(request.url).searchParams.get("businessSlug") || "";
@@ -31,10 +33,10 @@ export async function GET(request: NextRequest) {
     const session = await getTelegramSessionUser(initData, businessId);
 
     if (!session || !session.customer) {
-      return NextResponse.json({ ok: false, error: "Not authorized" }, { status: 401 });
+      return finishTiming(NextResponse.json({ ok: false, error: "Not authorized" }, { status: 401 }));
     }
 
-    return NextResponse.json({
+    return finishTiming(NextResponse.json({
       ok: true,
       customer: {
         ...session.customer,
@@ -42,22 +44,23 @@ export async function GET(request: NextRequest) {
       },
       telegramName: session.name,
       telegramUsername: session.username,
-    });
+    }));
   } catch (error) {
     const classification = classifyDatabaseError(error);
     warnPrismaSchemaDrift("GET /api/customer/profile failed", error);
-    return NextResponse.json(
+    return finishTiming(NextResponse.json(
       { ok: false, code: classification.code, error: "Профиль временно недоступен. Причина записана в server logs." },
       { status: 503 }
-    );
+    ));
   }
 }
 
 export async function POST(request: NextRequest) {
+  const finishTiming = createServerTiming("customer_profile_update");
   try {
     const initData = request.headers.get("x-telegram-init-data") || "";
     if (!initData) {
-      return NextResponse.json({ ok: false, error: "Init data missing" }, { status: 401 });
+      return finishTiming(NextResponse.json({ ok: false, error: "Init data missing" }, { status: 401 }));
     }
 
     const body = await request.json();
@@ -66,12 +69,12 @@ export async function POST(request: NextRequest) {
     const session = await getTelegramSessionUser(initData, businessId);
 
     if (!session || !session.customer) {
-      return NextResponse.json({ ok: false, error: "Not authorized" }, { status: 401 });
+      return finishTiming(NextResponse.json({ ok: false, error: "Not authorized" }, { status: 401 }));
     }
 
     const normalizedPhone = phone ? normalizeRuPhone(phone) : null;
     if (phone && !normalizedPhone) {
-      return NextResponse.json({ ok: false, error: "Введите корректный номер телефона." }, { status: 400 });
+      return finishTiming(NextResponse.json({ ok: false, error: "Введите корректный номер телефона." }, { status: 400 }));
     }
 
     const user = await prisma.user.findUnique({
@@ -100,19 +103,19 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({
+    return finishTiming(NextResponse.json({
       ok: true,
       customer: {
         ...updatedCustomer,
         telegramUserId: updatedCustomer.telegramUserId.toString(),
       },
-    });
+    }));
   } catch (error) {
     const classification = classifyDatabaseError(error);
     warnPrismaSchemaDrift("POST /api/customer/profile failed", error);
-    return NextResponse.json(
+    return finishTiming(NextResponse.json(
       { ok: false, code: classification.code, error: "Профиль временно недоступен. Причина записана в server logs." },
       { status: 503 }
-    );
+    ));
   }
 }
