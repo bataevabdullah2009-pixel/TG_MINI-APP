@@ -63,7 +63,7 @@ function normalizeLookup(value: string) {
   }
 }
 
-function catalogRelations(search: string | undefined, includeDeliveryConfig: boolean) {
+function catalogRelations(search: string | undefined, includeDeliveryConfig: boolean, limit: number) {
   return {
     settings: includeDeliveryConfig
       ? true
@@ -92,29 +92,23 @@ function catalogRelations(search: string | undefined, includeDeliveryConfig: boo
     categories: {
       where: { isActive: true },
       orderBy: { sortOrder: "asc" as const },
-      include: {
-        items: {
-          where: {
-            isAvailable: true,
-            ...(search ? { name: { contains: search, mode: "insensitive" as const } } : {}),
-          },
-          orderBy: [{ isPopular: "desc" as const }, { sortOrder: "asc" as const }],
-        },
-      },
+      select: { id: true, name: true, description: true, imageUrl: true, sortOrder: true, isActive: true },
     },
     items: {
       where: {
         isAvailable: true,
+        archivedAt: null,
         ...(search ? { name: { contains: search, mode: "insensitive" as const } } : {}),
       },
       include: { category: true },
       orderBy: [{ isPopular: "desc" as const }, { sortOrder: "asc" as const }],
+      take: limit,
     },
     staff: { where: { isActive: true }, orderBy: { createdAt: "asc" as const } },
   };
 }
 
-async function findCatalogBusiness(slug: string, search: string | undefined, includeCurrentFields: boolean, includeDeliveryConfig: boolean) {
+async function findCatalogBusiness(slug: string, search: string | undefined, limit: number, includeCurrentFields: boolean, includeDeliveryConfig: boolean) {
   const lookup = normalizeLookup(slug);
   return prisma.business.findFirst({
     where: {
@@ -127,7 +121,7 @@ async function findCatalogBusiness(slug: string, search: string | undefined, inc
     select: {
       ...catalogBusinessBaseSelect,
       ...(includeCurrentFields ? currentBusinessFieldsSelect : {}),
-      ...catalogRelations(search, includeDeliveryConfig),
+      ...catalogRelations(search, includeDeliveryConfig, limit),
     },
   });
 }
@@ -137,19 +131,22 @@ export async function GET(
   context: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await context.params;
-  const search = new URL(request.url).searchParams.get("search")?.trim();
+  const searchParams = new URL(request.url).searchParams;
+  const search = searchParams.get("search")?.trim();
+  const requestedLimit = Number(searchParams.get("limit") || 50);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.floor(requestedLimit), 1), 100) : 50;
   let usedSchemaFallback = false;
 
   try {
     let business;
     try {
-      business = await findCatalogBusiness(slug, search, true, true);
+      business = await findCatalogBusiness(slug, search, limit, true, true);
     } catch (error) {
       const classification = classifyDatabaseError(error);
       if (classification.type !== "missing_table" && classification.type !== "missing_column") throw error;
       usedSchemaFallback = true;
       warnPrismaSchemaDrift(`Catalog ${slug} retried without optional payment/delivery schema`, error);
-      business = await findCatalogBusiness(slug, search, false, false);
+      business = await findCatalogBusiness(slug, search, limit, false, false);
     }
 
     if (!business || !business.isActive) {
@@ -161,7 +158,7 @@ export async function GET(
         const defaultCategory = await prisma.category.create({
           data: { businessId: business.id, name: "Основное", isActive: true, sortOrder: 0 },
         });
-        business.categories = [{ ...defaultCategory, items: [] }];
+        business.categories = [defaultCategory];
       } catch (error) {
         console.error("[CATALOG] Default category creation skipped:", error);
       }

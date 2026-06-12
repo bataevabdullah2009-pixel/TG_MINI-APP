@@ -39,6 +39,15 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         : body.status !== undefined
           ? body.status !== "HIDDEN" && body.status !== "INACTIVE"
           : undefined;
+    const nextStockMode = body.stockMode !== undefined
+      ? body.stockMode === "TRACK_STOCK" ? "TRACK_STOCK" : "SIMPLE_AVAILABILITY"
+      : loaded.item.stockMode;
+    const nextStock = body.stock !== undefined
+      ? body.stock !== "" && body.stock !== null ? Number(body.stock) : null
+      : loaded.item.stock;
+    if (nextStockMode === "TRACK_STOCK" && (!Number.isInteger(nextStock) || Number(nextStock) < 0)) {
+      return jsonError("Для учёта остатков укажите целое количество от 0.", 400);
+    }
 
     const item = await prisma.item.update({
       where: { id },
@@ -50,9 +59,19 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         ...(categoryId !== undefined ? { categoryId } : {}),
         ...(body.imageUrl !== undefined ? { imageUrl: body.imageUrl || null } : {}),
         ...(body.durationMinutes !== undefined ? { durationMinutes: body.durationMinutes ? Number(body.durationMinutes) : null } : {}),
-        ...(body.stock !== undefined ? { stock: body.stock !== "" && body.stock !== null ? Number(body.stock) : null } : {}),
-        ...(nextAvailability !== undefined ? { isAvailable: nextAvailability } : {}),
+        ...(body.stockMode !== undefined ? { stockMode: nextStockMode } : {}),
+        ...(body.stock !== undefined || body.stockMode !== undefined
+          ? { stock: nextStockMode === "TRACK_STOCK" ? nextStock : null }
+          : {}),
+        ...(nextAvailability !== undefined
+          ? { isAvailable: nextStockMode === "TRACK_STOCK" && nextStock === 0 ? false : nextAvailability }
+          : nextStockMode === "TRACK_STOCK" && nextStock === 0
+            ? { isAvailable: false }
+            : {}),
         ...(body.isPopular !== undefined ? { isPopular: Boolean(body.isPopular) } : {}),
+        ...(body.archivedAt !== undefined
+          ? { archivedAt: body.archivedAt ? new Date(body.archivedAt) : null }
+          : {}),
       },
       include: { category: true, business: { select: { id: true, name: true, slug: true } } },
     });
@@ -69,8 +88,12 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
     const { id } = await context.params;
     const loaded = await loadItem(request, id);
     if ("error" in loaded) return loaded.error;
-    await prisma.item.delete({ where: { id } });
-    return NextResponse.json({ ok: true });
+    const item = await prisma.item.update({
+      where: { id },
+      data: { archivedAt: new Date(), isAvailable: false },
+      select: { id: true, archivedAt: true },
+    });
+    return NextResponse.json({ ok: true, data: item });
   } catch (error) {
     console.error("DELETE /api/admin/items/[id] failed:", error);
     return jsonError("Не удалось удалить товар или услугу.", 500);

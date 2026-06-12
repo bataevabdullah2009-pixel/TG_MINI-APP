@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent, ReactNode } from "react";
-import { ArrowLeft, Banknote, CheckCircle2, CreditCard, MapPin, MessageSquare, PackageCheck, Phone, ShoppingBag, Store, Truck, Upload, User } from "lucide-react";
+import { ArrowLeft, Banknote, CheckCircle2, CreditCard, MapPin, MessageSquare, PackageCheck, Phone, ShoppingBag, Store, Tag, Truck, Upload, User } from "lucide-react";
 import { BottomSheetPicker } from "@/components/ui/BottomSheetPicker";
 
 type CheckoutItem = {
@@ -58,6 +58,13 @@ type Props = {
   paymentProofFileName: string;
   paymentProofUploading: boolean;
   onPaymentProofUpload: (file: File) => void;
+  promoCode: string;
+  setPromoCode: (value: string) => void;
+  promoDiscountPercent: number;
+  promoMessage: string;
+  promoValidating: boolean;
+  onApplyPromoCode: () => void;
+  submitting: boolean;
   checkoutError: string;
   needsPhoneVerification: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -79,6 +86,13 @@ export function FullScreenCheckout({
   paymentProofFileName,
   paymentProofUploading,
   onPaymentProofUpload,
+  promoCode,
+  setPromoCode,
+  promoDiscountPercent,
+  promoMessage,
+  promoValidating,
+  onApplyPromoCode,
+  submitting,
   checkoutError,
   needsPhoneVerification,
   onSubmit,
@@ -92,7 +106,10 @@ export function FullScreenCheckout({
   const zones = (business.deliveryZones || []).filter((zone) => zone.isActive);
   const selectedZone = zones.find((zone) => zone.id === form.deliveryZoneId);
   const deliveryFee = form.deliveryType === "DELIVERY" ? selectedZone?.fee || 0 : 0;
-  const orderTotal = cartTotal + deliveryFee;
+  const discountAmount = promoDiscountPercent > 0
+    ? Math.round(cartTotal * promoDiscountPercent) / 100
+    : 0;
+  const orderTotal = Math.max(0, cartTotal - discountAmount) + deliveryFee;
   const pickupEnabled = business.settings?.pickupEnabled !== false;
   const deliveryEnabled = business.settings?.deliveryEnabled === true && zones.length > 0;
   const canSubmit =
@@ -102,7 +119,8 @@ export function FullScreenCheckout({
     !needsPhoneVerification &&
     (pickupEnabled || deliveryEnabled) &&
     (form.deliveryType !== "DELIVERY" || (Boolean(form.deliveryZoneId) && form.address.trim().length >= 5)) &&
-    (paymentMethod !== "TRANSFER" || (Boolean(paymentProofUrl) && !paymentProofUploading));
+    (paymentMethod !== "TRANSFER" || (Boolean(paymentProofUrl) && !paymentProofUploading)) &&
+    !submitting;
 
   return (
     <div className="fixed inset-0 z-50 bg-white text-slate-950">
@@ -158,12 +176,44 @@ export function FullScreenCheckout({
 
               <div className="mt-4 space-y-2 border-t border-slate-200 pt-4 text-sm font-bold">
                 <div className="flex justify-between text-slate-500"><span>Сумма товаров</span><span>{formatPrice(cartTotal)}</span></div>
+                {discountAmount > 0 && (
+                  <div className="flex justify-between text-emerald-700">
+                    <span>Скидка по промокоду ({promoDiscountPercent}%)</span>
+                    <span>−{formatPrice(discountAmount)}</span>
+                  </div>
+                )}
                 {form.deliveryType === "DELIVERY" && <div className="flex justify-between text-slate-500"><span>Стоимость доставки</span><span>{formatPrice(deliveryFee)}</span></div>}
                 <div className="flex items-end justify-between pt-1">
                   <span className="text-sm font-black text-slate-700">Итого к оплате</span>
                   <span className="text-2xl font-black">{formatPrice(orderTotal)}</span>
                 </div>
               </div>
+            </section>
+
+            <section className="space-y-3">
+              <h3 className="flex items-center gap-2 text-sm font-black"><Tag size={17} /> Промокод</h3>
+              <div className="flex gap-2">
+                <input
+                  value={promoCode}
+                  onChange={(event) => setPromoCode(event.target.value)}
+                  placeholder="Введите промокод"
+                  maxLength={32}
+                  className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black uppercase outline-none focus:border-slate-400"
+                />
+                <button
+                  type="button"
+                  onClick={onApplyPromoCode}
+                  disabled={promoValidating || !promoCode.trim()}
+                  className="rounded-2xl bg-slate-100 px-4 py-3 text-xs font-black text-slate-800 disabled:opacity-50"
+                >
+                  {promoValidating ? "Проверяем..." : "Применить"}
+                </button>
+              </div>
+              {promoMessage && (
+                <p className={`rounded-xl px-3 py-2 text-xs font-bold ${promoDiscountPercent > 0 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+                  {promoMessage}
+                </p>
+              )}
             </section>
 
             <section className="space-y-3">
@@ -345,7 +395,7 @@ export function FullScreenCheckout({
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-4 text-sm font-black text-white shadow-xl shadow-slate-900/15 disabled:opacity-50"
             >
               <CheckCircle2 size={18} />
-              Подтвердить заказ на {formatPrice(orderTotal)}
+              {submitting ? "Создаём заказ..." : `Подтвердить заказ на ${formatPrice(orderTotal)}`}
             </button>
           </div>
         </div>

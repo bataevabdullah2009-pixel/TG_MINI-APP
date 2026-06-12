@@ -27,6 +27,7 @@ export function ProductCard({
   onFavoriteToggle,
 }: ProductCardProps) {
   const isGrid = viewMode === "grid";
+  const isUnavailable = item.isAvailable === false || (item.stockMode === "TRACK_STOCK" && (item.stock ?? 0) <= 0);
 
   return (
     <article className={`${isGrid ? "min-h-[292px] rounded-2xl" : "rounded-3xl"} flex h-full min-w-0 flex-col overflow-hidden bg-white shadow-sm ring-1 ring-slate-200/70`}>
@@ -67,11 +68,12 @@ export function ProductCard({
       <div className={`${isGrid ? "px-3 pb-3" : "px-4 pb-4"} mt-auto flex items-center justify-between gap-2`}>
         <button
           type="button"
-          onClick={() => onAction(item)}
-          className={`${isGrid ? "px-2 text-[11px]" : "px-4 text-sm"} min-w-0 flex-1 truncate rounded-full py-2 font-bold text-white`}
-          style={{ backgroundColor: primaryColor }}
+          onClick={() => !isUnavailable && onAction(item)}
+          disabled={isUnavailable}
+          className={`${isGrid ? "px-2 text-[11px]" : "px-4 text-sm"} min-w-0 flex-1 truncate rounded-full py-2 font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300`}
+          style={isUnavailable ? undefined : { backgroundColor: primaryColor }}
         >
-          {cta}
+          {isUnavailable ? "Нет в наличии" : cta}
         </button>
         <button
           type="button"

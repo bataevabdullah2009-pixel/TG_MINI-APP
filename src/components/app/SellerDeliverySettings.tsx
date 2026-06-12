@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { MapPin, Plus, Save, Trash2, Truck } from "lucide-react";
+import { MapPin, Pencil, Plus, Save, Trash2, Truck, X } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
 
 export function SellerDeliverySettings({ businessId, onMessage }: { businessId: string; onMessage: (message: string, error?: boolean) => void }) {
@@ -10,6 +10,8 @@ export function SellerDeliverySettings({ businessId, onMessage }: { businessId: 
   const [loading, setLoading] = useState(true);
   const [zoneForm, setZoneForm] = useState({ name: "", cityArea: "", fee: "", estimatedMinutes: "" });
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [editTarget, setEditTarget] = useState<any | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,6 +61,32 @@ export function SellerDeliverySettings({ businessId, onMessage }: { businessId: 
     const data = await response.json().catch(() => ({}));
     if (!response.ok) return onMessage(data.error || "Не удалось обновить зону.", true);
     setZones((current) => current.map((item) => item.id === zone.id ? data.zone : item));
+  };
+
+  const saveZone = async () => {
+    if (!editTarget) return;
+    setEditSaving(true);
+    try {
+      const response = await miniAppFetch(`/api/businesses/${encodeURIComponent(businessId)}/delivery-zones/${encodeURIComponent(editTarget.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: editTarget.name,
+          cityArea: editTarget.cityArea,
+          fee: editTarget.fee,
+          estimatedMinutes: editTarget.estimatedMinutes,
+          isActive: editTarget.isActive,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Не удалось сохранить зону доставки.");
+      setZones((current) => current.map((item) => item.id === editTarget.id ? data.zone : item));
+      setEditTarget(null);
+      onMessage("Зона доставки сохранена.");
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : "Не удалось сохранить зону доставки.", true);
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   const deleteZone = async (zone: any) => {
@@ -116,6 +144,14 @@ export function SellerDeliverySettings({ businessId, onMessage }: { businessId: 
                 <button onClick={() => toggleZone(zone)} className={`rounded-full px-3 py-1 text-[9px] font-black ${zone.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"}`}>{zone.isActive ? "Активна" : "Выключена"}</button>
                 <button
                   type="button"
+                  onClick={() => setEditTarget({ ...zone, estimatedMinutes: zone.estimatedMinutes || "" })}
+                  className="grid h-8 w-8 place-items-center rounded-xl bg-indigo-50 text-indigo-600"
+                  title="Редактировать зону"
+                >
+                  <Pencil size={13} />
+                </button>
+                <button
+                  type="button"
                   onClick={() => setDeleteTarget(zone)}
                   className="grid h-8 w-8 place-items-center rounded-xl bg-rose-50 text-rose-600"
                   title="Удалить зону"
@@ -128,6 +164,39 @@ export function SellerDeliverySettings({ businessId, onMessage }: { businessId: 
           {zones.length === 0 && <p className="py-4 text-center text-xs font-bold text-slate-400">Добавьте хотя бы одну зону, чтобы доставка появилась в checkout.</p>}
         </div>
       </section>
+
+      {editTarget && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55">
+          <button className="absolute inset-0" aria-label="Закрыть" onClick={() => setEditTarget(null)} />
+          <section className="relative w-full max-w-[480px] rounded-t-[28px] bg-white p-5 pb-8 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-black text-slate-950">Редактировать зону</h3>
+                <p className="mt-1 text-xs font-bold text-slate-400">Изменения применятся только к новым заказам.</p>
+              </div>
+              <button type="button" onClick={() => setEditTarget(null)} className="grid h-9 w-9 place-items-center rounded-full bg-slate-100">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="grid gap-3">
+              <input value={editTarget.name} onChange={(event) => setEditTarget({ ...editTarget, name: event.target.value })} placeholder="Название зоны" className="rounded-xl border bg-slate-50 p-3 text-xs font-bold" />
+              <input value={editTarget.cityArea} onChange={(event) => setEditTarget({ ...editTarget, cityArea: event.target.value })} placeholder="Город / район" className="rounded-xl border bg-slate-50 p-3 text-xs font-bold" />
+              <div className="grid grid-cols-2 gap-2">
+                <input type="number" min="0" value={editTarget.fee} onChange={(event) => setEditTarget({ ...editTarget, fee: event.target.value })} placeholder="Стоимость, ₽" className="rounded-xl border bg-slate-50 p-3 text-xs font-bold" />
+                <input type="number" min="1" value={editTarget.estimatedMinutes} onChange={(event) => setEditTarget({ ...editTarget, estimatedMinutes: event.target.value })} placeholder="Время, мин." className="rounded-xl border bg-slate-50 p-3 text-xs font-bold" />
+              </div>
+              <Toggle label="Зона активна" checked={Boolean(editTarget.isActive)} onChange={(value) => setEditTarget({ ...editTarget, isActive: value })} />
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setEditTarget(null)} className="rounded-2xl bg-slate-100 px-4 py-3 text-xs font-black text-slate-700">Отмена</button>
+                <button type="button" onClick={saveZone} disabled={editSaving} className="rounded-2xl bg-slate-950 px-4 py-3 text-xs font-black text-white disabled:opacity-50">{editSaving ? "Сохраняем..." : "Сохранить"}</button>
+              </div>
+              <button type="button" onClick={() => { setDeleteTarget(editTarget); setEditTarget(null); }} className="flex items-center justify-center gap-2 rounded-2xl bg-rose-50 px-4 py-3 text-xs font-black text-rose-700">
+                <Trash2 size={14} /> Удалить или архивировать зону
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55">

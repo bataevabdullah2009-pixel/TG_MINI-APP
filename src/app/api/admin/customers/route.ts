@@ -9,6 +9,8 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const businessId = searchParams.get("businessId") || session.businessId;
+    const requestedLimit = Number(searchParams.get("limit") || 50);
+    const take = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.floor(requestedLimit), 1), 100) : 50;
     if (!businessId) return jsonError("Бизнес не выбран.", 400);
     if (!canUseBusiness(session, businessId)) return jsonError("Нет доступа к этому бизнесу.", 403);
 
@@ -16,6 +18,7 @@ export async function GET(request: NextRequest) {
       where: { businessId },
       include: { _count: { select: { orders: true, bookings: true } } },
       orderBy: { createdAt: "desc" },
+      take,
     });
 
     return NextResponse.json({

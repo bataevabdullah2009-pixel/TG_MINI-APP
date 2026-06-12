@@ -196,6 +196,7 @@ export interface Order {
   paymentProofAiStatus?: string | null;
   paymentProofAiSummary?: string | null;
   paymentProofAiConfidence?: number | null;
+  paymentProofAiDetails?: string | null;
   paymentReviewedAt?: Date | null;
   paymentReviewedBy?: string | null;
   paymentRejectReason?: string | null;

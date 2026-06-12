@@ -51,8 +51,12 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
         return { label: "Новый", color: "bg-blue-50 text-blue-700 ring-blue-200" };
       case "CONFIRMED":
         return { label: "Подтвержден", color: "bg-indigo-50 text-indigo-700 ring-indigo-200" };
+      case "ACCEPTED":
+        return { label: "Принят", color: "bg-indigo-50 text-indigo-700 ring-indigo-200" };
       case "PROCESSING":
         return { label: "В работе", color: "bg-amber-50 text-amber-700 ring-amber-200" };
+      case "PREPARING":
+        return { label: "Готовится", color: "bg-amber-50 text-amber-700 ring-amber-200" };
       case "READY":
         return { label: "Готов", color: "bg-emerald-50 text-emerald-700 ring-emerald-200" };
       case "READY_FOR_PICKUP":
@@ -63,6 +67,8 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
         return { label: "Курьер назначен", color: "bg-blue-50 text-blue-700 ring-blue-200" };
       case "PICKED_UP":
         return { label: "В пути", color: "bg-indigo-50 text-indigo-700 ring-indigo-200" };
+      case "DELIVERING":
+        return { label: "Доставляется", color: "bg-indigo-50 text-indigo-700 ring-indigo-200" };
       case "DELIVERED":
         return { label: "Доставлен", color: "bg-emerald-50 text-emerald-700 ring-emerald-200" };
       case "COMPLETED":
@@ -72,7 +78,7 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
       case "EXPIRED":
         return { label: "Истёк", color: "bg-slate-100 text-slate-700 ring-slate-200" };
       default:
-        return { label: status, color: "bg-slate-50 text-slate-600 ring-slate-200" };
+        return { label: "Статус уточняется", color: "bg-slate-50 text-slate-600 ring-slate-200" };
     }
   };
 
@@ -91,7 +97,7 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
       case "NO_SHOW":
         return { label: "Клиент не пришёл", color: "bg-rose-50 text-rose-700 ring-rose-200" };
       default:
-        return { label: status, color: "bg-slate-50 text-slate-600 ring-slate-200" };
+        return { label: "Статус уточняется", color: "bg-slate-50 text-slate-600 ring-slate-200" };
     }
   };
 
@@ -206,6 +212,12 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
                           {order.deliveryType === "DELIVERY" && (
                             <div className="mt-2 grid gap-1 rounded-xl bg-slate-50 p-2 text-slate-500">
                               <div className="flex justify-between"><span>Товары</span><span>{order.itemsSubtotal || order.totalPrice - (order.deliveryFee || 0)} ₽</span></div>
+                              {order.discountAmount > 0 && (
+                                <div className="flex justify-between text-emerald-700">
+                                  <span>Скидка {order.promoCode ? `(${order.promoCode})` : ""}</span>
+                                  <span>−{order.discountAmount} ₽</span>
+                                </div>
+                              )}
                               <div className="flex justify-between"><span>Доставка {order.deliveryZoneName ? `(${order.deliveryZoneName})` : ""}</span><span>{order.deliveryFee || 0} ₽</span></div>
                               {order.deliveryAssignment?.courier && <div className="font-bold text-indigo-700">Курьер: {order.deliveryAssignment.courier.name}</div>}
                             </div>

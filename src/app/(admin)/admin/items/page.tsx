@@ -29,6 +29,8 @@ type Item = {
   isAvailable: boolean;
   isPopular: boolean;
   stock?: number | null;
+  stockMode?: "SIMPLE_AVAILABILITY" | "TRACK_STOCK";
+  archivedAt?: string | null;
   durationMinutes?: number | null;
   category?: { id: string; name: string } | null;
 };
@@ -39,6 +41,7 @@ type FormState = {
   description: string;
   price: string;
   stock: string;
+  stockMode: "SIMPLE_AVAILABILITY" | "TRACK_STOCK";
   durationMinutes: string;
   isPopular: boolean;
   isAvailable: boolean;
@@ -52,6 +55,7 @@ const initialForm: FormState = {
   description: "",
   price: "",
   stock: "",
+  stockMode: "SIMPLE_AVAILABILITY",
   durationMinutes: "",
   isPopular: false,
   isAvailable: true,
@@ -208,13 +212,13 @@ export default function AdminItemsPage() {
   }
 
   async function deleteItem(item: Item) {
-    if (!confirm(`Удалить позицию "${item.name}"? Это действие нельзя отменить.`)) return;
+    if (!confirm(`Архивировать позицию "${item.name}"? Старые заказы сохранятся.`)) return;
     setError("");
     try {
       await apiClient.delete(`/admin/items/${item.id}`);
       setItems((current) => current.filter((entry) => entry.id !== item.id));
       if (editingItem?.id === item.id) closeModal();
-      setToast("Позиция удалена");
+      setToast("Позиция перенесена в архив");
       setTimeout(() => setToast(""), 2500);
     } catch (err) {
       setError(apiError(err));
@@ -260,6 +264,7 @@ export default function AdminItemsPage() {
       description: item.description || "",
       price: String(item.price ?? ""),
       stock: item.stock === null || item.stock === undefined ? "" : String(item.stock),
+      stockMode: item.stockMode === "TRACK_STOCK" ? "TRACK_STOCK" : "SIMPLE_AVAILABILITY",
       durationMinutes:
         item.durationMinutes === null || item.durationMinutes === undefined ? "" : String(item.durationMinutes),
       isPopular: Boolean(item.isPopular),
@@ -299,6 +304,7 @@ export default function AdminItemsPage() {
         ...form,
         price: Number(form.price),
         stock: form.type === "PRODUCT" ? form.stock : "",
+        stockMode: form.type === "PRODUCT" ? form.stockMode : "SIMPLE_AVAILABILITY",
         durationMinutes: form.type === "SERVICE" ? form.durationMinutes : "",
       };
       const res = editingItem
@@ -447,7 +453,7 @@ export default function AdminItemsPage() {
                     </button>
                     <button onClick={() => deleteItem(item)} className="inline-flex items-center gap-1 rounded-xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">
                       <Trash2 size={13} />
-                      Удалить
+                      В архив
                     </button>
                   </div>
                 </div>
@@ -513,7 +519,19 @@ export default function AdminItemsPage() {
             <div className="grid gap-3 md:grid-cols-2">
               <Field label="Название"><input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="field" /></Field>
               <Field label="Цена, ₽"><input required type="number" min="0" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="field" /></Field>
-              <Field label={form.type === "SERVICE" ? "Длительность, минут" : "Остаток"}><input type="number" min="0" value={form.type === "SERVICE" ? form.durationMinutes : form.stock} onChange={(e) => setForm({ ...form, [form.type === "SERVICE" ? "durationMinutes" : "stock"]: e.target.value })} className="field" /></Field>
+              {form.type === "SERVICE" ? (
+                <Field label="Длительность, минут"><input type="number" min="0" value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} className="field" /></Field>
+              ) : (
+                <Field label="Учёт наличия">
+                  <select value={form.stockMode} onChange={(e) => setForm({ ...form, stockMode: e.target.value as FormState["stockMode"] })} className="field">
+                    <option value="SIMPLE_AVAILABILITY">Только в наличии / нет</option>
+                    <option value="TRACK_STOCK">Считать точный остаток</option>
+                  </select>
+                </Field>
+              )}
+              {form.type === "PRODUCT" && form.stockMode === "TRACK_STOCK" && (
+                <Field label="Остаток"><input required type="number" min="0" step="1" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} className="field" /></Field>
+              )}
               <Field label="Категория">
                 <div className="flex gap-2">
                   <BottomSheetPicker

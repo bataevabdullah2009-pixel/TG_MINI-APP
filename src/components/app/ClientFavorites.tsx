@@ -232,7 +232,7 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
                         openFavoriteProduct(fav);
                       }
                     }}
-                    className="flex cursor-pointer items-center gap-3.5 rounded-3xl bg-white p-3 shadow-sm ring-1 ring-slate-100 transition active:scale-[0.99]"
+                    className="flex min-h-[92px] cursor-pointer items-center gap-3.5 rounded-3xl bg-white p-3 shadow-sm ring-1 ring-slate-100 transition active:scale-[0.99]"
                   >
                     <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-slate-50 border text-slate-400 text-xl font-bold">
                       {fav.item?.imageUrl ? (
@@ -240,11 +240,11 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
                       ) : "📦"}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h4 className="truncate text-sm font-extrabold text-slate-900">{fav.item?.name || "Товар"}</h4>
-                      <p className="text-[10px] font-black text-indigo-600 mt-0.5">
+                      <h4 className="line-clamp-2 text-sm font-extrabold leading-tight text-slate-900">{fav.item?.name || "Товар"}</h4>
+                      <p className="mt-1 truncate text-[10px] font-black text-indigo-600">
                         {typeof fav.item?.price === "number" ? `${fav.item.price} ₽` : "Цена уточняется"}
                       </p>
-                      <span className="text-[9px] font-semibold text-slate-400">Магазин: {fav.business?.name || fav.businessId || "не указан"}</span>
+                      <span className="block truncate text-[9px] font-semibold text-slate-400">Магазин: {fav.business?.name || fav.businessId || "не указан"}</span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <button

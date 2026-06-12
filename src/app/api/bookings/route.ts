@@ -17,7 +17,8 @@ export async function GET(request: NextRequest) {
     const requestedBusinessId = searchParams.get("businessId");
     const staffId = searchParams.get("staffId");
     const status = searchParams.get("status");
-    const limit = parseInt(searchParams.get("limit") || "20");
+    const requestedLimit = Number(searchParams.get("limit") || 20);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.floor(requestedLimit), 1), 100) : 20;
 
     const where: any = {};
 

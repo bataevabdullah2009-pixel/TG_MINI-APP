@@ -28,11 +28,13 @@ import {
   Pencil,
   Bike,
   Truck,
+  Tag,
 } from "lucide-react";
 import { MediaUpload } from "./MediaUpload";
 import { SellerStoreTools } from "./SellerStoreTools";
 import { SellerDeliverySettings } from "./SellerDeliverySettings";
 import { SellerCouriers } from "./SellerCouriers";
+import { SellerPromoCodes } from "./SellerPromoCodes";
 import { miniAppFetch } from "@/lib/miniAppFetch";
 
 interface SellerHomeProps {
@@ -42,9 +44,80 @@ interface SellerHomeProps {
 
 function paymentProofAiLabel(status: string) {
   if (status === "PENDING") return "ИИ проверяет чек";
-  if (status === "LIKELY_VALID") return "Похоже на чек";
+  if (status === "LIKELY_VALID") return "Чек похож на корректный";
+  if (status === "LIKELY_INVALID") return "Чек требует внимания";
+  if (status === "MANUAL_REVIEW") return "Нужна ручная проверка";
   if (status === "AI_UNAVAILABLE") return "ИИ временно недоступен, чек отправлен продавцу";
   return "Нужна ручная проверка";
+}
+
+const ORDER_STATUS_LABELS: Record<string, string> = {
+  NEW: "Новый",
+  ACCEPTED: "Принят",
+  PREPARING: "Готовится",
+  READY: "Готов",
+  READY_FOR_PICKUP: "Готов к самовывозу",
+  READY_FOR_DELIVERY: "Готов к доставке",
+  COURIER_ASSIGNED: "Курьер назначен",
+  PICKED_UP: "Передан курьеру",
+  DELIVERING: "Доставляется",
+  DELIVERED: "Доставлен",
+  COMPLETED: "Завершён",
+  CANCELLED: "Отменён",
+  EXPIRED: "Истёк",
+};
+
+const BOOKING_STATUS_LABELS: Record<string, string> = {
+  NEW: "Новая",
+  PENDING: "Ожидает подтверждения",
+  CONFIRMED: "Подтверждена",
+  COMPLETED: "Завершена",
+  CANCELLED: "Отменена",
+  NO_SHOW: "Клиент не пришёл",
+  EXPIRED: "Истекла",
+};
+
+function formatReceiptValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : "Не распознано";
+}
+
+function ReceiptAnalysisDetails({ order }: { order: any }) {
+  let details: Record<string, unknown> | null = null;
+  if (typeof order.paymentProofAiDetails === "string") {
+    try {
+      details = JSON.parse(order.paymentProofAiDetails);
+    } catch {
+      details = null;
+    }
+  }
+
+  if (!details) {
+    return order.paymentProofAiSummary
+      ? <div className="text-[10px] leading-relaxed text-slate-600">{order.paymentProofAiSummary}</div>
+      : null;
+  }
+
+  const extractedAmount = typeof details.extractedAmount === "number"
+    ? `${details.extractedAmount.toLocaleString("ru-RU")} ₽`
+    : "Не распознано";
+  const expectedAmount = typeof details.expectedAmount === "number"
+    ? `${details.expectedAmount.toLocaleString("ru-RU")} ₽`
+    : `${Number(order.totalPrice || 0).toLocaleString("ru-RU")} ₽`;
+  const confidence = typeof details.confidencePercent === "number"
+    ? Math.max(0, Math.min(100, Math.round(details.confidencePercent)))
+    : order.paymentProofAiConfidence;
+
+  return (
+    <div className="space-y-0.5 rounded-lg bg-white/70 p-2 font-semibold text-slate-700">
+      <div>Сумма на чеке: {extractedAmount}</div>
+      <div>Ожидалось: {expectedAmount}</div>
+      <div>Дата: {formatReceiptValue(details.extractedDate)}</div>
+      <div>Получатель: {formatReceiptValue(details.extractedRecipient)}</div>
+      <div>Банк: {formatReceiptValue(details.extractedBank)}</div>
+      <div>Уверенность: {typeof confidence === "number" ? `${confidence}%` : "Нет оценки"}</div>
+      <div>Комментарий ИИ: {formatReceiptValue(details.reasonRu || order.paymentProofAiSummary)}</div>
+    </div>
+  );
 }
 
 const ACTIVE_ORDER_STATUSES = new Set([
@@ -62,7 +135,7 @@ const ACTIVE_ORDER_STATUSES = new Set([
 export function SellerHome({ session, businessId }: SellerHomeProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<
-    "DASHBOARD" | "ORDERS" | "BOOKINGS" | "ITEMS" | "DELIVERY" | "COURIERS" | "CLIENTS" | "MEDIA" | "SETTINGS"
+    "DASHBOARD" | "ORDERS" | "BOOKINGS" | "ITEMS" | "PROMOCODES" | "DELIVERY" | "COURIERS" | "CLIENTS" | "MEDIA" | "SETTINGS"
   >("DASHBOARD");
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
@@ -87,6 +160,11 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const [newItemDesc, setNewItemDesc] = useState("");
   const [newItemType, setNewItemType] = useState<"PRODUCT" | "SERVICE">("PRODUCT");
   const [newItemImage, setNewItemImage] = useState("");
+  const [newItemStockMode, setNewItemStockMode] = useState<"SIMPLE_AVAILABILITY" | "TRACK_STOCK">("SIMPLE_AVAILABILITY");
+  const [newItemStock, setNewItemStock] = useState("");
+  const [newItemAvailable, setNewItemAvailable] = useState(true);
+  const [itemSearch, setItemSearch] = useState("");
+  const [itemFilter, setItemFilter] = useState<"ACTIVE" | "AVAILABLE" | "UNAVAILABLE" | "HIDDEN" | "ARCHIVED">("ACTIVE");
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   
   // Category management inside catalog
@@ -117,6 +195,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const [bookingFilter, setBookingFilter] = useState<string>("ALL");
   const [couriers, setCouriers] = useState<any[]>([]);
   const [assigningOrderId, setAssigningOrderId] = useState<string | null>(null);
+  const [ordersHasMore, setOrdersHasMore] = useState(true);
+  const [ordersLoadingMore, setOrdersLoadingMore] = useState(false);
 
   const syncBusinessState = (bData: any) => {
     setBusinessData(bData);
@@ -168,48 +248,51 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const fetchSellerData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Business Profile
-      const bizRes = await miniAppFetch(`/api/admin/current-business?businessId=${encodeURIComponent(businessId)}`);
+      const [bizRes, catRes, itemRes, custRes, courierRes, ordRes, bookRes] = await Promise.all([
+        miniAppFetch(`/api/admin/current-business?businessId=${encodeURIComponent(businessId)}`),
+        miniAppFetch(`/api/businesses/${businessId}/catalog?limit=50`),
+        miniAppFetch(`/api/admin/items?businessId=${encodeURIComponent(businessId)}&filter=ALL&limit=100`),
+        miniAppFetch(`/api/admin/customers?businessId=${encodeURIComponent(businessId)}&limit=50`),
+        miniAppFetch(`/api/admin/couriers?businessId=${encodeURIComponent(businessId)}`),
+        miniAppFetch(`/api/orders?businessId=${encodeURIComponent(businessId)}&limit=20`),
+        miniAppFetch(`/api/bookings?businessId=${encodeURIComponent(businessId)}&limit=20`),
+      ]);
+
       if (bizRes.ok) {
         const bData = await bizRes.json();
         syncBusinessState(bData.data || bData);
       }
 
       let fetchedItemsCount = 0;
-
-      // 2. Fetch Catalog (Items & Categories)
-      const catRes = await miniAppFetch(`/api/businesses/${businessId}/catalog`);
       if (catRes.ok) {
         const cData = await catRes.json();
-        setItems(cData.items || []);
-        fetchedItemsCount = cData.items?.length || 0;
         setCategories(cData.categories || []);
         if (cData.categories?.length > 0 && !newItemCategory) {
           setNewItemCategory(cData.categories[0].id);
         }
       }
+      if (itemRes.ok) {
+        const itemData = await itemRes.json();
+        const sellerItems = itemData.data || [];
+        setItems(sellerItems);
+        fetchedItemsCount = sellerItems.filter((item: any) => !item.archivedAt).length;
+      }
 
-      // 3. Fetch CRM Customers
-      const custRes = await miniAppFetch(`/api/admin/customers?businessId=${businessId}`);
       if (custRes.ok) {
         const custData = await custRes.json();
         setCustomers(custData.data || []);
       }
 
-      const courierRes = await miniAppFetch(`/api/admin/couriers?businessId=${encodeURIComponent(businessId)}`);
       if (courierRes.ok) {
         const courierData = await courierRes.json();
         setCouriers((courierData.couriers || []).filter((courier: any) => courier.isActive));
       }
 
-      // 4. Fetch Orders and Bookings
-      const ordRes = await miniAppFetch(`/api/orders?businessId=${businessId}`);
-      const bookRes = await miniAppFetch(`/api/bookings?businessId=${businessId}`);
-      
       let ords = [] as any[];
       let bks = [] as any[];
 
       if (ordRes.ok) ords = await ordRes.json();
+      setOrdersHasMore(ords.length === 20);
       if (bookRes.ok) bks = await bookRes.json();
 
       // Calculate today's stats
@@ -299,6 +382,9 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     setNewItemDesc("");
     setNewItemType("PRODUCT");
     setNewItemImage("");
+    setNewItemStockMode("SIMPLE_AVAILABILITY");
+    setNewItemStock("");
+    setNewItemAvailable(true);
   };
 
   const startEditItem = (item: any) => {
@@ -309,6 +395,9 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     setNewItemDesc(item.description || "");
     setNewItemType(item.type === "SERVICE" ? "SERVICE" : "PRODUCT");
     setNewItemImage(item.imageUrl || "");
+    setNewItemStockMode(item.stockMode === "TRACK_STOCK" ? "TRACK_STOCK" : "SIMPLE_AVAILABILITY");
+    setNewItemStock(item.stock === undefined || item.stock === null ? "" : String(item.stock));
+    setNewItemAvailable(Boolean(item.isAvailable));
     setActiveTab("ITEMS");
   };
 
@@ -330,7 +419,9 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
           description: newItemDesc,
           type: newItemType,
           imageUrl: newItemImage || undefined,
-          isAvailable: true,
+          stockMode: newItemType === "PRODUCT" ? newItemStockMode : "SIMPLE_AVAILABILITY",
+          stock: newItemType === "PRODUCT" && newItemStockMode === "TRACK_STOCK" ? newItemStock : null,
+          isAvailable: newItemAvailable,
         }),
       });
 
@@ -348,7 +439,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   };
 
   const handleDeleteItem = async (itemId: string) => {
-    if (!confirm("Вы действительно хотите удалить эту позицию?")) return;
+    if (!confirm("Архивировать эту позицию? Старые заказы сохранятся.")) return;
 
     try {
       const res = await miniAppFetch(`/api/admin/items/${itemId}`, {
@@ -356,13 +447,56 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       });
 
       if (res.ok) {
-        showSuccess("Позиция удалена!");
+        showSuccess("Позиция перенесена в архив.");
         fetchSellerData();
       } else {
-        showError("Не удалось удалить товар");
+        showError("Не удалось архивировать товар");
       }
     } catch (err) {
-      showError("Не удалось удалить товар. Проверьте соединение и попробуйте снова.");
+      showError("Не удалось архивировать товар. Проверьте соединение и попробуйте снова.");
+    }
+  };
+
+  const handleQuickItemUpdate = async (itemId: string, patch: Record<string, unknown>) => {
+    const previous = items;
+    setItems((current) => current.map((item) => item.id === itemId ? { ...item, ...patch } : item));
+    try {
+      const response = await miniAppFetch(`/api/admin/items/${itemId}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Не удалось обновить товар.");
+      if (data.data) {
+        setItems((current) => current.map((item) => item.id === itemId ? data.data : item));
+      }
+    } catch (updateError) {
+      setItems(previous);
+      showError(updateError instanceof Error ? updateError.message : "Не удалось обновить товар.");
+    }
+  };
+
+  const loadMoreOrders = async () => {
+    if (ordersLoadingMore || !ordersHasMore) return;
+    setOrdersLoadingMore(true);
+    try {
+      const response = await miniAppFetch(
+        `/api/orders?businessId=${encodeURIComponent(businessId)}&limit=20&offset=${stats.orders.length}`
+      );
+      const nextOrders = await response.json().catch(() => []);
+      if (!response.ok || !Array.isArray(nextOrders)) throw new Error("Не удалось загрузить следующие заказы.");
+      setStats((current) => ({
+        ...current,
+        orders: [
+          ...current.orders,
+          ...nextOrders.filter((nextOrder: any) => !current.orders.some((order: any) => order.id === nextOrder.id)),
+        ],
+      }));
+      setOrdersHasMore(nextOrders.length === 20);
+    } catch (loadError) {
+      showError(loadError instanceof Error ? loadError.message : "Не удалось загрузить следующие заказы.");
+    } finally {
+      setOrdersLoadingMore(false);
     }
   };
 
@@ -541,6 +675,20 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     }
   };
 
+  const visibleItems = items.filter((item) => {
+    const matchesSearch = !itemSearch.trim() ||
+      item.name?.toLowerCase().includes(itemSearch.trim().toLowerCase()) ||
+      item.description?.toLowerCase().includes(itemSearch.trim().toLowerCase());
+    const isOutOfStock = item.stockMode === "TRACK_STOCK" && Number(item.stock || 0) <= 0;
+    const matchesFilter =
+      (itemFilter === "ACTIVE" && !item.archivedAt) ||
+      (itemFilter === "AVAILABLE" && !item.archivedAt && item.isAvailable && !isOutOfStock) ||
+      (itemFilter === "UNAVAILABLE" && !item.archivedAt && isOutOfStock) ||
+      (itemFilter === "HIDDEN" && !item.archivedAt && !item.isAvailable && !isOutOfStock) ||
+      (itemFilter === "ARCHIVED" && Boolean(item.archivedAt));
+    return matchesSearch && matchesFilter;
+  });
+
   if (loading && items.length === 0) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-500">
@@ -583,6 +731,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
             { id: "ORDERS", label: "Заказы", icon: <ClipboardList size={11} /> },
             { id: "BOOKINGS", label: "Записи", icon: <Calendar size={11} /> },
             { id: "ITEMS", label: "Товары", icon: <ShoppingBag size={11} /> },
+            { id: "PROMOCODES", label: "Промокоды", icon: <Tag size={11} /> },
             { id: "DELIVERY", label: "Доставка", icon: <Truck size={11} /> },
             { id: "COURIERS", label: "Курьеры", icon: <Bike size={11} /> },
             { id: "CLIENTS", label: "Клиенты", icon: <Users size={11} /> },
@@ -670,7 +819,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
               </div>
             </div>
 
-            <SellerStoreTools businessSlug={businessData?.slug || ""} />
+            <SellerStoreTools businessSlug={businessData?.slug || ""} businessId={businessId} />
 
             {/* Active/Today Orders */}
             <div className="bg-white rounded-3xl p-4 shadow-sm ring-1 ring-slate-100/80">
@@ -754,7 +903,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                         : "bg-slate-100 text-slate-500 hover:bg-slate-200"
                     }`}
                   >
-                    {status === "ALL" ? "Все" : status}
+                    {status === "ALL" ? "Все" : ORDER_STATUS_LABELS[status] || status}
                   </button>
                 ))}
               </div>
@@ -785,7 +934,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           order.status === "EXPIRED" ? "bg-slate-200 text-slate-700" :
                           "bg-slate-200 text-slate-500"
                         }`}>
-                          {order.status === "EXPIRED" ? "Истёк" : order.status}
+                          {ORDER_STATUS_LABELS[order.status] || "Неизвестный статус"}
                         </span>
                       </div>
 
@@ -822,7 +971,13 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                             <div className="flex items-center justify-between gap-2">
                               <span>Оплата переводом</span>
                               <span className="rounded-full bg-white px-2 py-0.5 text-[9px] font-black text-amber-700">
-                                {order.paymentStatus === "AWAITING_REVIEW" ? "Ожидает проверки" : order.paymentStatus}
+                                {order.paymentStatus === "AWAITING_REVIEW"
+                                  ? "Ожидает проверки"
+                                  : order.paymentStatus === "PAID"
+                                    ? "Оплачено"
+                                    : order.paymentStatus === "REJECTED"
+                                      ? "Отклонено"
+                                      : "Ожидает оплаты"}
                               </span>
                             </div>
                             {order.paymentProofUrl && (
@@ -835,8 +990,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                                 <span>ИИ:</span>
                                 <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${
                                   order.paymentProofAiStatus === "LIKELY_VALID" ? "bg-emerald-100 text-emerald-700" :
-                                  order.paymentProofAiStatus === "SUSPICIOUS" ? "bg-amber-100 text-amber-700" :
-                                  order.paymentProofAiStatus === "INVALID" ? "bg-rose-100 text-rose-700" :
+                                  order.paymentProofAiStatus === "MANUAL_REVIEW" ? "bg-amber-100 text-amber-700" :
+                                  order.paymentProofAiStatus === "LIKELY_INVALID" ? "bg-rose-100 text-rose-700" :
                                   "bg-slate-100 text-slate-600"
                                 }`}>
                                   {paymentProofAiLabel(order.paymentProofAiStatus)}
@@ -846,9 +1001,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                                 )}
                               </div>
                             )}
-                            {order.paymentProofAiSummary && (
-                              <div className="text-[10px] leading-relaxed text-slate-600">{order.paymentProofAiSummary}</div>
-                            )}
+                            <ReceiptAnalysisDetails order={order} />
                           </div>
                         )}
                         {order.deliveryCityArea && (
@@ -880,6 +1033,12 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           <div className="flex justify-between font-bold text-slate-600">
                             <span>Доставка:</span>
                             <span>{order.deliveryFee || 0} ₽</span>
+                          </div>
+                        )}
+                        {order.discountAmount > 0 && (
+                          <div className="flex justify-between font-bold text-emerald-700">
+                            <span>Скидка {order.promoCode ? `(${order.promoCode})` : ""}:</span>
+                            <span>−{order.discountAmount} ₽</span>
                           </div>
                         )}
                         <div className="flex justify-between font-black text-slate-900">
@@ -1025,6 +1184,16 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                   ))
                 )}
               </div>
+              {ordersHasMore && (
+                <button
+                  type="button"
+                  onClick={loadMoreOrders}
+                  disabled={ordersLoadingMore}
+                  className="mt-3 w-full rounded-xl bg-slate-100 px-4 py-2.5 text-xs font-black text-slate-700 disabled:opacity-50"
+                >
+                  {ordersLoadingMore ? "Загружаем..." : "Загрузить ещё"}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -1046,7 +1215,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                         : "bg-slate-100 text-slate-500 hover:bg-slate-200"
                     }`}
                   >
-                    {status === "ALL" ? "Все" : status}
+                    {status === "ALL" ? "Все" : BOOKING_STATUS_LABELS[status] || status}
                   </button>
                 ))}
               </div>
@@ -1073,7 +1242,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           bk.status === "NO_SHOW" ? "bg-rose-100 text-rose-700" :
                           "bg-slate-200 text-slate-500"
                         }`}>
-                          {bk.status === "NO_SHOW" ? "Клиент не пришёл" : bk.status === "EXPIRED" ? "Истекла" : bk.status}
+                          {BOOKING_STATUS_LABELS[bk.status] || "Неизвестный статус"}
                         </span>
                       </div>
 
@@ -1253,6 +1422,36 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                   </button>
                 </div>
 
+                {newItemType === "PRODUCT" && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <select
+                      value={newItemStockMode}
+                      onChange={(e) => setNewItemStockMode(e.target.value as "SIMPLE_AVAILABILITY" | "TRACK_STOCK")}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold outline-none"
+                    >
+                      <option value="SIMPLE_AVAILABILITY">Только наличие</option>
+                      <option value="TRACK_STOCK">Считать остаток</option>
+                    </select>
+                    {newItemStockMode === "TRACK_STOCK" ? (
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={newItemStock}
+                        onChange={(e) => setNewItemStock(e.target.value)}
+                        placeholder="Остаток"
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold outline-none"
+                        required
+                      />
+                    ) : (
+                      <label className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold">
+                        <span>В наличии</span>
+                        <input type="checkbox" checked={newItemAvailable} onChange={(e) => setNewItemAvailable(e.target.checked)} />
+                      </label>
+                    )}
+                  </div>
+                )}
+
                 <textarea
                   value={newItemDesc}
                   onChange={(e) => setNewItemDesc(e.target.value)}
@@ -1273,12 +1472,38 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
             {/* Listing grid catalog */}
             <div className="bg-white rounded-3xl p-5 shadow-sm ring-1 ring-slate-100/80">
-              <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3">Витрина заведения ({items.length})</h3>
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3">Витрина заведения ({visibleItems.length})</h3>
+              <input
+                value={itemSearch}
+                onChange={(event) => setItemSearch(event.target.value)}
+                placeholder="Поиск по товарам"
+                className="mb-2 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-bold outline-none"
+              />
+              <div className="mb-3 flex gap-1.5 overflow-x-auto">
+                {([
+                  ["ACTIVE", "Активные"],
+                  ["AVAILABLE", "В наличии"],
+                  ["UNAVAILABLE", "Нет в наличии"],
+                  ["HIDDEN", "Скрытые"],
+                  ["ARCHIVED", "Архив"],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setItemFilter(value)}
+                    className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[9px] font-black ${
+                      itemFilter === value ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
-                {items.length === 0 ? (
-                  <p className="text-center py-8 text-xs text-slate-400 font-semibold">Ваш каталог пока пуст.</p>
+                {visibleItems.length === 0 ? (
+                  <p className="text-center py-8 text-xs text-slate-400 font-semibold">Товары по выбранному фильтру не найдены.</p>
                 ) : (
-                  items.map((it) => (
+                  visibleItems.map((it) => (
                     <div key={it.id} className="flex gap-3 items-center justify-between p-2 rounded-2xl border border-slate-50 bg-slate-50/40">
                       <div className="flex items-center gap-3">
                         <div className="h-11 w-11 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center text-slate-400">
@@ -1288,9 +1513,35 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                             <ImageIcon size={14} />
                           )}
                         </div>
-                        <div>
-                          <strong className="text-xs font-black text-slate-900 block">{it.name}</strong>
-                          <span className="text-[10px] font-black text-indigo-600">{it.price} ₽</span>
+                        <div className="min-w-0">
+                          <strong className="line-clamp-2 text-xs font-black text-slate-900">{it.name}</strong>
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            <input
+                              type="number"
+                              min="0"
+                              defaultValue={it.price}
+                              aria-label={`Цена ${it.name}`}
+                              onBlur={(event) => {
+                                const price = Number(event.target.value);
+                                if (Number.isFinite(price) && price !== it.price) void handleQuickItemUpdate(it.id, { price });
+                              }}
+                              className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-black text-indigo-600"
+                            />
+                            {it.stockMode === "TRACK_STOCK" && (
+                              <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                defaultValue={it.stock ?? 0}
+                                aria-label={`Остаток ${it.name}`}
+                                onBlur={(event) => {
+                                  const stock = Number(event.target.value);
+                                  if (Number.isInteger(stock) && stock !== it.stock) void handleQuickItemUpdate(it.id, { stock });
+                                }}
+                                className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-black text-slate-700"
+                              />
+                            )}
+                          </div>
                           {it.category?.name && (
                             <span className="text-[9px] font-bold text-slate-400 ml-1.5">
                               · {it.category.name}
@@ -1299,6 +1550,13 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => void handleQuickItemUpdate(it.id, { isAvailable: !it.isAvailable })}
+                          className={`rounded-lg px-2 py-1 text-[9px] font-black ${it.isAvailable ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}
+                        >
+                          {it.isAvailable ? "В наличии" : "Нет"}
+                        </button>
                         <button
                           onClick={() => startEditItem(it)}
                           className="p-2 rounded-xl text-indigo-600 hover:bg-indigo-50 active:scale-95 transition"
@@ -1309,7 +1567,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                         <button
                           onClick={() => handleDeleteItem(it.id)}
                           className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 active:scale-95 transition"
-                          title="Удалить"
+                          title="Архивировать"
                         >
                           <Trash2 size={13} />
                         </button>
@@ -1324,6 +1582,13 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
         {activeTab === "DELIVERY" && (
           <SellerDeliverySettings
+            businessId={businessId}
+            onMessage={(message, isError) => isError ? showError(message) : showSuccess(message)}
+          />
+        )}
+
+        {activeTab === "PROMOCODES" && (
+          <SellerPromoCodes
             businessId={businessId}
             onMessage={(message, isError) => isError ? showError(message) : showSuccess(message)}
           />

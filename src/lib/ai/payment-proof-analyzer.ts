@@ -7,24 +7,47 @@ import {
 } from "@/lib/ai/safe-ai-json";
 
 export type PaymentProofAnalysisResult = PaymentProofAnalysisJson & {
-  status: "LIKELY_VALID" | "SUSPICIOUS" | "INVALID" | "UNREADABLE" | "AI_UNAVAILABLE";
   summary: string;
 };
 
-function toResult(analysis: PaymentProofAnalysisJson, orderTotal: number): PaymentProofAnalysisResult {
-  const amountMismatch = analysis.amount !== null && Math.abs(analysis.amount - orderTotal) > 1;
-  const status = !analysis.isReceipt
-    ? "INVALID"
-    : amountMismatch || analysis.confidence < 60
-      ? "SUSPICIOUS"
-      : "LIKELY_VALID";
+function normalizedText(value?: string | null) {
+  return (value || "").toLowerCase().replace(/[^a-zа-яё0-9]/gi, "");
+}
+
+function toResult(
+  analysis: PaymentProofAnalysisJson,
+  orderTotal: number,
+  expectedRecipient?: string | null
+): PaymentProofAnalysisResult {
+  const amountMatches = analysis.extractedAmount === null
+    ? null
+    : Math.abs(analysis.extractedAmount - orderTotal) <= 1;
+  const expectedRecipientNormalized = normalizedText(expectedRecipient);
+  const extractedRecipientNormalized = normalizedText(analysis.extractedRecipient);
+  const recipientMatches = !expectedRecipientNormalized || !extractedRecipientNormalized
+    ? null
+    : extractedRecipientNormalized.includes(expectedRecipientNormalized) ||
+      expectedRecipientNormalized.includes(extractedRecipientNormalized);
+  const status = amountMatches === false || recipientMatches === false
+    ? "LIKELY_INVALID"
+    : amountMatches === true && analysis.confidencePercent >= 70
+      ? "LIKELY_VALID"
+      : "MANUAL_REVIEW";
+  const reasonRu = amountMatches === false
+    ? "Сумма на чеке не совпадает с суммой заказа."
+    : status === "LIKELY_VALID"
+      ? "Чек похож на корректный, но подтвердите вручную."
+      : analysis.reasonRu || "ИИ не смог прочитать чек. Проверьте оплату вручную.";
 
   return {
     ...analysis,
+    expectedAmount: orderTotal,
+    expectedRecipient: expectedRecipient || null,
+    amountMatches,
+    recipientMatches,
     status,
-    summary: amountMismatch
-      ? `${analysis.comment} Сумма на чеке не совпадает с суммой заказа.`
-      : analysis.comment,
+    reasonRu,
+    summary: reasonRu,
   };
 }
 
@@ -36,6 +59,7 @@ export async function analyzePaymentProof(input: {
   paymentPhone?: string | null;
   bankName?: string | null;
   orderCreatedAt: Date;
+  mimeType?: string | null;
 }): Promise<PaymentProofAnalysisResult> {
   const apiKey = process.env.POLZA_AI_API_KEY;
   if (!apiKey || process.env.AI_PROVIDER !== "polza") {
@@ -43,12 +67,17 @@ export async function analyzePaymentProof(input: {
       console.error("[AI CONFIG ERROR] POLZA_AI_API_KEY missing");
     }
     return {
-      status: "AI_UNAVAILABLE",
-      isReceipt: false,
-      amount: null,
-      date: null,
-      confidence: 0,
-      comment: "ИИ временно недоступен, чек отправлен продавцу.",
+      extractedAmount: null,
+      expectedAmount: input.orderTotal,
+      amountMatches: null,
+      extractedDate: null,
+      extractedRecipient: null,
+      expectedRecipient: input.recipientName || null,
+      recipientMatches: null,
+      extractedBank: null,
+      confidencePercent: 0,
+      status: "MANUAL_REVIEW",
+      reasonRu: "ИИ не смог прочитать чек. Проверьте оплату вручную.",
       summary: "ИИ-проверка чека не выполнена. Проверьте чек вручную.",
     };
   }
@@ -57,8 +86,8 @@ export async function analyzePaymentProof(input: {
     "Ты проверяешь изображение банковского чека перевода для Telegram Mini App.",
     "Верни только JSON без markdown и пояснений.",
     "Не ставь заказ как оплаченный. Финальное решение принимает продавец.",
-    "Схема строго такая: {\"isReceipt\":true,\"amount\":number|null,\"date\":\"string|null\",\"confidence\":number,\"comment\":\"string\"}.",
-    "confidence укажи числом от 0 до 100.",
+    "Схема строго такая: {\"extractedAmount\":number|null,\"expectedAmount\":number,\"amountMatches\":boolean|null,\"extractedDate\":\"string|null\",\"extractedRecipient\":\"string|null\",\"expectedRecipient\":\"string|null\",\"recipientMatches\":boolean|null,\"extractedBank\":\"string|null\",\"confidencePercent\":number,\"status\":\"LIKELY_VALID|MANUAL_REVIEW|LIKELY_INVALID\",\"reasonRu\":\"string\"}.",
+    "confidencePercent укажи числом от 0 до 100.",
   ].join(" ");
 
   const user = [
@@ -67,12 +96,14 @@ export async function analyzePaymentProof(input: {
     `Получатель продавца: ${input.recipientName || "не указан"}.`,
     `Телефон/SBP продавца: ${input.paymentPhone || "не указан"}.`,
     `Банк продавца: ${input.bankName || "не указан"}.`,
+    `Формат файла: ${input.mimeType || "не указан"}.`,
     `Заказ создан: ${input.orderCreatedAt.toISOString()}.`,
     "Правила:",
-    "1. Определи, похоже ли изображение на банковский чек.",
-    "2. Извлеки сумму и дату, если они читаются.",
-    "3. В comment кратко укажи сомнения, несовпадения или причину низкой уверенности.",
-    "4. Не подтверждай оплату и не принимай финальное решение за продавца.",
+    "1. Определи, похож ли файл на банковский чек.",
+    "2. Извлеки сумму, дату, получателя и банк, если они читаются.",
+    "3. Сравни сумму и получателя только с переданными ожидаемыми значениями.",
+    "4. В reasonRu кратко укажи сомнения, несовпадения или причину низкой уверенности.",
+    "5. Не подтверждай оплату и не принимай финальное решение за продавца.",
   ].join("\n");
 
   const provider = new PolzaAIProvider(apiKey, process.env.POLZA_VISION_MODEL || process.env.POLZA_IMAGE_MODEL || process.env.POLZA_TEXT_MODEL);
@@ -86,7 +117,7 @@ export async function analyzePaymentProof(input: {
       model: process.env.POLZA_VISION_MODEL || process.env.POLZA_IMAGE_MODEL,
     });
 
-    return toResult(safeParseAiJson(raw, validatePaymentProofAnalysisJson), input.orderTotal);
+    return toResult(safeParseAiJson(raw, validatePaymentProofAnalysisJson), input.orderTotal, input.recipientName);
   } catch (firstError) {
     console.error("[PAYMENT PROOF AI] parse/request failed", {
       error: firstError,
@@ -101,12 +132,12 @@ export async function analyzePaymentProof(input: {
           system,
           user: [
             "Исправь этот ответ в валидный JSON строго по схеме анализа чека:",
-            "{\"isReceipt\":true,\"amount\":number|null,\"date\":\"string|null\",\"confidence\":number,\"comment\":\"string\"}",
+            "{\"extractedAmount\":number|null,\"expectedAmount\":number,\"amountMatches\":boolean|null,\"extractedDate\":\"string|null\",\"extractedRecipient\":\"string|null\",\"expectedRecipient\":\"string|null\",\"recipientMatches\":boolean|null,\"extractedBank\":\"string|null\",\"confidencePercent\":number,\"status\":\"LIKELY_VALID|MANUAL_REVIEW|LIKELY_INVALID\",\"reasonRu\":\"string\"}",
             "Верни только JSON.",
             raw,
           ].join("\n"),
         });
-        return toResult(safeParseAiJson(repaired, validatePaymentProofAnalysisJson), input.orderTotal);
+        return toResult(safeParseAiJson(repaired, validatePaymentProofAnalysisJson), input.orderTotal, input.recipientName);
       } catch (repairError) {
         console.error("[PAYMENT PROOF AI] repair failed", {
           error: repairError,
@@ -116,13 +147,18 @@ export async function analyzePaymentProof(input: {
     }
 
     return {
-      status: raw ? "UNREADABLE" : "AI_UNAVAILABLE",
-      isReceipt: false,
-      amount: null,
-      date: null,
-      confidence: 0,
-      comment: raw ? "ИИ не смог прочитать или проверить чек." : "ИИ временно недоступен, чек отправлен продавцу.",
-      summary: raw ? "ИИ не смог проверить чек автоматически. Проверьте чек вручную." : "ИИ временно недоступен, чек отправлен продавцу.",
+      extractedAmount: null,
+      expectedAmount: input.orderTotal,
+      amountMatches: null,
+      extractedDate: null,
+      extractedRecipient: null,
+      expectedRecipient: input.recipientName || null,
+      recipientMatches: null,
+      extractedBank: null,
+      confidencePercent: 0,
+      status: "MANUAL_REVIEW",
+      reasonRu: "ИИ не смог прочитать чек. Проверьте оплату вручную.",
+      summary: "ИИ не смог прочитать чек. Проверьте оплату вручную.",
     };
   }
 }

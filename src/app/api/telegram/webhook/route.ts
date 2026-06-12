@@ -2,14 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { telegramBot } from "@/lib/telegram-bot-service";
-import { AI_MANAGER_HANDOFF_MESSAGE, AIService, resolveAIProviderName } from "@/lib/ai/ai-service";
-import { getPolzaChatEndpoint } from "@/lib/ai/polza-provider";
 import { ensureTelegramUser, trySyncUserPhone } from "@/lib/auth/telegram-user-service";
 import { ensureCustomerForTelegramUser } from "@/lib/customer/customer-service";
 import { getMiniAppUrl } from "@/lib/production-url";
 import { looksLikeSellerLinkAttempt, parseSellerLinkText } from "@/lib/seller-link";
 import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 import { getTelegramWebhookSecret } from "@/lib/telegram-webhook-config";
+import { runTelegramMarketplaceAgent } from "@/lib/ai/telegram-marketplace-agent";
 
 type TelegramBusinessContext = {
   id: string;
@@ -19,10 +18,6 @@ type TelegramBusinessContext = {
   description: string | null;
   phone: string | null;
   address: string | null;
-  aiProvider: string | null;
-  aiModel: string | null;
-  telegramAdminChatId?: bigint | null;
-  owner?: { telegramId: bigint | null } | null;
 };
 
 const telegramBusinessContextSelect = {
@@ -33,10 +28,6 @@ const telegramBusinessContextSelect = {
   description: true,
   phone: true,
   address: true,
-  aiProvider: true,
-  aiModel: true,
-  telegramAdminChatId: true,
-  owner: { select: { telegramId: true } },
 } as const;
 
 function telegramWebhookAuth(request: NextRequest) {
@@ -95,54 +86,8 @@ function safeMiniAppUrl(path = "/app") {
   }
 }
 
-function managerChatIdForBusiness(business: TelegramBusinessContext) {
-  return (
-    business.telegramAdminChatId?.toString() ||
-    business.owner?.telegramId?.toString() ||
-    process.env.TELEGRAM_ADMIN_CHAT_ID ||
-    null
-  );
-}
-
-function escapeTelegramHtml(message: string) {
-  return message.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
 function logTelegramResponseSent(context: Record<string, unknown>) {
   console.info("[TELEGRAM_RESPONSE_SENT]", context);
-}
-
-async function notifyManagerAboutAiFailure(
-  business: TelegramBusinessContext,
-  from: TelegramMessageFrom | null | undefined,
-  question: string
-) {
-  const chatId = managerChatIdForBusiness(business);
-  if (!chatId) {
-    console.warn("[TELEGRAM_AI_MANAGER_HANDOFF_SKIPPED]", {
-      businessId: business.id,
-      reason: "manager_chat_id_missing",
-    });
-    return;
-  }
-
-  await telegramBot.sendNotification(
-    chatId,
-    [
-      "<b>AI question requires manager attention</b>",
-      `Business: ${escapeTelegramHtml(business.name)}`,
-      `Customer: ${escapeTelegramHtml(from?.username ? `@${from.username}` : String(from?.id || "unknown"))}`,
-      `Question: ${escapeTelegramHtml(question.slice(0, 1000))}`,
-    ].join("\n")
-  );
-}
-
-function catalogSearchQuery(text: string) {
-  const normalized = text.toLowerCase().replace(/[?!.,;:]/g, " ").replace(/\s+/g, " ").trim();
-  const markers = ["есть ли у вас ", "у вас есть ", "есть ли ", "есть "];
-  const marker = markers.find((candidate) => normalized.includes(candidate));
-  if (!marker) return null;
-  return normalized.split(marker)[1]?.replace(/\b(в наличии|сейчас|товар)\b/g, "").trim() || null;
 }
 
 async function handleSellerLinkCode(text: string, chatId: string | number, from?: TelegramMessageFrom | null) {
@@ -329,9 +274,13 @@ export async function POST(request: NextRequest) {
 
     // 1. Resolve Business
     let business: TelegramBusinessContext | null = null;
-    if (queryBusinessId) {
-      business = await prisma.business.findUnique({
-        where: { id: queryBusinessId },
+    if (queryBusinessId && queryBusinessId !== "global") {
+      business = await prisma.business.findFirst({
+        where: {
+          id: queryBusinessId,
+          isActive: true,
+          subscriptionStatus: { notIn: ["BLOCKED", "EXPIRED"] },
+        },
         select: telegramBusinessContextSelect,
       });
     }
@@ -552,135 +501,38 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // 2. FAQ logic - resolve customer or business
-    const customer = await prisma.customer.findFirst({
-      where: { 
-        telegramUserId: BigInt(from.id),
-        ...(business ? { businessId: business.id } : {})
-      },
-      include: {
-        business: {
-          select: telegramBusinessContextSelect,
-        },
-      },
-      orderBy: { createdAt: "desc" },
+    const agentResponse = await runTelegramMarketplaceAgent({
+      text,
+      telegramUserId: String(from.id),
+      business,
     });
-
-    const activeBusiness = business || customer?.business;
-    const activeBusinessProvider = resolveAIProviderName(activeBusiness?.aiProvider);
-    const activeBusinessModel = activeBusinessProvider === "polza"
-      ? process.env.POLZA_TEXT_MODEL || activeBusiness?.aiModel || "z-ai/glm-4.7-flash"
-      : activeBusiness?.aiModel || "";
-
-    if (activeBusiness) {
-      const catalogItems = await prisma.item.findMany({
-        where: { businessId: activeBusiness.id, isAvailable: true, type: "PRODUCT" },
-        select: { id: true, name: true, price: true },
-        orderBy: [{ isPopular: "desc" }, { sortOrder: "asc" }],
-        take: 100,
-      });
-      const storeUrl = getMiniAppUrl(`/app/${activeBusiness.slug}`);
-      const knowledgeBase = [
-        `Название: ${activeBusiness.name}.`,
-        `Описание: ${activeBusiness.description || "нет"}.`,
-        `Телефон: ${activeBusiness.phone || "нет"}.`,
-        `Адрес: ${activeBusiness.address || "нет"}.`,
-        `Текущий каталог: ${catalogItems.map((item) => `${item.name} — ${item.price} ₽`).join("; ") || "товаров нет"}.`,
-        `Mini App: ${storeUrl}.`,
-        "Не выдумывай товары. Если товара нет в текущем каталоге, честно скажи, что его нет.",
-      ].join(" ");
-      
-      console.info("[BUSINESS CONTEXT] slug/name/id", {
-        slug: activeBusiness.slug,
-        name: activeBusiness.name,
-        id: activeBusiness.id,
-      });
-      console.info("[AI CONFIG] provider", {
-        provider: activeBusinessProvider,
-        model: activeBusinessModel,
-        hasPolzaKey: Boolean(process.env.POLZA_AI_API_KEY),
-        endpoint: activeBusinessProvider === "polza" ? getPolzaChatEndpoint() : null,
-      });
-
-      if (activeBusinessProvider === "polza" && !process.env.POLZA_AI_API_KEY) {
-        console.error("[POLZA_AI_ERROR]", {
-          businessId: activeBusiness.id,
-          model: activeBusinessModel,
-          reason: "POLZA_AI_API_KEY missing",
-        });
-        await notifyManagerAboutAiFailure(activeBusiness, from, text).catch((error) =>
-          console.warn("[TELEGRAM_AI_MANAGER_HANDOFF_FAILED]", error)
-        );
-        await telegramBot.sendNotification(
-          chatId,
-          AI_MANAGER_HANDOFF_MESSAGE
-        );
-        logTelegramResponseSent({ chatId, type: "ai_handoff", businessId: activeBusiness.id });
-        return NextResponse.json({ ok: true });
-      }
-
-      const searchQuery = catalogSearchQuery(text);
-      if (searchQuery) {
-        const matches = catalogItems.filter((item) => {
-          const itemName = item.name.toLowerCase();
-          return itemName.includes(searchQuery) || searchQuery.includes(itemName);
-        });
-        if (matches.length > 0) {
-          await telegramBot.sendNotification(
-            chatId,
-            `Есть: ${matches.slice(0, 5).map((item) => `${item.name} — ${item.price} ₽`).join(", ")}. Откройте Mini App, чтобы добавить товар в корзину.`,
-            { reply_markup: { inline_keyboard: [[{ text: `Открыть ${activeBusiness.name}`, web_app: { url: storeUrl } }]] } }
-          );
-          logTelegramResponseSent({ chatId, type: "catalog_match", businessId: activeBusiness.id });
-        } else {
-          await telegramBot.sendNotification(chatId, `В каталоге ${activeBusiness.name} такого товара сейчас нет.`);
-          logTelegramResponseSent({ chatId, type: "catalog_no_match", businessId: activeBusiness.id });
+    const replyMarkup = agentResponse.button
+      ? {
+          reply_markup: {
+            inline_keyboard: [[{
+              text: agentResponse.button.text,
+              web_app: { url: withTelegramWebAppCacheBust(agentResponse.button.url) },
+            }]],
+          },
         }
-        return NextResponse.json({ ok: true });
-      }
+      : undefined;
 
-      await telegramBot.sendNotification(chatId, "⏳ Думаю...");
-      console.info("[TELEGRAM_AI_REQUEST]", {
-        chatId,
-        businessId: activeBusiness.id,
-        businessSlug: activeBusiness.slug,
-        provider: activeBusinessProvider,
-        model: activeBusinessModel,
-        questionLength: text.length,
-      });
-      
-      const answer = await AIService.generateFAQAnswer(
-        activeBusiness.id,
-        activeBusinessProvider,
-        activeBusinessModel,
-        {
-          businessName: activeBusiness.name,
-          businessType: activeBusiness.type,
-          knowledgeBase,
-          customerQuestion: text,
-        }
-      );
-
-      if (answer === AI_MANAGER_HANDOFF_MESSAGE) {
-        await notifyManagerAboutAiFailure(activeBusiness, from, text).catch((error) =>
-          console.warn("[TELEGRAM_AI_MANAGER_HANDOFF_FAILED]", error)
-        );
-      }
-
-      await telegramBot.sendNotification(chatId, answer);
-      logTelegramResponseSent({
-        chatId,
-        type: "ai_answer",
-        businessId: activeBusiness.id,
-        provider: activeBusinessProvider,
-        model: activeBusinessModel,
-        handoff: answer === AI_MANAGER_HANDOFF_MESSAGE,
-      });
-    } else {
-      console.error("[BUSINESS CONTEXT] slug/name/id", { slug: null, name: null, id: null });
-      await telegramBot.sendNotification(chatId, "Сначала откройте нужный магазин в Mini App. Без выбранного бизнеса я не буду выдумывать товары и ответы.");
-      logTelegramResponseSent({ chatId, type: "business_context_missing" });
-    }
+    await telegramBot.sendNotification(chatId, agentResponse.text, replyMarkup);
+    console.info("[TELEGRAM_AI_AGENT]", {
+      telegramUserId: String(from.id),
+      text,
+      detectedIntent: agentResponse.detectedIntent,
+      businessSlug: business?.slug || null,
+      businessId: business?.id || null,
+      toolsCalled: agentResponse.toolsCalled,
+      responseSource: agentResponse.responseSource,
+    });
+    logTelegramResponseSent({
+      chatId,
+      type: "marketplace_agent",
+      businessId: business?.id || null,
+      detectedIntent: agentResponse.detectedIntent,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error) {
@@ -703,7 +555,7 @@ export async function POST(request: NextRequest) {
     if (webhookChatId && webhookText && !webhookText.startsWith("/")) {
       await telegramBot.sendNotification(
         webhookChatId,
-        AI_MANAGER_HANDOFF_MESSAGE
+        "Не удалось обработать вопрос. Откройте Vitrina AI или повторите попытку позже."
       );
       logTelegramResponseSent({ chatId: webhookChatId, type: "ai_error_handoff" });
     }
