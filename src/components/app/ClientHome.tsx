@@ -55,11 +55,11 @@ export function ClientHome({
 }: ClientHomeProps) {
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return businesses.filter((business) => {
+    return businesses.filter(Boolean).filter((business) => {
       const categoryMatch = activeCategory === "ALL" || business.type === activeCategory;
       const searchMatch =
         !needle ||
-        business.name.toLowerCase().includes(needle) ||
+        String(business.name || "").toLowerCase().includes(needle) ||
         (business.description || "").toLowerCase().includes(needle) ||
         business.typeLabel.toLowerCase().includes(needle);
       return categoryMatch && searchMatch;
@@ -156,7 +156,7 @@ export function ClientHome({
                         className="h-full w-full rounded-xl bg-white/90 object-cover"
                       />
                   ) : (
-                    business.name[0]
+                    business.name?.[0] || "?"
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -168,7 +168,7 @@ export function ClientHome({
                       <p className="text-[11px] font-bold text-slate-400 mt-0.5">{business.typeLabel}</p>
                     </div>
                     <span
-                      className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-black ${
+                      className={`max-w-[88px] shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-center text-[10px] font-black leading-none ${
                         business.isOpen
                           ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/60"
                           : "bg-slate-100 text-slate-500 ring-1 ring-slate-200/60"

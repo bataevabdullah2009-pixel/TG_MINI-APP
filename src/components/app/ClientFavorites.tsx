@@ -43,8 +43,12 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
         }
 
         setData({
-          favoriteBusinesses: businessRes.data?.favoriteBusinesses || [],
-          favoriteItems: productRes.data?.favoriteProducts || productRes.data?.favoriteItems || [],
+          favoriteBusinesses: Array.isArray(businessRes.data?.favoriteBusinesses)
+            ? businessRes.data.favoriteBusinesses.filter(Boolean)
+            : [],
+          favoriteItems: Array.isArray(productRes.data?.favoriteProducts || productRes.data?.favoriteItems)
+            ? (productRes.data.favoriteProducts || productRes.data.favoriteItems).filter(Boolean)
+            : [],
         });
       })
       .catch((e) => {
@@ -160,10 +164,10 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
                 data.favoriteBusinesses.map((fav) => (
                   <div
                     key={fav.id}
-                    className="flex items-center gap-3.5 rounded-3xl bg-white p-3 shadow-sm ring-1 ring-slate-100"
+                    className="flex min-h-[88px] items-center gap-3.5 rounded-3xl bg-white p-3 shadow-sm ring-1 ring-slate-100"
                   >
                     <div
-                      className="grid h-12 w-12 shrink-0 place-items-center rounded-xl p-1 text-lg font-black text-white"
+                      className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl p-1 text-lg font-black text-white"
                       style={{
                         background: `linear-gradient(135deg, ${fav.business?.primaryColor || "#64748b"}, ${fav.business?.accentColor || "#94a3b8"})`,
                       }}
@@ -172,7 +176,7 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
                         <img
                           src={fav.business.logoUrl}
                           alt={fav.business.name || "Магазин"}
-                          className="h-full w-full rounded-lg bg-white/90 object-contain"
+                          className="h-full w-full rounded-xl bg-white/90 object-cover"
                         />
                       ) : (
                         fav.business?.name?.[0] || "?"
@@ -232,9 +236,9 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
                         openFavoriteProduct(fav);
                       }
                     }}
-                    className="flex cursor-pointer items-center gap-3.5 rounded-3xl bg-white p-3 shadow-sm ring-1 ring-slate-100 transition active:scale-[0.99]"
+                    className="flex min-h-[112px] cursor-pointer items-center gap-3.5 rounded-3xl bg-white p-3 shadow-sm ring-1 ring-slate-100 transition active:scale-[0.99]"
                   >
-                    <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-2xl border bg-slate-50 text-xl font-bold text-slate-400">
+                    <div className="grid h-[76px] w-[76px] shrink-0 place-items-center overflow-hidden rounded-2xl border bg-slate-50 text-xl font-bold text-slate-400">
                       {fav.item?.imageUrl ? (
                         <img src={fav.item.imageUrl} alt={fav.item.name || "Товар"} className="h-full w-full object-cover" />
                       ) : "📦"}

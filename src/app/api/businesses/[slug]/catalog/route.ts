@@ -119,10 +119,19 @@ async function findCatalogBusiness(slug: string, search: string | undefined, inc
   const lookup = normalizeLookup(slug);
   return prisma.business.findFirst({
     where: {
-      OR: [
-        { id: lookup },
-        { slug: lookup },
-        { slug: { equals: lookup, mode: "insensitive" } },
+      AND: [
+        {
+          OR: [
+            { id: lookup },
+            { slug: lookup },
+            { slug: { equals: lookup, mode: "insensitive" } },
+          ],
+        },
+        {
+          isActive: true,
+          accessStatus: "ACTIVE",
+          archivedAt: null,
+        },
       ],
     },
     select: {
@@ -153,7 +162,24 @@ export async function GET(
       business = await findCatalogBusiness(slug, search, false, false);
     }
 
-    if (!business || !business.isActive) {
+    if (!business) {
+      const lookup = normalizeLookup(slug);
+      const unavailableBusiness = await prisma.business.findFirst({
+        where: {
+          OR: [
+            { id: lookup },
+            { slug: lookup },
+            { slug: { equals: lookup, mode: "insensitive" } },
+          ],
+        },
+        select: { accessStatus: true, archivedAt: true },
+      });
+      if (unavailableBusiness?.accessStatus === "ARCHIVED" || unavailableBusiness?.archivedAt) {
+        return NextResponse.json(
+          { ok: false, code: "BUSINESS_ARCHIVED", error: "Витрина временно недоступна." },
+          { status: 410 }
+        );
+      }
       return NextResponse.json({ ok: false, code: "BUSINESS_NOT_FOUND", error: "Бизнес не найден." }, { status: 404 });
     }
 

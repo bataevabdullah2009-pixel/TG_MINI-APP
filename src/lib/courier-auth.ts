@@ -13,6 +13,13 @@ export async function getCourierAccess(request: NextRequest) {
   const courier = await prisma.courier.findFirst({
     where: {
       isActive: true,
+      business: {
+        is: {
+          isActive: true,
+          accessStatus: "ACTIVE",
+          archivedAt: null,
+        },
+      },
       OR: [
         ...(session.adminUser?.id ? [{ userId: session.adminUser.id }] : []),
         { telegramId },

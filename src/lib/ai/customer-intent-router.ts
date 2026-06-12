@@ -1,4 +1,5 @@
 export type CustomerIntent =
+  | "business_hours"
   | "product_search"
   | "order_status"
   | "payment_question"
@@ -30,6 +31,7 @@ const STOP_WORDS = new Set([
   "нужен",
   "нужна",
   "нужно",
+  "пожалуйста",
 ]);
 
 function normalize(text: string) {
@@ -57,6 +59,28 @@ function productQuery(text: string) {
 export function routeCustomerIntent(text: string): CustomerIntentResult {
   const normalized = normalize(text);
 
+  if (
+    includesAny(normalized, [
+      "вы работаете",
+      "работаете",
+      "вы открыты",
+      "открыто",
+      "закрыто",
+      "график",
+      "режим работы",
+      "часы работы",
+      "до скольки",
+      "со скольки",
+      "куда приехать",
+      "как вас найти",
+      "где вы",
+      "ваш адрес",
+      "адрес",
+    ])
+  ) {
+    return { intent: "business_hours", query: normalized, confidence: 0.97 };
+  }
+
   if (includesAny(normalized, ["где заказ", "статус заказ", "мой заказ", "что с заказ", "когда заказ"])) {
     return { intent: "order_status", query: normalized, confidence: 0.96 };
   }
@@ -70,10 +94,9 @@ export function routeCustomerIntent(text: string): CustomerIntentResult {
     return { intent: "booking_question", query: normalized, confidence: 0.93 };
   }
 
-  const productMarkers = ["есть ", "найди ", "покажи ", "в наличии", "купить ", "заказать "];
-  const words = normalized.split(" ").filter(Boolean);
-  if (includesAny(normalized, productMarkers) || (words.length > 0 && words.length <= 4)) {
-    return { intent: "product_search", query: productQuery(normalized), confidence: includesAny(normalized, productMarkers) ? 0.92 : 0.72 };
+  const productMarkers = ["есть ", "найди ", "покажи ", "в наличии", "купить ", "заказать ", "ищу "];
+  if (includesAny(normalized, productMarkers)) {
+    return { intent: "product_search", query: productQuery(normalized), confidence: 0.92 };
   }
 
   return { intent: "fallback", query: normalized, confidence: 0.55 };

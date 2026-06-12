@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { ClipboardList, Calendar, Search, CheckCircle, RefreshCw, AlertCircle } from "lucide-react";
+import { formatOrderStatusRu, getBookingStatusLabel } from "@/lib/utils";
 
 interface ManagerWorkPanelProps {
   session: any;
@@ -202,7 +203,7 @@ export function ManagerWorkPanel({ session, businessId }: ManagerWorkPanelProps)
                         <span className="text-[9px] font-bold text-slate-400 block mt-0.5">{o.customerName}</span>
                       </div>
                       <span className="rounded-full px-2 py-0.5 text-[9px] font-black bg-blue-50 text-blue-700 ring-1 ring-blue-200">
-                        {o.status}
+                        {formatOrderStatusRu(o.status)}
                       </span>
                     </div>
 
@@ -287,7 +288,7 @@ export function ManagerWorkPanel({ session, businessId }: ManagerWorkPanelProps)
                           </span>
                         </div>
                         <span className="rounded-full px-2 py-0.5 text-[9px] font-black bg-blue-50 text-blue-700 ring-1 ring-blue-200">
-                          {b.status}
+                          {getBookingStatusLabel(b.status)}
                         </span>
                       </div>
 

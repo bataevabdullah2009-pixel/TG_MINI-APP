@@ -110,7 +110,12 @@ export async function GET(
 
     try {
       business = await prisma.business.findFirst({
-        where: { AND: [businessLookupWhere(slug), { isActive: true }] },
+        where: {
+          AND: [
+            businessLookupWhere(slug),
+            { isActive: true, accessStatus: "ACTIVE", archivedAt: null },
+          ],
+        },
         select: businessDetailSelect,
       });
     } catch (error) {
@@ -119,12 +124,27 @@ export async function GET(
       schemaFallback = true;
       warnPrismaSchemaDrift(`Business detail ${slug} retried without optional payment/delivery schema`, error);
       business = await prisma.business.findFirst({
-        where: { AND: [businessLookupWhere(slug), { isActive: true }] },
+        where: {
+          AND: [
+            businessLookupWhere(slug),
+            { isActive: true, accessStatus: "ACTIVE", archivedAt: null },
+          ],
+        },
         select: businessDetailLegacySelect,
       });
     }
 
     if (!business) {
+      const unavailableBusiness = await prisma.business.findFirst({
+        where: businessLookupWhere(slug),
+        select: { accessStatus: true, archivedAt: true },
+      });
+      if (unavailableBusiness?.accessStatus === "ARCHIVED" || unavailableBusiness?.archivedAt) {
+        return NextResponse.json(
+          { ok: false, code: "BUSINESS_ARCHIVED", error: "Витрина временно недоступна." },
+          { status: 410 }
+        );
+      }
       return NextResponse.json({ ok: false, code: "BUSINESS_NOT_FOUND", error: "Бизнес не найден." }, { status: 404 });
     }
 

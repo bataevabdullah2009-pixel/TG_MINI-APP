@@ -42,7 +42,11 @@ export async function GET(request: NextRequest) {
     const superAdmin = isSuperAdmin(telegramUserId);
 
     const businesses = await prisma.business.findMany({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        accessStatus: "ACTIVE",
+        archivedAt: null,
+      },
       select: marketplaceBusinessSelect,
       orderBy: { createdAt: "desc" },
     });

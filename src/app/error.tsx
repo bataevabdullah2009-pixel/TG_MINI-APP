@@ -11,6 +11,7 @@ export default function GlobalError({
   reset: () => void;
 }) {
   const [showDetails, setShowDetails] = useState(false);
+  const canShowTechnicalDetails = process.env.NODE_ENV !== "production";
 
   useEffect(() => {
     console.error("Global Error Caught:", error);
@@ -51,7 +52,7 @@ export default function GlobalError({
           </div>
 
           {/* Technical Info Drawer */}
-          <div className="mt-8 border-t border-slate-900/60 pt-4 text-left">
+          {canShowTechnicalDetails && <div className="mt-8 border-t border-slate-900/60 pt-4 text-left">
             <button
               onClick={() => setShowDetails(!showDetails)}
               className="flex items-center justify-between w-full text-slate-500 hover:text-slate-400 text-xs font-bold font-mono transition-colors"
@@ -72,7 +73,7 @@ export default function GlobalError({
                 )}
               </div>
             )}
-          </div>
+          </div>}
         </div>
       </body>
     </html>

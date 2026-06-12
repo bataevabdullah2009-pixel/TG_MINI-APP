@@ -23,10 +23,53 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       deliveryType: true,
       status: true,
       business: { select: { settings: { select: { courierAcceptanceMinutes: true } } } },
+      deliveryAssignment: {
+        select: {
+          id: true,
+          courierId: true,
+          status: true,
+        },
+      },
     },
   });
   if (!order) return jsonError("Заказ не найден.", 404);
   if (!canUseBusiness(session, order.businessId)) return jsonError("Нет доступа к этому заказу.", 403);
+
+  const existingAssignment = order.deliveryAssignment;
+  const currentAssignmentStatuses = new Set(["ASSIGNED", "ACCEPTED_BY_COURIER", "PICKED_UP", "DELIVERED"]);
+  if (
+    existingAssignment?.courierId === courierId &&
+    currentAssignmentStatuses.has(existingAssignment.status)
+  ) {
+    const currentOrder = await prisma.order.findUnique({
+      where: { id: order.id },
+      include: {
+        items: true,
+        business: { select: { name: true, slug: true } },
+        customer: true,
+        deliveryZone: true,
+        deliveryAssignment: { include: { courier: true } },
+      },
+    });
+    return NextResponse.json(
+      toJsonSafe({
+        ok: true,
+        idempotent: true,
+        assignment: existingAssignment,
+        order: currentOrder,
+        notificationSent: false,
+      })
+    );
+  }
+
+  if (
+    existingAssignment &&
+    existingAssignment.courierId !== courierId &&
+    currentAssignmentStatuses.has(existingAssignment.status)
+  ) {
+    return jsonError("Заказ уже назначен другому курьеру.", 409);
+  }
+
   if (order.deliveryType !== "DELIVERY" || order.status !== "READY_FOR_DELIVERY") {
     return jsonError("Назначить курьера можно только на готовый заказ с доставкой.", 409);
   }

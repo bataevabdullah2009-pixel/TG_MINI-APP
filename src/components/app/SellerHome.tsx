@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { 
   TrendingUp, 
@@ -38,6 +38,12 @@ import { SellerDeliverySettings } from "./SellerDeliverySettings";
 import { SellerCouriers } from "./SellerCouriers";
 import { AccessDeniedScreen } from "./AccessDeniedScreen";
 import { miniAppFetch } from "@/lib/miniAppFetch";
+import { BottomSheetPicker } from "@/components/ui/BottomSheetPicker";
+import {
+  formatOrderStatusRu,
+  formatPaymentStatusRu,
+  getBookingStatusLabel,
+} from "@/lib/utils";
 
 interface SellerHomeProps {
   session: any;
@@ -46,10 +52,49 @@ interface SellerHomeProps {
 
 function paymentProofAiLabel(status: string) {
   if (status === "PENDING") return "ИИ проверяет чек";
-  if (status === "likely_valid") return "Вероятно корректный";
-  if (status === "likely_invalid") return "Вероятно некорректный";
-  if (status === "manual_review") return "Нужна ручная проверка";
+  if (status === "LIKELY_VALID" || status === "likely_valid") return "Вероятно корректный";
+  if (status === "LIKELY_INVALID" || status === "likely_invalid") return "Вероятно некорректный";
+  if (status === "MANUAL_REVIEW" || status === "manual_review") return "Нужна ручная проверка";
   return "Нужна ручная проверка";
+}
+
+type ReceiptAnalysis = {
+  extractedAmount: number | null;
+  expectedAmount: number | null;
+  amountMatches: boolean | null;
+  extractedDate: string | null;
+  extractedRecipient: string | null;
+  expectedRecipient: string | null;
+  recipientMatches: boolean | null;
+  extractedBank: string | null;
+  confidencePercent: number | null;
+  status: string | null;
+  reasonRu: string | null;
+};
+
+function receiptAnalysisFromOrder(order: any): ReceiptAnalysis | null {
+  const value = order?.paymentProofAiResult;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+  return {
+    extractedAmount: typeof value.extractedAmount === "number" ? value.extractedAmount : null,
+    expectedAmount: typeof value.expectedAmount === "number" ? value.expectedAmount : null,
+    amountMatches: typeof value.amountMatches === "boolean" ? value.amountMatches : null,
+    extractedDate: typeof value.extractedDate === "string" ? value.extractedDate : null,
+    extractedRecipient: typeof value.extractedRecipient === "string" ? value.extractedRecipient : null,
+    expectedRecipient: typeof value.expectedRecipient === "string" ? value.expectedRecipient : null,
+    recipientMatches: typeof value.recipientMatches === "boolean" ? value.recipientMatches : null,
+    extractedBank: typeof value.extractedBank === "string" ? value.extractedBank : null,
+    confidencePercent: typeof value.confidencePercent === "number" ? value.confidencePercent : null,
+    status: typeof value.status === "string" ? value.status : null,
+    reasonRu: typeof value.reasonRu === "string" ? value.reasonRu : null,
+  };
+}
+
+function receiptMatchLabel(value: boolean | null) {
+  if (value === true) return "Совпадает";
+  if (value === false) return "Не совпадает";
+  return "Не определено";
 }
 
 const ACTIVE_ORDER_STATUSES = new Set([
@@ -126,8 +171,11 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const [bookingFilter, setBookingFilter] = useState<string>("ALL");
   const [couriers, setCouriers] = useState<any[]>([]);
   const [assigningOrderId, setAssigningOrderId] = useState<string | null>(null);
+  const [assigningCourierId, setAssigningCourierId] = useState<string | null>(null);
+  const assigningCourierRef = useRef<string | null>(null);
 
   const syncBusinessState = (bData: any) => {
+    if (!bData || typeof bData !== "object") return false;
     setBusinessData(bData);
     setBizName(bData.name || "");
     setBizDesc(bData.description || "");
@@ -143,6 +191,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     setBizLogoUrl(bData.logoUrl || "");
     setBizCoverUrl(bData.coverImageUrl || "");
     setBizColor(bData.primaryColor || "#3B82F6");
+    return true;
   };
 
   useEffect(() => {
@@ -179,9 +228,11 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     try {
       // 1. Fetch Business Profile
       const bizRes = await miniAppFetch(`/api/admin/current-business?businessId=${encodeURIComponent(businessId)}`);
-      if (bizRes.ok) {
-        const bData = await bizRes.json();
-        syncBusinessState(bData.data || bData);
+      const businessPayload = await bizRes.json().catch(() => ({}));
+      if (!bizRes.ok || !syncBusinessState(businessPayload.data || businessPayload)) {
+        setBusinessData(null);
+        setError(businessPayload.error || "Бизнес недоступен. Обратитесь к администратору платформы.");
+        return;
       }
 
       let fetchedItemsCount = 0;
@@ -198,7 +249,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       const itemsRes = await miniAppFetch(`/api/admin/items?businessId=${encodeURIComponent(businessId)}`);
       if (itemsRes.ok) {
         const itemData = await itemsRes.json();
-        const sellerItems = itemData.data || [];
+        const sellerItems = Array.isArray(itemData.data) ? itemData.data.filter(Boolean) : [];
         setItems(sellerItems);
         fetchedItemsCount = sellerItems.filter((item: any) => !item.archivedAt).length;
       }
@@ -486,6 +537,29 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   };
 
   const handleAssignCourier = async (orderId: string, courierId: string) => {
+    if (assigningCourierRef.current) return;
+    const courier = couriers.find((entry) => entry?.id === courierId);
+    const previousOrder = stats.orders.find((entry) => entry?.id === orderId);
+    if (!courier || !previousOrder) {
+      showError("Не удалось назначить курьера. Попробуйте ещё раз.");
+      return;
+    }
+
+    const optimisticOrder = {
+      ...previousOrder,
+      status: "COURIER_ASSIGNED",
+      deliveryStatus: "ASSIGNED",
+      deliveryAssignment: {
+        ...(previousOrder.deliveryAssignment || {}),
+        courierId,
+        status: "ASSIGNED",
+        courier,
+      },
+    };
+    assigningCourierRef.current = courierId;
+    setAssigningCourierId(courierId);
+    updateOrderInStats(optimisticOrder);
+
     try {
       const res = await miniAppFetch(`/api/admin/orders/${orderId}/assign-courier`, {
         method: "POST",
@@ -493,14 +567,17 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
-        showError(data.error || "Не удалось назначить курьера.");
-        return;
+        throw new Error(data.error || "Не удалось назначить курьера.");
       }
       setAssigningOrderId(null);
-      showSuccess(data.notificationSent === false ? "Курьер назначен. Telegram-уведомление не отправилось." : "Курьер назначен и получил уведомление.");
       if (data.order) updateOrderInStats(data.order);
+      showSuccess(`Курьер ${courier.name} назначен`);
     } catch {
-      showError("Не удалось назначить курьера. Проверьте соединение и попробуйте снова.");
+      updateOrderInStats(previousOrder);
+      showError("Не удалось назначить курьера. Попробуйте ещё раз.");
+    } finally {
+      assigningCourierRef.current = null;
+      setAssigningCourierId(null);
     }
   };
 
@@ -603,8 +680,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
   const filteredSellerItems = useMemo(() => {
     const needle = itemSearch.trim().toLowerCase();
-    return items.filter((item: any) => {
-      const searchMatches = !needle || item.name.toLowerCase().includes(needle) || String(item.description || "").toLowerCase().includes(needle);
+    return items.filter(Boolean).filter((item: any) => {
+      const searchMatches = !needle || String(item.name || "").toLowerCase().includes(needle) || String(item.description || "").toLowerCase().includes(needle);
       const availabilityMatches =
         itemAvailabilityFilter === "ARCHIVED" ? Boolean(item.archivedAt) :
         itemAvailabilityFilter === "HIDDEN" ? !item.archivedAt && !item.isAvailable :
@@ -636,6 +713,17 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         <div className="animate-spin rounded-full h-10 w-10 border-2 border-indigo-600 border-t-transparent mb-3" />
         <span className="text-xs font-black tracking-wider uppercase">Загрузка панели...</span>
       </div>
+    );
+  }
+
+  if (!businessData) {
+    return (
+      <AccessDeniedScreen
+        title="Бизнес недоступен"
+        description={error || "Не удалось загрузить бизнес. Обновите экран или обратитесь к администратору платформы."}
+        backUrl="/app"
+        backText="Вернуться на главную"
+      />
     );
   }
 
@@ -843,7 +931,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                         : "bg-slate-100 text-slate-500 hover:bg-slate-200"
                     }`}
                   >
-                    {status === "ALL" ? "Все" : status}
+                    {status === "ALL" ? "Все" : formatOrderStatusRu(status)}
                   </button>
                 ))}
               </div>
@@ -874,7 +962,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           order.status === "EXPIRED" ? "bg-slate-200 text-slate-700" :
                           "bg-slate-200 text-slate-500"
                         }`}>
-                          {order.status === "EXPIRED" ? "Истёк" : order.status}
+                          {formatOrderStatusRu(order.status)}
                         </span>
                       </div>
 
@@ -911,7 +999,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                             <div className="flex items-center justify-between gap-2">
                               <span>Оплата переводом</span>
                               <span className="rounded-full bg-white px-2 py-0.5 text-[9px] font-black text-amber-700">
-                                {order.paymentStatus === "AWAITING_REVIEW" ? "Ожидает проверки" : order.paymentStatus}
+                                {formatPaymentStatusRu(order.paymentStatus)}
                               </span>
                             </div>
                             {order.paymentProofUrl && (
@@ -923,9 +1011,9 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <span>ИИ:</span>
                                 <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${
-                                  order.paymentProofAiStatus === "likely_valid" ? "bg-emerald-100 text-emerald-700" :
-                                  order.paymentProofAiStatus === "manual_review" ? "bg-amber-100 text-amber-700" :
-                                  order.paymentProofAiStatus === "likely_invalid" ? "bg-rose-100 text-rose-700" :
+                                  ["LIKELY_VALID", "likely_valid"].includes(order.paymentProofAiStatus) ? "bg-emerald-100 text-emerald-700" :
+                                  ["MANUAL_REVIEW", "manual_review"].includes(order.paymentProofAiStatus) ? "bg-amber-100 text-amber-700" :
+                                  ["LIKELY_INVALID", "likely_invalid"].includes(order.paymentProofAiStatus) ? "bg-rose-100 text-rose-700" :
                                   "bg-slate-100 text-slate-600"
                                 }`}>
                                   {paymentProofAiLabel(order.paymentProofAiStatus)}
@@ -935,15 +1023,51 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                                 )}
                               </div>
                             )}
-                            {order.paymentProofAiSummary && (
-                              <div className="text-[10px] leading-relaxed text-slate-600">{order.paymentProofAiSummary}</div>
-                            )}
+                            {order.paymentProofAiStatus && order.paymentProofAiStatus !== "PENDING" && (() => {
+                              const analysis = receiptAnalysisFromOrder(order);
+                              if (!analysis) {
+                                return (
+                                  <div className="rounded-lg bg-white/80 p-2 text-[10px] leading-relaxed text-slate-600">
+                                    ИИ не смог прочитать чек. Проверьте его вручную.
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-x-2 gap-y-1 rounded-lg bg-white/80 p-2 text-[10px] font-semibold text-slate-600">
+                                  <span className="text-slate-400">Сумма на чеке</span>
+                                  <span>{analysis.extractedAmount === null ? "Не распознана" : `${analysis.extractedAmount} ₽`}</span>
+                                  <span className="text-slate-400">Ожидалось</span>
+                                  <span>{analysis.expectedAmount === null ? `${order.totalPrice} ₽` : `${analysis.expectedAmount} ₽`}</span>
+                                  <span className="text-slate-400">Дата</span>
+                                  <span>{analysis.extractedDate || "Не распознана"}</span>
+                                  <span className="text-slate-400">Получатель</span>
+                                  <span>
+                                    {analysis.extractedRecipient || "Не распознан"}
+                                    {analysis.expectedRecipient ? ` / ожидалось: ${analysis.expectedRecipient}` : ""}
+                                  </span>
+                                  <span className="text-slate-400">Банк</span>
+                                  <span>{analysis.extractedBank || "Не распознан"}</span>
+                                  <span className="text-slate-400">Совпадение</span>
+                                  <span>
+                                    Сумма: {receiptMatchLabel(analysis.amountMatches)}; получатель: {receiptMatchLabel(analysis.recipientMatches)}
+                                  </span>
+                                  <span className="text-slate-400">Уверенность</span>
+                                  <span>{analysis.confidencePercent === null ? "Не определена" : `${analysis.confidencePercent}%`}</span>
+                                  <span className="text-slate-400">Комментарий ИИ</span>
+                                  <span>{analysis.reasonRu || order.paymentProofAiSummary || "Проверьте чек вручную."}</span>
+                                </div>
+                              );
+                            })()}
                           </div>
                         )}
                         {order.deliveryCityArea && (
                           <div className="flex items-center gap-1.5">
                             <Truck size={12} className="text-slate-400" />
-                            <span>{order.deliveryZoneName || order.deliveryCityArea} · доставка {order.deliveryFee || 0} ₽</span>
+                            <span>
+                              {order.deliveryZoneName || order.deliveryCityArea} · доставка{" "}
+                              <span className="whitespace-nowrap">{order.deliveryFee || 0} ₽</span>
+                            </span>
                           </div>
                         )}
                         {order.deliveryAssignment?.courier && (
@@ -968,12 +1092,12 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                         {order.deliveryType === "DELIVERY" && (
                           <div className="flex justify-between font-bold text-slate-600">
                             <span>Доставка:</span>
-                            <span>{order.deliveryFee || 0} ₽</span>
+                            <span className="shrink-0 whitespace-nowrap">{order.deliveryFee || 0} ₽</span>
                           </div>
                         )}
                         <div className="flex justify-between font-black text-slate-900">
                           <span>Итого:</span>
-                          <span className="text-indigo-600">{order.totalPrice} ₽</span>
+                          <span className="shrink-0 whitespace-nowrap text-indigo-600">{order.totalPrice} ₽</span>
                         </div>
                       </div>
 
@@ -1135,7 +1259,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                         : "bg-slate-100 text-slate-500 hover:bg-slate-200"
                     }`}
                   >
-                    {status === "ALL" ? "Все" : status}
+                    {status === "ALL" ? "Все" : getBookingStatusLabel(status)}
                   </button>
                 ))}
               </div>
@@ -1162,7 +1286,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           bk.status === "NO_SHOW" ? "bg-rose-100 text-rose-700" :
                           "bg-slate-200 text-slate-500"
                         }`}>
-                          {bk.status === "NO_SHOW" ? "Клиент не пришёл" : bk.status === "EXPIRED" ? "Истекла" : bk.status}
+                          {getBookingStatusLabel(bk.status)}
                         </span>
                       </div>
 
@@ -1352,18 +1476,30 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
                 {newItemType === "PRODUCT" && (
                   <div className="grid grid-cols-2 gap-3">
-                    <select
+                    <BottomSheetPicker
+                      title="Учёт остатков"
                       value={newItemStockMode}
-                      onChange={(e) => {
-                        const mode = e.target.value as "TRACKED" | "UNTRACKED";
+                      onChange={(value) => {
+                        const mode = value as "TRACKED" | "UNTRACKED";
                         setNewItemStockMode(mode);
                         setNewItemStock(mode === "TRACKED" ? (newItemStock || "0") : "");
                       }}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold outline-none"
-                    >
-                      <option value="UNTRACKED">Просто в наличии / нет</option>
-                      <option value="TRACKED">Считать остатки</option>
-                    </select>
+                      buttonClassName="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold outline-none"
+                      options={[
+                        {
+                          value: "UNTRACKED",
+                          label: "Просто в наличии / нет",
+                          description: "Без точного количества",
+                          icon: <CheckCircle size={16} />,
+                        },
+                        {
+                          value: "TRACKED",
+                          label: "Считать остатки",
+                          description: "Указывать точное количество",
+                          icon: <Layers size={16} />,
+                        },
+                      ]}
+                    />
                     {newItemStockMode === "TRACKED" && (
                       <input
                         required
@@ -1392,24 +1528,26 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
             {/* Listing grid catalog */}
             <div className="bg-white rounded-3xl p-5 shadow-sm ring-1 ring-slate-100/80">
               <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3">Витрина заведения ({filteredSellerItems.length})</h3>
-              <div className="mb-3 grid grid-cols-[1fr_auto] gap-2">
+              <div className="mb-3 grid grid-cols-[minmax(0,1fr)_minmax(130px,0.7fr)] gap-2">
                 <input
                   value={itemSearch}
                   onChange={(e) => setItemSearch(e.target.value)}
                   placeholder="Поиск товара"
                   className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold outline-none"
                 />
-                <select
+                <BottomSheetPicker
+                  title="Фильтр товаров"
                   value={itemAvailabilityFilter}
-                  onChange={(e) => setItemAvailabilityFilter(e.target.value as typeof itemAvailabilityFilter)}
-                  className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-[10px] font-black"
-                >
-                  <option value="ACTIVE">Активные</option>
-                  <option value="AVAILABLE">В наличии</option>
-                  <option value="OUT_OF_STOCK">Нет в наличии</option>
-                  <option value="HIDDEN">Скрытые</option>
-                  <option value="ARCHIVED">Архив</option>
-                </select>
+                  onChange={(value) => setItemAvailabilityFilter(value as typeof itemAvailabilityFilter)}
+                  buttonClassName="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-black"
+                  options={[
+                    { value: "ACTIVE", label: "Активные", icon: <CheckCircle size={16} /> },
+                    { value: "AVAILABLE", label: "В наличии", icon: <ShoppingBag size={16} /> },
+                    { value: "OUT_OF_STOCK", label: "Нет в наличии", icon: <Minus size={16} /> },
+                    { value: "HIDDEN", label: "Скрытые", icon: <Eye size={16} /> },
+                    { value: "ARCHIVED", label: "Архив", icon: <Archive size={16} /> },
+                  ]}
+                />
               </div>
               <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
                 {filteredSellerItems.length === 0 ? (
@@ -1783,28 +1921,46 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
       {assigningOrderId && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs">
-          <button type="button" className="absolute inset-0" aria-label="Закрыть" onClick={() => setAssigningOrderId(null)} />
+          <button
+            type="button"
+            className="absolute inset-0"
+            aria-label="Закрыть"
+            disabled={Boolean(assigningCourierId)}
+            onClick={() => setAssigningOrderId(null)}
+          />
           <section className="relative w-full max-w-[480px] rounded-t-[32px] bg-white p-6 pb-10 shadow-2xl">
             <div className="mb-4 flex items-center justify-between border-b pb-3">
               <div>
                 <h4 className="text-sm font-black text-slate-900">Назначить курьера</h4>
                 <p className="mt-1 text-[10px] font-bold text-slate-400">Курьер получит Telegram-уведомление и подтвердит доставку.</p>
               </div>
-              <button type="button" onClick={() => setAssigningOrderId(null)} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black">Закрыть</button>
+              <button
+                type="button"
+                disabled={Boolean(assigningCourierId)}
+                onClick={() => setAssigningOrderId(null)}
+                className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black disabled:opacity-40"
+              >
+                Закрыть
+              </button>
             </div>
             <div className="grid max-h-[55vh] gap-2 overflow-y-auto">
               {couriers.map((courier) => (
                 <button
                   key={courier.id}
                   type="button"
+                  disabled={Boolean(assigningCourierId)}
                   onClick={() => handleAssignCourier(assigningOrderId, courier.id)}
-                  className="flex items-center justify-between rounded-2xl bg-slate-50 p-4 text-left ring-1 ring-slate-100"
+                  className="flex items-center justify-between rounded-2xl bg-slate-50 p-4 text-left ring-1 ring-slate-100 disabled:opacity-60"
                 >
                   <span>
                     <span className="block text-xs font-black text-slate-900">{courier.name}</span>
                     <span className="mt-1 block text-[10px] font-bold text-slate-400">{courier.cityArea || "Все зоны"} · {courier.phone}</span>
                   </span>
-                  <Check size={15} className="text-indigo-600" />
+                  {assigningCourierId === courier.id ? (
+                    <span className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+                  ) : (
+                    <Check size={15} className="text-indigo-600" />
+                  )}
                 </button>
               ))}
               {couriers.length === 0 && <p className="py-8 text-center text-xs font-bold text-slate-400">Нет активных курьеров.</p>}

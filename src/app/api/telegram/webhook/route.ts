@@ -22,8 +22,21 @@ type TelegramBusinessContext = {
   description: string | null;
   phone: string | null;
   address: string | null;
+  isOpen: boolean;
+  isDemo: boolean;
   aiProvider: string | null;
   aiModel: string | null;
+  settings?: {
+    deliveryEnabled: boolean;
+    pickupEnabled: boolean;
+    bookingEnabled: boolean;
+  } | null;
+  workingHours?: Array<{
+    dayOfWeek: number;
+    openTime: string;
+    closeTime: string;
+    isClosed: boolean;
+  }>;
   telegramAdminChatId?: bigint | null;
   owner?: { telegramId: bigint | null } | null;
 };
@@ -36,8 +49,25 @@ const telegramBusinessContextSelect = {
   description: true,
   phone: true,
   address: true,
+  isOpen: true,
+  isDemo: true,
   aiProvider: true,
   aiModel: true,
+  settings: {
+    select: {
+      deliveryEnabled: true,
+      pickupEnabled: true,
+      bookingEnabled: true,
+    },
+  },
+  workingHours: {
+    select: {
+      dayOfWeek: true,
+      openTime: true,
+      closeTime: true,
+      isClosed: true,
+    },
+  },
   telegramAdminChatId: true,
   owner: { select: { telegramId: true } },
 } as const;
@@ -145,9 +175,117 @@ async function loadCustomerCatalog(businessId: string): Promise<CustomerCatalogI
   }
 }
 
+async function loadActiveBusiness(value: string | null | undefined): Promise<TelegramBusinessContext | null> {
+  if (!value || value === "global") return null;
+  const lookup = value.trim();
+  if (!lookup) return null;
+
+  try {
+    return await prisma.business.findFirst({
+      where: {
+        isActive: true,
+        accessStatus: "ACTIVE",
+        archivedAt: null,
+        OR: [
+          { id: lookup },
+          { slug: lookup },
+          { slug: { equals: lookup, mode: "insensitive" } },
+        ],
+      },
+      select: telegramBusinessContextSelect,
+    });
+  } catch (error) {
+    if (!isPrismaMissingColumnError(error)) throw error;
+    warnPrismaSchemaDrift("Telegram business context retried with legacy lifecycle fields", error);
+    return prisma.business.findFirst({
+      where: {
+        isActive: true,
+        OR: [
+          { id: lookup },
+          { slug: lookup },
+          { slug: { equals: lookup, mode: "insensitive" } },
+        ],
+      },
+      select: telegramBusinessContextSelect,
+    });
+  }
+}
+
+async function rememberTelegramBusinessContext(userTelegramId: string | number, businessId: string) {
+  try {
+    await prisma.user.update({
+      where: { telegramId: BigInt(userTelegramId) },
+      data: { lastBusinessId: businessId },
+      select: { id: true },
+    });
+  } catch (error) {
+    if (!isPrismaMissingColumnError(error, "User", "lastBusinessId")) {
+      console.warn("[TELEGRAM BUSINESS CONTEXT] Could not persist last business:", error);
+      return;
+    }
+    warnPrismaSchemaDrift("Telegram business context was not persisted because User.lastBusinessId is missing", error);
+  }
+}
+
+async function resolveTelegramBusinessContext(
+  explicitBusinessValue: string | null,
+  userTelegramId: string | number
+): Promise<TelegramBusinessContext | null> {
+  const explicitBusiness = await loadActiveBusiness(explicitBusinessValue);
+  if (explicitBusiness) return explicitBusiness;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { telegramId: BigInt(userTelegramId) },
+      select: { lastBusinessId: true },
+    });
+    const lastBusiness = await loadActiveBusiness(user?.lastBusinessId);
+    if (lastBusiness) return lastBusiness;
+  } catch (error) {
+    if (!isPrismaMissingColumnError(error, "User", "lastBusinessId")) throw error;
+    warnPrismaSchemaDrift("Telegram business context fell back to Customer.updatedAt", error);
+  }
+
+  try {
+    const recentCustomer = await prisma.customer.findFirst({
+      where: {
+        telegramUserId: BigInt(userTelegramId),
+        business: {
+          is: {
+            isActive: true,
+            accessStatus: "ACTIVE",
+            archivedAt: null,
+            isDemo: false,
+          },
+        },
+      },
+      select: {
+        business: { select: telegramBusinessContextSelect },
+      },
+      orderBy: { updatedAt: "desc" },
+    });
+    return recentCustomer?.business || null;
+  } catch (error) {
+    if (!isPrismaMissingColumnError(error)) throw error;
+    warnPrismaSchemaDrift("Telegram business context could not use lifecycle/demo filters", error);
+    const recentCustomer = await prisma.customer.findFirst({
+      where: {
+        telegramUserId: BigInt(userTelegramId),
+        business: { is: { isActive: true } },
+      },
+      select: {
+        business: { select: telegramBusinessContextSelect },
+      },
+      orderBy: { updatedAt: "desc" },
+    });
+    return recentCustomer?.business?.slug.startsWith("demo-") ? null : recentCustomer?.business || null;
+  }
+}
+
 async function recordCustomerIntent(input: {
   businessId: string;
   userId?: string | null;
+  userTelegramId: string;
   businessSlug: string;
   intent: string;
   query: string;
@@ -158,8 +296,11 @@ async function recordCustomerIntent(input: {
 }) {
   const result = {
     businessSlug: input.businessSlug,
+    businessId: input.businessId,
+    userTelegramId: input.userTelegramId,
     intent: input.intent,
     query: input.query,
+    foundItemsCount: input.foundProducts.length,
     foundProducts: input.foundProducts.map((item) => item.name),
     confidence: input.confidence,
   };
@@ -199,6 +340,22 @@ function orderStatusLabel(status: string) {
     EXPIRED: "истёк",
   };
   return labels[status] || status.toLowerCase();
+}
+
+function businessHoursAnswer(business: TelegramBusinessContext, query: string) {
+  const normalized = query.toLowerCase();
+  if (normalized.includes("адрес") || normalized.includes("куда") || normalized.includes("где") || normalized.includes("найти")) {
+    return business.address
+      ? `Адрес ${business.name}: ${business.address}.`
+      : `У ${business.name} адрес пока не указан. Уточните его у заведения по телефону${business.phone ? ` ${business.phone}` : ""}.`;
+  }
+
+  const today = new Date().getDay();
+  const hours = business.workingHours?.find((entry) => entry.dayOfWeek === today);
+  const state = business.isOpen ? "сейчас открыто" : "сейчас закрыто";
+  if (!hours) return `${business.name} ${state}. Точный график в витрине пока не указан.`;
+  if (hours.isClosed) return `${business.name} сегодня закрыто.`;
+  return `${business.name} ${state}. Сегодня: ${hours.openTime}–${hours.closeTime}.`;
 }
 
 async function notifyManagerAboutAiFailure(
@@ -411,10 +568,7 @@ export async function POST(request: NextRequest) {
     // 1. Resolve Business
     let business: TelegramBusinessContext | null = null;
     if (queryBusinessId) {
-      business = await prisma.business.findUnique({
-        where: { id: queryBusinessId },
-        select: telegramBusinessContextSelect,
-      });
+      business = await loadActiveBusiness(queryBusinessId);
     }
 
     if (command === "/start") {
@@ -481,17 +635,7 @@ export async function POST(request: NextRequest) {
           }
         } else {
           const storeSlug = getStoreSlugFromStartParam(payload) || payload;
-          const targetBusiness = await prisma.business.findFirst({
-            where: {
-              isActive: true,
-              OR: [
-                { slug: storeSlug },
-                { id: storeSlug },
-                { slug: { equals: storeSlug, mode: "insensitive" } },
-              ],
-            },
-            select: telegramBusinessContextSelect,
-          });
+          const targetBusiness = await loadActiveBusiness(storeSlug);
           if (targetBusiness) {
             business = targetBusiness;
             targetUrl = buildMiniAppUrl(targetBusiness.slug) || `${miniAppUrl}/${targetBusiness.slug}`;
@@ -546,6 +690,7 @@ export async function POST(request: NextRequest) {
               userId: syncedUser.id,
             },
           });
+          await rememberTelegramBusinessContext(from.id, business.id);
         } catch (err) {
           console.error("Failed to upsert customer on start command:", err);
         }
@@ -634,21 +779,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // 2. FAQ logic - resolve customer or business
-    const customer = await prisma.customer.findFirst({
-      where: { 
-        telegramUserId: BigInt(from.id),
-        ...(business ? { businessId: business.id } : {})
-      },
-      include: {
-        business: {
-          select: telegramBusinessContextSelect,
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
-    const activeBusiness = business || customer?.business;
+    // 2. FAQ logic - resolve business strictly by explicit route, start/open context, then last selected business.
+    const activeBusiness = business || await resolveTelegramBusinessContext(queryBusinessId, from.id);
+    const customer = activeBusiness
+      ? await prisma.customer.findFirst({
+          where: {
+            telegramUserId: BigInt(from.id),
+            businessId: activeBusiness.id,
+          },
+          orderBy: { updatedAt: "desc" },
+        })
+      : null;
     const activeBusinessProvider = resolveAIProviderName(activeBusiness?.aiProvider);
     const activeBusinessModel = activeBusinessProvider === "polza"
       ? process.env.POLZA_TEXT_MODEL || activeBusiness?.aiModel || "z-ai/glm-4.7-flash"
@@ -690,6 +831,7 @@ export async function POST(request: NextRequest) {
       await recordCustomerIntent({
         businessId: activeBusiness.id,
         userId: customer?.userId,
+        userTelegramId: String(from.id),
         businessSlug: activeBusiness.slug,
         intent: intent.intent,
         query: intent.query,
@@ -698,6 +840,12 @@ export async function POST(request: NextRequest) {
         provider: activeBusinessProvider,
         model: activeBusinessModel,
       });
+
+      if (intent.intent === "business_hours") {
+        await telegramBot.sendNotification(chatId, businessHoursAnswer(activeBusiness, intent.query));
+        logTelegramResponseSent({ chatId, type: "business_hours", businessId: activeBusiness.id });
+        return NextResponse.json({ ok: true });
+      }
 
       if (intent.intent === "product_search") {
         if (matches.length > 0) {
@@ -801,7 +949,16 @@ export async function POST(request: NextRequest) {
       });
     } else {
       console.error("[BUSINESS CONTEXT] slug/name/id", { slug: null, name: null, id: null });
-      await telegramBot.sendNotification(chatId, "Сначала откройте нужный магазин в Mini App. Без выбранного бизнеса я не буду выдумывать товары и ответы.");
+      const intent = routeCustomerIntent(text);
+      console.info("[CUSTOMER_AI_INTENT]", {
+        businessSlug: null,
+        businessId: null,
+        userTelegramId: String(from.id),
+        intent: intent.intent,
+        query: intent.query,
+        foundItemsCount: 0,
+      });
+      await telegramBot.sendNotification(chatId, "По какому заведению вы спрашиваете? Откройте нужную витрину или выберите бизнес.");
       logTelegramResponseSent({ chatId, type: "business_context_missing" });
     }
 
