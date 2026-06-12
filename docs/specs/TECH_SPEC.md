@@ -177,7 +177,7 @@ npm run typecheck
   - `recipientMatches: boolean | null`;
   - `extractedBank: string | null`;
   - `confidencePercent: number`;
-  - `status: LIKELY_VALID | MANUAL_REVIEW | LIKELY_INVALID | AI_FAILED`;
+  - `status: AI_CHECKING | AMOUNT_MATCHED | AMOUNT_MISMATCH | MANUAL_REVIEW | AI_FAILED`;
   - `reasonRu: string`.
 - Пока анализ выполняется, заказ имеет `AI_CHECKING`. Если AI не ответил за 30 секунд, статус автоматически меняется на `MANUAL_REVIEW`.
 - При отсутствующем `POLZA_AI_API_KEY` или неподдерживаемом `AI_PROVIDER` анализ сразу переходит в `MANUAL_REVIEW`.

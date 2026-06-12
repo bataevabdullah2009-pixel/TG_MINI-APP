@@ -51,19 +51,20 @@ export function getBusinessTypeLabel(type: string): string {
 
 export function getOrderStatusLabel(status: string): string {
   const labels: Record<string, string> = {
-    NEW: "🆕 Новый",
-    ACCEPTED: "✅ Принят",
-    PREPARING: "👨‍🍳 Готовится",
-    READY_FOR_PICKUP: "📦 Готов к самовывозу",
-    READY_FOR_DELIVERY: "🚚 Ожидает курьера",
-    COURIER_ASSIGNED: "🛵 Курьер назначен",
-    PICKED_UP: "🚚 Заказ в пути",
-    DELIVERED: "✅ Доставлен",
-    READY: "📦 Готово",
-    DELIVERING: "🚚 В пути",
-    COMPLETED: "✔️ Завершен",
-    CANCELLED: "❌ Отменен",
-    EXPIRED: "⏱️ Истёк",
+    NEW: "Новый",
+    ACCEPTED: "Принят",
+    PREPARING: "Готовится",
+    READY_FOR_PICKUP: "Готов к самовывозу",
+    READY_FOR_DELIVERY: "Ожидает курьера",
+    COURIER_ASSIGNED: "Курьер назначен",
+    PICKED_UP: "В пути",
+    IN_DELIVERY: "В пути",
+    DELIVERED: "Доставлен",
+    READY: "Готов",
+    DELIVERING: "В пути",
+    COMPLETED: "Завершён",
+    CANCELLED: "Отменён",
+    EXPIRED: "Истёк",
   };
   return labels[status] || status;
 }

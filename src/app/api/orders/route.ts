@@ -1035,11 +1035,13 @@ export async function GET(request: NextRequest) {
 
     const take = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 20;
     const skip = Number.isFinite(requestedOffset) ? Math.max(Math.floor(requestedOffset), 0) : 0;
-    await recoverStalePaymentProofChecks({
-      businessId: typeof where.businessId === "string" ? where.businessId : undefined,
-    }).catch((error) => {
-      console.warn("[PAYMENT PROOF AI] stale status recovery skipped:", error);
-    });
+    if (typeof where.businessId === "string") {
+      await recoverStalePaymentProofChecks({
+        businessId: where.businessId,
+      }).catch((error) => {
+        console.warn("[PAYMENT PROOF AI] stale status recovery skipped:", error);
+      });
+    }
 
     let orders;
     try {

@@ -10,22 +10,16 @@ const FAILED_SUMMARY = "ИИ не смог проверить чек. Прове
 
 function fallbackAnalysis(
   orderTotal: number,
-  recipientName: string | null,
   status: "MANUAL_REVIEW" | "AI_FAILED",
   summary: string
 ): PaymentProofAnalysisResult {
   return {
     extractedAmount: null,
     expectedAmount: orderTotal,
-    amountMatches: null,
-    extractedDate: null,
-    extractedRecipient: null,
-    expectedRecipient: recipientName,
-    recipientMatches: null,
-    extractedBank: null,
-    confidencePercent: 0,
+    match: false,
+    confidence: 0,
     status,
-    reasonRu: summary,
+    comment: summary,
     summary,
   };
 }
@@ -58,7 +52,6 @@ export async function processPaymentProofAnalysis(orderId: string) {
     select: {
       id: true,
       totalPrice: true,
-      createdAt: true,
       paymentMethod: true,
       paymentProofUrl: true,
       paymentProofMimeType: true,
@@ -67,9 +60,6 @@ export async function processPaymentProofAnalysis(orderId: string) {
       business: {
         select: {
           name: true,
-          transferRecipientName: true,
-          transferPaymentPhone: true,
-          transferBankName: true,
         },
       },
     },
@@ -91,7 +81,6 @@ export async function processPaymentProofAnalysis(orderId: string) {
       resolve(
         fallbackAnalysis(
           order.totalPrice,
-          order.business.transferRecipientName,
           "MANUAL_REVIEW",
           TIMEOUT_SUMMARY
         )
@@ -106,10 +95,6 @@ export async function processPaymentProofAnalysis(orderId: string) {
         imageUrl: order.paymentProofUrl,
         orderTotal: order.totalPrice,
         businessName: order.business.name,
-        recipientName: order.business.transferRecipientName,
-        paymentPhone: order.business.transferPaymentPhone,
-        bankName: order.business.transferBankName,
-        orderCreatedAt: order.createdAt,
         mimeType: order.paymentProofMimeType,
       }),
       timeoutResult,
@@ -118,7 +103,6 @@ export async function processPaymentProofAnalysis(orderId: string) {
     console.error("[PAYMENT PROOF AI] analysis failed:", error);
     analysis = fallbackAnalysis(
       order.totalPrice,
-      order.business.transferRecipientName,
       "AI_FAILED",
       FAILED_SUMMARY
     );
@@ -135,8 +119,14 @@ export async function processPaymentProofAnalysis(orderId: string) {
     data: {
       paymentProofAiStatus: analysis.status,
       paymentProofAiSummary: analysis.summary,
-      paymentProofAiConfidence: analysis.confidencePercent,
-      paymentProofAiDetails: JSON.stringify(analysis),
+      paymentProofAiConfidence: analysis.confidence,
+      paymentProofAiDetails: JSON.stringify({
+        extractedAmount: analysis.extractedAmount,
+        expectedAmount: analysis.expectedAmount,
+        match: analysis.match,
+        confidence: analysis.confidence,
+        comment: analysis.comment,
+      }),
     },
   });
 }

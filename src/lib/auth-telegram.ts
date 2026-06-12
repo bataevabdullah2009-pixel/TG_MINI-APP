@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { ensureTelegramUser } from "./auth/telegram-user-service";
 import { ensureCustomerForTelegramUser } from "./customer/customer-service";
 import { isPrismaMissingColumnError, warnPrismaSchemaDrift } from "./prisma-schema-guard";
+import { setSelectedBusinessContext } from "./ai/telegram-marketplace-agent";
 
 export interface TelegramAuthUser {
   id: number;
@@ -149,7 +150,11 @@ export async function getTelegramSessionUser(initData: string, businessId?: stri
       firstName: tgUser.first_name,
       lastName: tgUser.last_name,
       businessId: effectiveBusinessId,
+      existingUser: user,
     });
+    if (customer?.businessId) {
+      await setSelectedBusinessContext(String(tgUser.id), customer.businessId);
+    }
   } catch (error) {
     if (
       isPrismaMissingColumnError(error, "Customer", "phone") ||

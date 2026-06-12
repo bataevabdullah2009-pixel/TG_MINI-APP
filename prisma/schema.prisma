@@ -474,6 +474,8 @@ model Customer {
 
   @@unique([businessId, telegramUserId])
   @@index([businessId])
+  @@index([telegramUserId])
+  @@index([businessId, createdAt])
   @@index([userId])
   @@index([isBlocked])
 }

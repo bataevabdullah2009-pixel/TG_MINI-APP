@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { telegramBot } from "@/lib/telegram-bot-service";
-import { getAppBaseUrl } from "@/lib/production-url";
+import {
+  buildCourierPanelUrl,
+  buildSellerPanelUrl,
+  buildTelegramBotStartUrl,
+} from "@/lib/production-url";
 
 const orderStatusRu: Record<string, string> = {
   NEW: "Новый",
@@ -32,13 +36,10 @@ const notificationBusinessSelect = {
   id: true,
   slug: true,
   name: true,
+  telegramBotUsername: true,
   telegramAdminChatId: true,
   owner: { select: { telegramId: true } },
 } as const;
-
-function adminUrl(path: string) {
-  return `${getAppBaseUrl()}${path}`;
-}
 
 function formatDateTime(date: Date) {
   return date.toLocaleString("ru-RU", {
@@ -96,11 +97,41 @@ export class NotificationService {
       `Комментарий: ${order.comment || "нет"}`,
     ].filter(Boolean).join("\n");
 
-    await telegramBot.sendNotification(chatId, text, {
+    const sent = await telegramBot.sendNotification(chatId, text, {
       reply_markup: {
-        inline_keyboard: [[{ text: "Открыть в админке", url: adminUrl("/admin/orders") }]],
+        inline_keyboard: [
+          [{
+            text: "Открыть заказ",
+            web_app: {
+              url: buildSellerPanelUrl(order.business.slug, {
+                tab: "orders",
+                orderId: order.id,
+              }),
+            },
+          }],
+          [{
+            text: "Открыть панель продавца",
+            web_app: { url: buildSellerPanelUrl(order.business.slug) },
+          }],
+        ],
       },
     });
+    if (!sent) {
+      const fallbackUrl = buildTelegramBotStartUrl(
+        "seller",
+        order.business.telegramBotUsername || undefined
+      );
+      if (fallbackUrl) {
+        await telegramBot.sendNotification(chatId, "Откройте заказ через Telegram-бота.", {
+          reply_markup: {
+            inline_keyboard: [[{
+              text: "Открыть панель продавца",
+              url: fallbackUrl,
+            }]],
+          },
+        });
+      }
+    }
   }
 
   static async notifyBusinessOwnerNewBooking(bookingId: string) {
@@ -132,7 +163,12 @@ export class NotificationService {
 
     await telegramBot.sendNotification(chatId, text, {
       reply_markup: {
-        inline_keyboard: [[{ text: "Открыть в админке", url: adminUrl("/admin/bookings") }]],
+        inline_keyboard: [[{
+          text: "Открыть панель продавца",
+          web_app: {
+            url: buildSellerPanelUrl(booking.business.slug, { tab: "bookings" }),
+          },
+        }]],
       },
     });
   }
@@ -213,7 +249,7 @@ export class NotificationService {
           `Адрес: ${escapeTelegramHtml(order.customerAddress || "не указан")}`,
           `Итого: ${order.totalPrice} ₽`,
         ].join("\n"),
-        { reply_markup: { inline_keyboard: [[{ text: "Открыть доставки", web_app: { url: adminUrl("/courier/orders") } }]] } }
+        { reply_markup: { inline_keyboard: [[{ text: "Открыть доставки", web_app: { url: buildCourierPanelUrl(courier.id) } }]] } }
       );
     }
   }
@@ -238,7 +274,7 @@ export class NotificationService {
       await telegramBot.sendNotification(
         courierChat,
         `<b>Заказ назначен вам</b>\nЗаказ #${order.id.slice(-6).toUpperCase()}\nАдрес: ${escapeTelegramHtml(order.customerAddress || "не указан")}`,
-        { reply_markup: { inline_keyboard: [[{ text: "Принять доставку", web_app: { url: adminUrl("/courier/orders") } }]] } }
+        { reply_markup: { inline_keyboard: [[{ text: "Принять доставку", web_app: { url: buildCourierPanelUrl(courier.id) } }]] } }
       );
     } else {
       console.warn(`Courier assigned notification skipped for courier ${courier.id}: no telegram id.`);

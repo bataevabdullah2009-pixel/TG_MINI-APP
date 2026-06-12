@@ -55,7 +55,7 @@ export function ProductCard({
         <div className="min-w-0">
           <div className="mb-1 flex items-center gap-2">
             <h3 className={`${isGrid ? "text-sm leading-tight" : ""} line-clamp-2 font-black`}>{item.name}</h3>
-            {item.isPopular && <Star size={14} className="text-amber-500" fill="currentColor" />}
+            {item.isPopular && <Star size={14} className="shrink-0 text-amber-500" fill="currentColor" />}
           </div>
           <p className={`${isGrid ? "text-xs leading-4" : "text-sm"} line-clamp-2 text-slate-500`}>{item.description}</p>
           {item.durationMinutes && <p className="mt-1 text-xs font-bold text-slate-400">{item.durationMinutes} мин.</p>}

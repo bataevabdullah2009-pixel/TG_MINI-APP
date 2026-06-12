@@ -10,6 +10,11 @@ export interface EnsureCustomerForTelegramUserInput {
   phone?: string | null;
   phoneVerified?: boolean;
   businessId?: string | null;
+  existingUser?: {
+    id: string;
+    phone: string | null;
+    phoneVerified: boolean;
+  } | null;
 }
 
 const customerSessionSelect = {
@@ -42,14 +47,14 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
   const telegramUserId = BigInt(input.telegramId);
 
   // 1. Ensure User is created first
-  const user = await ensureTelegramUser({
-    telegramId: input.telegramId,
-    username: input.username,
-    firstName: input.firstName,
-    lastName: input.lastName,
-    phone: input.phone,
-    phoneVerified: input.phoneVerified,
-  });
+  const user = input.existingUser || await ensureTelegramUser({
+      telegramId: input.telegramId,
+      username: input.username,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      phone: input.phone,
+      phoneVerified: input.phoneVerified,
+    });
 
   // Normalize phone number
   const normalizedPhone = normalizePhone(input.phone);
@@ -77,7 +82,6 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
   }
 
   if (businessId) {
-    // Find customer by unique businessId and telegramUserId index
     const existing = await prisma.customer.findUnique({
       where: {
         businessId_telegramUserId: {
@@ -88,22 +92,21 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
       select: customerSessionSelect,
     });
 
-    if (existing) {
-      return await prisma.customer.update({
-        where: { id: existing.id },
-        data: {
-          userId: user.id,
-          phone: verifiedUserPhone ?? normalizedPhone ?? existing.phone,
-          ...(verifiedUserPhone ? { phoneVerified: true, verificationMethod: "global_user_phone" } : {}),
-          username: input.username || existing.username,
-          name: [input.firstName, input.lastName].filter(Boolean).join(" ") || existing.name,
+    return prisma.customer.upsert({
+      where: {
+        businessId_telegramUserId: {
+          businessId,
+          telegramUserId,
         },
-        select: customerSessionSelect,
-      });
-    }
-
-    return await prisma.customer.create({
-      data: {
+      },
+      update: {
+          userId: user.id,
+          phone: verifiedUserPhone ?? normalizedPhone ?? existing?.phone,
+          ...(verifiedUserPhone ? { phoneVerified: true, verificationMethod: "global_user_phone" } : {}),
+          username: input.username || existing?.username,
+          name: [input.firstName, input.lastName].filter(Boolean).join(" ") || existing?.name,
+      },
+      create: {
         businessId,
         userId: user.id,
         telegramUserId,

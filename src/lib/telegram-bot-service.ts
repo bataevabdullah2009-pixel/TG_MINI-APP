@@ -1,4 +1,4 @@
-import { getAppBaseUrl } from "@/lib/production-url";
+import { buildSellerPanelUrl } from "@/lib/production-url";
 
 export class TelegramBotService {
   private token: string;
@@ -63,12 +63,19 @@ export class TelegramBotService {
 
 <b>Клиент:</b> ${customerName}
 <b>Телефон:</b> ${customerPhone}
-<b>Сумма:</b> ${totalPrice} RUB
-
-<a href="${getAppBaseUrl()}/admin/orders">Открыть в админке</a>
+<b>Сумма:</b> ${totalPrice} ₽
     `;
 
-    await this.sendNotification(chatId, message);
+    await this.sendNotification(chatId, message, {
+      reply_markup: {
+        inline_keyboard: [[{
+          text: "Открыть заказ",
+          web_app: {
+            url: buildSellerPanelUrl(null, { tab: "orders", orderId }),
+          },
+        }]],
+      },
+    });
   }
 
   async sendBookingNotification(
@@ -86,11 +93,16 @@ export class TelegramBotService {
 <b>Телефон:</b> ${customerPhone}
 <b>Услуга:</b> ${serviceName}
 <b>Время:</b> ${time}
-
-<a href="${getAppBaseUrl()}/admin/bookings">Открыть в админке</a>
     `;
 
-    await this.sendNotification(chatId, message);
+    await this.sendNotification(chatId, message, {
+      reply_markup: {
+        inline_keyboard: [[{
+          text: "Открыть панель продавца",
+          web_app: { url: buildSellerPanelUrl(null, { tab: "bookings" }) },
+        }]],
+      },
+    });
   }
 }
 

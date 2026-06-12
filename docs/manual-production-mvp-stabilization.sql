@@ -51,6 +51,12 @@ CREATE INDEX IF NOT EXISTS "Order_status_idx"
 CREATE INDEX IF NOT EXISTS "Business_slug_idx"
   ON "Business" ("slug");
 
+CREATE INDEX IF NOT EXISTS "Customer_telegramUserId_idx"
+  ON "Customer" ("telegramUserId");
+
+CREATE INDEX IF NOT EXISTS "Customer_businessId_createdAt_idx"
+  ON "Customer" ("businessId", "createdAt");
+
 CREATE INDEX IF NOT EXISTS "Item_businessId_isAvailable_archivedAt_idx"
   ON "Item" ("businessId", "isAvailable", "archivedAt");
 

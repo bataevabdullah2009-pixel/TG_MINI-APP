@@ -30,14 +30,17 @@ function cleanTelegramName(value: string) {
 
 export function buildBusinessShareLinks(businessSlug: string) {
   const slug = businessSlug.trim().replace(/^\/+|\/+$/g, "");
-  const configuredWebAppUrl = process.env.NEXT_PUBLIC_WEBAPP_URL || process.env.NEXT_PUBLIC_APP_URL || "";
   const runtimeOrigin = typeof window !== "undefined" ? window.location.origin : "";
-  const publicUrl = (
-    process.env.NODE_ENV === "production"
-      ? [configuredWebAppUrl]
-      : [configuredWebAppUrl, runtimeOrigin]
-  ).find(isSafePublicUrl) || "";
-  const baseUrl = publicUrl ? normalizeMiniAppBase(publicUrl) : "";
+  let webAppStoreUrl = "";
+  try {
+    webAppStoreUrl = slug ? buildBusinessMiniAppUrl(slug) : "";
+  } catch {
+    const publicUrl = process.env.NODE_ENV === "production"
+      ? ""
+      : [runtimeOrigin].find(isSafePublicUrl) || "";
+    const baseUrl = publicUrl ? normalizeMiniAppBase(publicUrl) : "";
+    webAppStoreUrl = baseUrl && slug ? `${baseUrl}/app/${encodeURIComponent(slug)}` : "";
+  }
 
   const botUsername = cleanTelegramName(process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "");
   const miniAppShortName = cleanTelegramName(process.env.NEXT_PUBLIC_TELEGRAM_MINI_APP_SHORT_NAME || "");
@@ -50,7 +53,7 @@ export function buildBusinessShareLinks(businessSlug: string) {
     : "";
 
   return {
-    webAppStoreUrl: baseUrl && slug ? `${baseUrl}/app/${encodeURIComponent(slug)}` : "",
+    webAppStoreUrl,
     telegramMiniAppLink,
   };
 }
@@ -62,3 +65,4 @@ export function getStoreSlugFromStartParam(startParam?: string | null) {
   const slug = value.slice("store_".length).toLowerCase();
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) ? slug : null;
 }
+import { buildBusinessMiniAppUrl } from "@/lib/production-url";

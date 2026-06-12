@@ -1,6 +1,10 @@
 import { Prisma, SubscriptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getMiniAppUrl } from "@/lib/production-url";
+import {
+  buildBusinessMiniAppUrl,
+  buildMiniAppUrl,
+  buildProductMiniAppUrl,
+} from "@/lib/production-url";
 
 export type MarketplaceIntent =
   | "marketplace_list_businesses"
@@ -63,22 +67,25 @@ function formatPrice(value: number) {
 }
 
 function businessUrl(slug: string) {
-  return getMiniAppUrl(`/app/${slug}`);
+  return buildBusinessMiniAppUrl(slug);
 }
 
-export function buildBusinessOpenButton(businessSlug: string): AgentButton {
+export function buildOpenBusinessButton(businessSlug: string): AgentButton {
   return {
     text: "Открыть магазин",
     url: businessUrl(businessSlug),
   };
 }
 
-export function buildProductOpenButton(productSlug: string, businessSlug: string): AgentButton {
+export function buildOpenProductButton(productSlug: string, businessSlug: string): AgentButton {
   return {
     text: "Открыть товар",
-    url: `${businessUrl(businessSlug)}?product=${encodeURIComponent(productSlug)}`,
+    url: buildProductMiniAppUrl(businessSlug, productSlug),
   };
 }
+
+export const buildBusinessOpenButton = buildOpenBusinessButton;
+export const buildProductOpenButton = buildOpenProductButton;
 
 export function detectMarketplaceIntent(text: string): MarketplaceIntent {
   const normalized = normalizeText(text);
@@ -357,8 +364,8 @@ function businessesResponse(businesses: Awaited<ReturnType<typeof listActiveBusi
       detectedIntent: "marketplace_list_businesses",
       toolsCalled: ["listActiveBusinesses"],
       responseSource: "database",
-      button: { text: "Открыть Vitrina AI", url: getMiniAppUrl() },
-      buttons: [{ text: "Открыть Vitrina AI", url: getMiniAppUrl() }],
+      button: { text: "Открыть Vitrina AI", url: buildMiniAppUrl() },
+      buttons: [{ text: "Открыть Vitrina AI", url: buildMiniAppUrl() }],
     };
   }
 
@@ -373,7 +380,7 @@ function businessesResponse(businesses: Awaited<ReturnType<typeof listActiveBusi
     detectedIntent: "marketplace_list_businesses",
     toolsCalled: ["listActiveBusinesses"],
     responseSource: "database",
-    button: { text: "Открыть список магазинов", url: getMiniAppUrl() },
+    button: { text: "Открыть список магазинов", url: buildMiniAppUrl() },
     buttons: businesses.slice(0, 5).map((business) => ({
       ...buildBusinessOpenButton(business.slug),
       text: business.name,
@@ -393,7 +400,9 @@ type StoredTelegramContext = {
   lastProductQuery: string | null;
 };
 
-async function loadTelegramContext(telegramUserId: string): Promise<StoredTelegramContext> {
+export async function getSelectedBusinessContext(
+  telegramUserId: string
+): Promise<StoredTelegramContext> {
   try {
     const context = await prisma.telegramChatContext.findUnique({
       where: { telegramUserId: BigInt(telegramUserId) },
@@ -411,27 +420,56 @@ async function loadTelegramContext(telegramUserId: string): Promise<StoredTelegr
         },
       },
     });
-    return {
-      business: context?.business || null,
-      lastProductQuery: context?.lastProductQuery || null,
-    };
+    if (context?.business) {
+      return {
+        business: context.business,
+        lastProductQuery: context.lastProductQuery || null,
+      };
+    }
   } catch (error) {
     console.warn("[TELEGRAM AI CONTEXT] context table unavailable:", error);
-    return { business: null, lastProductQuery: null };
   }
+
+  const fallbackCustomer = await prisma.customer.findFirst({
+    where: {
+      telegramUserId: BigInt(telegramUserId),
+      business: {
+        ...ACTIVE_BUSINESS_FILTER,
+        isDemo: false,
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      business: {
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          description: true,
+          phone: true,
+          address: true,
+        },
+      },
+    },
+  });
+
+  return {
+    business: fallbackCustomer?.business || null,
+    lastProductQuery: null,
+  };
 }
 
-async function saveTelegramContext(input: {
+async function saveLastProductQuery(input: {
   telegramUserId: string;
   businessId?: string | null;
-  lastProductQuery?: string | null;
+  lastProductQuery: string | null;
 }) {
   try {
     await prisma.telegramChatContext.upsert({
       where: { telegramUserId: BigInt(input.telegramUserId) },
       update: {
         ...(input.businessId !== undefined ? { businessId: input.businessId } : {}),
-        ...(input.lastProductQuery !== undefined ? { lastProductQuery: input.lastProductQuery } : {}),
+        lastProductQuery: input.lastProductQuery,
       },
       create: {
         telegramUserId: BigInt(input.telegramUserId),
@@ -444,6 +482,52 @@ async function saveTelegramContext(input: {
   }
 }
 
+export async function setSelectedBusinessContext(
+  telegramUserId: string,
+  businessId: string
+) {
+  const numericTelegramUserId = BigInt(telegramUserId);
+  const business = await prisma.business.findFirst({
+    where: {
+      id: businessId,
+      ...ACTIVE_BUSINESS_FILTER,
+      isDemo: false,
+    },
+    select: { id: true },
+  });
+  if (!business) return false;
+
+  try {
+    await prisma.telegramChatContext.upsert({
+      where: { telegramUserId: numericTelegramUserId },
+      update: { businessId: business.id },
+      create: {
+        telegramUserId: numericTelegramUserId,
+        businessId: business.id,
+      },
+    });
+  } catch (error) {
+    console.warn("[TELEGRAM AI CONTEXT] context table unavailable for selection:", error);
+  }
+
+  await prisma.customer.upsert({
+    where: {
+      businessId_telegramUserId: {
+        businessId: business.id,
+        telegramUserId: numericTelegramUserId,
+      },
+    },
+    update: { updatedAt: new Date() },
+    create: {
+      businessId: business.id,
+      telegramUserId: numericTelegramUserId,
+    },
+    select: { id: true },
+  });
+
+  return true;
+}
+
 export async function runTelegramMarketplaceAgent(input: {
   text: string;
   telegramUserId: string;
@@ -452,23 +536,17 @@ export async function runTelegramMarketplaceAgent(input: {
   let detectedIntent = detectMarketplaceIntent(input.text);
   const storedContext = input.business
     ? { business: null, lastProductQuery: null }
-    : await loadTelegramContext(input.telegramUserId);
+    : await getSelectedBusinessContext(input.telegramUserId);
   const mentionedBusiness = await resolveBusinessByName(input.text);
   const business = mentionedBusiness || input.business || storedContext.business || null;
   const switchedBusiness = Boolean(mentionedBusiness && mentionedBusiness.id !== storedContext.business?.id);
 
   if (input.business) {
-    await saveTelegramContext({
-      telegramUserId: input.telegramUserId,
-      businessId: input.business.id,
-    });
+    await setSelectedBusinessContext(input.telegramUserId, input.business.id);
   }
 
   if (mentionedBusiness) {
-    await saveTelegramContext({
-      telegramUserId: input.telegramUserId,
-      businessId: mentionedBusiness.id,
-    });
+    await setSelectedBusinessContext(input.telegramUserId, mentionedBusiness.id);
   }
 
   if (detectedIntent === "fallback" && switchedBusiness && storedContext.lastProductQuery) {
@@ -500,7 +578,7 @@ export async function runTelegramMarketplaceAgent(input: {
     const toolName = business ? "searchProductsInBusiness" : "searchProductsAcrossBusinesses";
 
     if (query) {
-      await saveTelegramContext({
+      await saveLastProductQuery({
         telegramUserId: input.telegramUserId,
         businessId: business?.id,
         lastProductQuery: query,
@@ -509,17 +587,19 @@ export async function runTelegramMarketplaceAgent(input: {
 
     if (products.length === 0) {
       return {
-        text: "Я не нашёл такой товар. Могу открыть каталог или поискать похожее.",
+        text: business
+          ? `В магазине ${safeText(business.name)} не нашёл товар «${safeText(query)}».`
+          : `Во всех активных магазинах не нашёл товар «${safeText(query)}».`,
         detectedIntent,
         toolsCalled: [toolName],
         responseSource: "database",
         button: {
           text: "Открыть каталог",
-          url: business ? businessUrl(business.slug) : getMiniAppUrl(),
+          url: business ? businessUrl(business.slug) : buildMiniAppUrl(),
         },
         buttons: business
           ? [{ ...buildBusinessOpenButton(business.slug), text: `Открыть ${business.name}` }]
-          : [{ text: "Открыть Vitrina AI", url: getMiniAppUrl() }],
+          : [{ text: "Открыть Vitrina AI", url: buildMiniAppUrl() }],
       };
     }
 
@@ -556,7 +636,7 @@ export async function runTelegramMarketplaceAgent(input: {
         detectedIntent,
         toolsCalled: ["getOrderStatus"],
         responseSource: "database",
-        button: { text: "Открыть мои заказы", url: getMiniAppUrl("/app/profile") },
+        button: { text: "Открыть мои заказы", url: buildMiniAppUrl("/app/profile") },
       };
     }
 
@@ -570,7 +650,7 @@ export async function runTelegramMarketplaceAgent(input: {
       detectedIntent,
       toolsCalled: ["getCustomerOrders"],
       responseSource: "database",
-      button: { text: "Открыть мои заказы", url: getMiniAppUrl("/app/profile") },
+      button: { text: "Открыть мои заказы", url: buildMiniAppUrl("/app/profile") },
     };
   }
 
@@ -580,7 +660,6 @@ export async function runTelegramMarketplaceAgent(input: {
     return {
       ...response,
       detectedIntent,
-      text: `Сначала выберите магазин. ${response.text}`,
     };
   }
 

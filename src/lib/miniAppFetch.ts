@@ -2,6 +2,8 @@
  * Common fetch helper for the Telegram Mini App environment.
  * Automatically appends the standard session authorization headers.
  */
+const DEFAULT_TIMEOUT_MS = 15_000;
+
 export async function miniAppFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const tg = typeof window !== "undefined" ? (window as any).Telegram?.WebApp : null;
   
@@ -26,8 +28,19 @@ export async function miniAppFetch(input: RequestInfo | URL, init?: RequestInit)
     headers.set("Content-Type", "application/json");
   }
 
-  return fetch(input, {
-    ...init,
-    headers,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  const abortFromCaller = () => controller.abort();
+  init?.signal?.addEventListener("abort", abortFromCaller, { once: true });
+
+  try {
+    return await fetch(input, {
+      ...init,
+      headers,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+    init?.signal?.removeEventListener("abort", abortFromCaller);
+  }
 }

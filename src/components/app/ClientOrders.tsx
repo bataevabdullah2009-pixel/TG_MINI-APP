@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { ClipboardList, Calendar, Check, X, Clock, HelpCircle } from "lucide-react";
+import { miniAppFetch } from "@/lib/miniAppFetch";
 
 interface ClientOrdersProps {
   telegramUserId?: string;
@@ -13,37 +14,39 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     if (!telegramUserId) {
       setLoading(false);
       setError("История заказов доступна после загрузки Telegram-профиля.");
-      return;
+      return undefined;
     }
 
     setLoading(true);
     setError(null);
-    const initData = typeof window !== "undefined"
-      ? ((window as any).Telegram?.WebApp?.initData || sessionStorage.getItem("tgInitData") || "")
-      : "";
-
-    fetch("/api/customer/orders", {
-      headers: initData ? { "x-telegram-init-data": initData } : undefined,
-    })
-      .then((res) => res.json())
-      .then((resData) => {
-        if (resData.ok) {
-          setData({ orders: resData.orders || [], bookings: resData.bookings || [] });
-        } else {
-          setError(resData.error || "Не удалось загрузить историю заказов");
+    const controller = new AbortController();
+    miniAppFetch("/api/customer/orders?limit=10", { signal: controller.signal })
+      .then(async (res) => {
+        const resData = await res.json().catch(() => ({}));
+        if (!res.ok || !resData.ok) {
+          throw new Error(resData.error || "Не удалось загрузить историю заказов.");
         }
+        setData({ orders: resData.orders || [], bookings: resData.bookings || [] });
       })
       .catch((e) => {
+        if (controller.signal.aborted) return;
         console.error(e);
-        setError("Ошибка загрузки данных");
+        setError(e instanceof Error && e.name === "AbortError"
+          ? "История не ответила за 15 секунд."
+          : e instanceof Error ? e.message : "Ошибка загрузки данных.");
       })
-      .finally(() => setLoading(false));
-  }, [telegramUserId]);
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [telegramUserId, retryKey]);
 
   const getOrderStatus = (status: string) => {
     switch (status) {
@@ -68,13 +71,14 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
       case "PICKED_UP":
         return { label: "В пути", color: "bg-indigo-50 text-indigo-700 ring-indigo-200" };
       case "DELIVERING":
-        return { label: "Доставляется", color: "bg-indigo-50 text-indigo-700 ring-indigo-200" };
+      case "IN_DELIVERY":
+        return { label: "В пути", color: "bg-indigo-50 text-indigo-700 ring-indigo-200" };
       case "DELIVERED":
         return { label: "Доставлен", color: "bg-emerald-50 text-emerald-700 ring-emerald-200" };
       case "COMPLETED":
-        return { label: "Выполнен", color: "bg-slate-100 text-slate-700 ring-slate-200" };
+        return { label: "Завершён", color: "bg-slate-100 text-slate-700 ring-slate-200" };
       case "CANCELLED":
-        return { label: "Отменен", color: "bg-rose-50 text-rose-700 ring-rose-200" };
+        return { label: "Отменён", color: "bg-rose-50 text-rose-700 ring-rose-200" };
       case "EXPIRED":
         return { label: "Истёк", color: "bg-slate-100 text-slate-700 ring-slate-200" };
       default:
@@ -137,7 +141,14 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
 
       {error && (
         <div className="rounded-2xl bg-rose-50 p-4 text-center text-xs font-bold text-rose-700 ring-1 ring-rose-200/50">
-          ⚠️ {error}
+          <p>{error}</p>
+          <button
+            type="button"
+            onClick={() => setRetryKey((value) => value + 1)}
+            className="mt-3 rounded-xl bg-rose-700 px-4 py-2 text-white"
+          >
+            Повторить
+          </button>
         </div>
       )}
 
