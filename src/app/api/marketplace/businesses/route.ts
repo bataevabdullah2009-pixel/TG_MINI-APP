@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { classifyDatabaseError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { createServerTiming } from "@/lib/server-timing";
 
 const typeLabels: Record<string, string> = {
   CAFE: "Еда",
@@ -23,7 +24,6 @@ const marketplaceBusinessSelect = {
   primaryColor: true,
   accentColor: true,
   isOpen: true,
-  _count: { select: { orders: true, bookings: true } },
 } as const;
 
 function isSuperAdmin(telegramUserId: string | null) {
@@ -36,6 +36,7 @@ function isSuperAdmin(telegramUserId: string | null) {
 }
 
 export async function GET(request: NextRequest) {
+  const finishTiming = createServerTiming("marketplace_businesses");
   try {
     const { searchParams } = new URL(request.url);
     const telegramUserId = searchParams.get("telegramUserId");
@@ -59,7 +60,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       isSuperAdmin: superAdmin,
       isDbEmpty,
       businesses: businesses.map((business) => ({
@@ -70,16 +71,18 @@ export async function GET(request: NextRequest) {
       })),
       message: isDbEmpty ? "База подключена, но данные не загружены" : undefined,
     });
+    response.headers.set("Cache-Control", "public, s-maxage=15, stale-while-revalidate=60");
+    return finishTiming(response);
   } catch (error) {
     const classification = classifyDatabaseError(error);
     warnPrismaSchemaDrift("Marketplace businesses query failed", error);
-    return NextResponse.json(
+    return finishTiming(NextResponse.json(
       {
         ok: false,
         code: classification.code,
         error: "Каталог временно недоступен из-за ошибки базы данных.",
       },
       { status: 503 }
-    );
+    ));
   }
 }

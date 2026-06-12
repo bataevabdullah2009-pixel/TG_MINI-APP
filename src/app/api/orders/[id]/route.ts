@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { NotificationService } from "@/lib/notifications/notification-service";
 import { classifyDatabaseError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { recoverStalePaymentProofChecks } from "@/lib/ai/payment-proof-service";
+import { createServerTiming } from "@/lib/server-timing";
 
 const legacyOrderDetailSelect = {
   id: true,
@@ -38,8 +40,12 @@ export async function GET(
   _request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const finishTiming = createServerTiming("order_detail");
   try {
     const { id } = await context.params;
+    await recoverStalePaymentProofChecks({ orderId: id }).catch((error) => {
+      console.warn("[PAYMENT PROOF AI] stale order check recovery skipped:", error);
+    });
     let order;
     try {
       order = await prisma.order.findUnique({
@@ -62,13 +68,13 @@ export async function GET(
     }
 
     if (!order) {
-      return NextResponse.json({ error: "Заказ не найден." }, { status: 404 });
+      return finishTiming(NextResponse.json({ error: "Заказ не найден." }, { status: 404 }));
     }
 
-    return NextResponse.json(order);
+    return finishTiming(NextResponse.json(order));
   } catch (error) {
     console.error("Error fetching order:", error);
-    return NextResponse.json({ error: "Не удалось загрузить заказ." }, { status: 500 });
+    return finishTiming(NextResponse.json({ error: "Не удалось загрузить заказ." }, { status: 500 }));
   }
 }
 

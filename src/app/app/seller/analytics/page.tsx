@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, BarChart3, CalendarDays, ReceiptText, ShoppingBag, TrendingDown, TrendingUp, Users } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
+import { DateBottomSheetPicker } from "@/components/ui/DateBottomSheetPicker";
 
 type AnalyticsData = {
   business: { name: string };
@@ -27,6 +28,13 @@ type AnalyticsData = {
   topProducts: Array<{ itemId: string | null; name: string; quantity: number }>;
   topCustomers: Array<{ customerId: string | null; name: string; orders: number; revenue: number }>;
   promoUsage: Array<{ code: string; discountPercent: number; orders: number; discountAmount: number; revenue: number }>;
+  explanations?: {
+    revenue: string;
+    averageCheck: string;
+    conversion: string;
+    topProducts: string;
+    cancelled: string;
+  };
 };
 
 const periods = [
@@ -39,6 +47,15 @@ const periods = [
 
 function money(value: number) {
   return `${Math.round(value).toLocaleString("ru-RU")} ₽`;
+}
+
+function localDate(offsetDays = 0) {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function Growth({ value }: { value: number }) {
@@ -125,12 +142,24 @@ function SellerAnalyticsContent() {
           </div>
           {period === "custom" && (
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <label className="rounded-xl bg-slate-50 p-3 text-[10px] font-black text-slate-400">С
-                <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} className="mt-1 block w-full bg-transparent text-xs text-slate-900 outline-none" />
-              </label>
-              <label className="rounded-xl bg-slate-50 p-3 text-[10px] font-black text-slate-400">По
-                <input type="date" value={to} onChange={(event) => setTo(event.target.value)} className="mt-1 block w-full bg-transparent text-xs text-slate-900 outline-none" />
-              </label>
+              <DateBottomSheetPicker
+                value={from}
+                onChange={setFrom}
+                title="Начало периода"
+                minDate={localDate(-366)}
+                maxDate={to || localDate()}
+                placeholder="Дата с"
+                buttonClassName="rounded-xl bg-slate-50 p-3 text-xs font-black text-slate-900"
+              />
+              <DateBottomSheetPicker
+                value={to}
+                onChange={setTo}
+                title="Конец периода"
+                minDate={from || localDate(-366)}
+                maxDate={localDate()}
+                placeholder="Дата по"
+                buttonClassName="rounded-xl bg-slate-50 p-3 text-xs font-black text-slate-900"
+              />
             </div>
           )}
         </section>
@@ -142,10 +171,10 @@ function SellerAnalyticsContent() {
           <>
             <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               {[
-                { label: "Выручка", value: money(data.metrics.revenue), growth: data.growth.revenue, icon: BarChart3 },
-                { label: "Заказы", value: data.metrics.orders, growth: data.growth.orders, icon: ShoppingBag },
-                { label: "Средний чек", value: money(data.metrics.averageCheck), growth: data.growth.averageCheck, icon: ReceiptText },
-                { label: "Новые клиенты", value: data.metrics.newCustomers, growth: data.growth.newCustomers, icon: Users },
+                { label: "Выручка", value: money(data.metrics.revenue), growth: data.growth.revenue, icon: BarChart3, hint: data.explanations?.revenue },
+                { label: "Заказы", value: data.metrics.orders, growth: data.growth.orders, icon: ShoppingBag, hint: undefined },
+                { label: "Средний чек", value: money(data.metrics.averageCheck), growth: data.growth.averageCheck, icon: ReceiptText, hint: data.explanations?.averageCheck },
+                { label: "Новые клиенты", value: data.metrics.newCustomers, growth: data.growth.newCustomers, icon: Users, hint: undefined },
               ].map((metric) => {
                 const Icon = metric.icon;
                 return (
@@ -153,6 +182,7 @@ function SellerAnalyticsContent() {
                     <div className="flex items-center justify-between"><Icon size={17} className="text-indigo-600" /><Growth value={metric.growth} /></div>
                     <p className="mt-4 text-[10px] font-black uppercase text-slate-400">{metric.label}</p>
                     <strong className="mt-1 block text-xl font-black">{metric.value}</strong>
+                    {metric.hint && <p className="mt-2 text-[9px] font-semibold leading-snug text-slate-400">{metric.hint}</p>}
                   </article>
                 );
               })}
@@ -172,6 +202,10 @@ function SellerAnalyticsContent() {
                 </article>
               ))}
             </section>
+            <div className="grid gap-2 text-[10px] font-semibold leading-relaxed text-slate-500 sm:grid-cols-2">
+              <p className="rounded-2xl bg-white p-3 ring-1 ring-slate-100">{data.explanations?.conversion || "Конверсия: доля валидных оплаченных заказов от всех заказов периода."}</p>
+              <p className="rounded-2xl bg-white p-3 ring-1 ring-slate-100">{data.explanations?.cancelled || "Отменённые заказы показаны отдельно и не входят в выручку."}</p>
+            </div>
 
             <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
               <div className="mb-4 flex items-center gap-2"><CalendarDays size={17} /><h2 className="text-sm font-black">Динамика выручки</h2></div>
@@ -194,7 +228,7 @@ function SellerAnalyticsContent() {
               <ListCard title="Заказы по статусам" empty="Заказов за период нет.">
                 {data.statuses.map((item) => <Row key={item.status} label={item.label} value={`${item.count} · ${money(item.amount)}`} />)}
               </ListCard>
-              <ListCard title="Топ товаров" empty="Продаж товаров за период нет.">
+              <ListCard title="Топ товаров" empty="Продаж товаров за период нет." description={data.explanations?.topProducts}>
                 {data.topProducts.map((item) => <Row key={`${item.itemId}-${item.name}`} label={item.name} value={`${item.quantity} шт.`} />)}
               </ListCard>
               <ListCard title="Топ клиентов" empty="Завершённых заказов клиентов пока нет.">
@@ -219,11 +253,12 @@ export default function SellerAnalyticsPage() {
   );
 }
 
-function ListCard({ title, empty, children }: { title: string; empty: string; children: ReactNode }) {
+function ListCard({ title, empty, description, children }: { title: string; empty: string; description?: string; children: ReactNode }) {
   const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
   return (
     <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
       <h2 className="mb-3 text-sm font-black">{title}</h2>
+      {description && <p className="mb-2 text-[10px] font-semibold text-slate-400">{description}</p>}
       {hasChildren ? <div className="divide-y divide-slate-100">{children}</div> : <p className="rounded-2xl bg-slate-50 p-5 text-center text-xs font-bold text-slate-400">{empty}</p>}
     </section>
   );

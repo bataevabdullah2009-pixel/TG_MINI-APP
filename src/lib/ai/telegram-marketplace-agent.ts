@@ -24,6 +24,7 @@ export type MarketplaceAgentResponse = {
   toolsCalled: string[];
   responseSource: "database" | "rules";
   button?: AgentButton;
+  buttons?: AgentButton[];
 };
 
 const ACTIVE_BUSINESS_FILTER: Prisma.BusinessWhereInput = {
@@ -63,6 +64,20 @@ function formatPrice(value: number) {
 
 function businessUrl(slug: string) {
   return getMiniAppUrl(`/app/${slug}`);
+}
+
+export function buildBusinessOpenButton(businessSlug: string): AgentButton {
+  return {
+    text: "Открыть магазин",
+    url: businessUrl(businessSlug),
+  };
+}
+
+export function buildProductOpenButton(productSlug: string, businessSlug: string): AgentButton {
+  return {
+    text: "Открыть товар",
+    url: `${businessUrl(businessSlug)}?product=${encodeURIComponent(productSlug)}`,
+  };
 }
 
 export function detectMarketplaceIntent(text: string): MarketplaceIntent {
@@ -132,6 +147,29 @@ export async function listActiveBusinesses(query?: string) {
   });
 }
 
+export async function resolveBusinessByName(query: string) {
+  const normalizedQuery = normalizeText(query);
+  if (!normalizedQuery) return null;
+
+  const businesses = await listActiveBusinesses();
+  const exact = businesses.find((business) => {
+    const name = normalizeText(business.name);
+    const slug = normalizeText(business.slug.replace(/[-_]/g, " "));
+    return normalizedQuery === name || normalizedQuery === slug;
+  });
+  if (exact) return exact;
+
+  return businesses
+    .filter((business) => {
+      const name = normalizeText(business.name);
+      const slug = normalizeText(business.slug.replace(/[-_]/g, " "));
+      return normalizedQuery.includes(name) ||
+        name.includes(normalizedQuery) ||
+        normalizedQuery.includes(slug);
+    })
+    .sort((left, right) => right.name.length - left.name.length)[0] || null;
+}
+
 export async function getBusinessBySlug(slug: string) {
   return prisma.business.findFirst({
     where: {
@@ -160,6 +198,7 @@ const productSelect = {
   businessId: true,
   name: true,
   price: true,
+  stockMode: true,
   stock: true,
   isAvailable: true,
   isPopular: true,
@@ -174,6 +213,11 @@ export async function searchProductsAcrossBusinesses(query: string): Promise<Age
     where: {
       type: "PRODUCT",
       isAvailable: true,
+      archivedAt: null,
+      OR: [
+        { stockMode: "SIMPLE_AVAILABILITY" },
+        { stock: { gt: 0 } },
+      ],
       name: { contains: query, mode: "insensitive" },
       business: {
         ...ACTIVE_BUSINESS_FILTER,
@@ -192,6 +236,11 @@ export async function searchProductsInBusiness(businessId: string, query: string
       businessId,
       type: "PRODUCT",
       isAvailable: true,
+      archivedAt: null,
+      OR: [
+        { stockMode: "SIMPLE_AVAILABILITY" },
+        { stock: { gt: 0 } },
+      ],
       ...(query ? { name: { contains: query, mode: "insensitive" } } : {}),
     },
     select: productSelect,
@@ -217,7 +266,7 @@ export async function getBusinessDeliveryInfo(businessId: string) {
   });
 }
 
-export async function getBusinessPaymentMethods(businessId: string) {
+export async function getBusinessPaymentInfo(businessId: string) {
   return prisma.business.findUnique({
     where: { id: businessId },
     select: {
@@ -228,6 +277,8 @@ export async function getBusinessPaymentMethods(businessId: string) {
     },
   });
 }
+
+export const getBusinessPaymentMethods = getBusinessPaymentInfo;
 
 export async function getBusinessWorkingHours(businessId: string) {
   return prisma.business.findUnique({
@@ -307,6 +358,7 @@ function businessesResponse(businesses: Awaited<ReturnType<typeof listActiveBusi
       toolsCalled: ["listActiveBusinesses"],
       responseSource: "database",
       button: { text: "Открыть Vitrina AI", url: getMiniAppUrl() },
+      buttons: [{ text: "Открыть Vitrina AI", url: getMiniAppUrl() }],
     };
   }
 
@@ -322,7 +374,74 @@ function businessesResponse(businesses: Awaited<ReturnType<typeof listActiveBusi
     toolsCalled: ["listActiveBusinesses"],
     responseSource: "database",
     button: { text: "Открыть список магазинов", url: getMiniAppUrl() },
+    buttons: businesses.slice(0, 5).map((business) => ({
+      ...buildBusinessOpenButton(business.slug),
+      text: business.name,
+    })),
   };
+}
+
+type StoredTelegramContext = {
+  business: {
+    id: string;
+    slug: string;
+    name: string;
+    description: string | null;
+    phone: string | null;
+    address: string | null;
+  } | null;
+  lastProductQuery: string | null;
+};
+
+async function loadTelegramContext(telegramUserId: string): Promise<StoredTelegramContext> {
+  try {
+    const context = await prisma.telegramChatContext.findUnique({
+      where: { telegramUserId: BigInt(telegramUserId) },
+      select: {
+        lastProductQuery: true,
+        business: {
+          select: {
+            id: true,
+            slug: true,
+            name: true,
+            description: true,
+            phone: true,
+            address: true,
+          },
+        },
+      },
+    });
+    return {
+      business: context?.business || null,
+      lastProductQuery: context?.lastProductQuery || null,
+    };
+  } catch (error) {
+    console.warn("[TELEGRAM AI CONTEXT] context table unavailable:", error);
+    return { business: null, lastProductQuery: null };
+  }
+}
+
+async function saveTelegramContext(input: {
+  telegramUserId: string;
+  businessId?: string | null;
+  lastProductQuery?: string | null;
+}) {
+  try {
+    await prisma.telegramChatContext.upsert({
+      where: { telegramUserId: BigInt(input.telegramUserId) },
+      update: {
+        ...(input.businessId !== undefined ? { businessId: input.businessId } : {}),
+        ...(input.lastProductQuery !== undefined ? { lastProductQuery: input.lastProductQuery } : {}),
+      },
+      create: {
+        telegramUserId: BigInt(input.telegramUserId),
+        businessId: input.businessId || null,
+        lastProductQuery: input.lastProductQuery || null,
+      },
+    });
+  } catch (error) {
+    console.warn("[TELEGRAM AI CONTEXT] context could not be saved:", error);
+  }
 }
 
 export async function runTelegramMarketplaceAgent(input: {
@@ -330,15 +449,45 @@ export async function runTelegramMarketplaceAgent(input: {
   telegramUserId: string;
   business?: { id: string; slug: string; name: string; description?: string | null; phone?: string | null; address?: string | null } | null;
 }): Promise<MarketplaceAgentResponse> {
-  const detectedIntent = detectMarketplaceIntent(input.text);
-  const business = input.business || null;
+  let detectedIntent = detectMarketplaceIntent(input.text);
+  const storedContext = input.business
+    ? { business: null, lastProductQuery: null }
+    : await loadTelegramContext(input.telegramUserId);
+  const mentionedBusiness = await resolveBusinessByName(input.text);
+  const business = mentionedBusiness || input.business || storedContext.business || null;
+  const switchedBusiness = Boolean(mentionedBusiness && mentionedBusiness.id !== storedContext.business?.id);
+
+  if (input.business) {
+    await saveTelegramContext({
+      telegramUserId: input.telegramUserId,
+      businessId: input.business.id,
+    });
+  }
+
+  if (mentionedBusiness) {
+    await saveTelegramContext({
+      telegramUserId: input.telegramUserId,
+      businessId: mentionedBusiness.id,
+    });
+  }
+
+  if (detectedIntent === "fallback" && switchedBusiness && storedContext.lastProductQuery) {
+    detectedIntent = "product_search";
+  }
 
   if (detectedIntent === "marketplace_list_businesses") {
     return businessesResponse(await listActiveBusinesses());
   }
 
   if (detectedIntent === "product_search") {
-    const query = extractProductQuery(input.text);
+    let query = extractProductQuery(input.text);
+    if (mentionedBusiness) {
+      const businessName = normalizeText(mentionedBusiness.name);
+      query = normalizeText(query.replace(businessName, ""));
+    }
+    if (!query && switchedBusiness && storedContext.lastProductQuery) {
+      query = storedContext.lastProductQuery;
+    }
     const isBroadQuestion = !query || ["что есть", "что есть в магазине", "что есть у вас в магазине"].includes(normalizeText(input.text));
 
     if (!business && isBroadQuestion) {
@@ -350,6 +499,14 @@ export async function runTelegramMarketplaceAgent(input: {
       : await searchProductsAcrossBusinesses(query);
     const toolName = business ? "searchProductsInBusiness" : "searchProductsAcrossBusinesses";
 
+    if (query) {
+      await saveTelegramContext({
+        telegramUserId: input.telegramUserId,
+        businessId: business?.id,
+        lastProductQuery: query,
+      });
+    }
+
     if (products.length === 0) {
       return {
         text: "Я не нашёл такой товар. Могу открыть каталог или поискать похожее.",
@@ -360,6 +517,9 @@ export async function runTelegramMarketplaceAgent(input: {
           text: "Открыть каталог",
           url: business ? businessUrl(business.slug) : getMiniAppUrl(),
         },
+        buttons: business
+          ? [{ ...buildBusinessOpenButton(business.slug), text: `Открыть ${business.name}` }]
+          : [{ text: "Открыть Vitrina AI", url: getMiniAppUrl() }],
       };
     }
 
@@ -375,9 +535,13 @@ export async function runTelegramMarketplaceAgent(input: {
       toolsCalled: [toolName],
       responseSource: "database",
       button: {
-        text: "Открыть каталог",
-        url: business ? businessUrl(business.slug) : businessUrl(products[0].business.slug),
+        ...buildProductOpenButton(products[0].id, products[0].business.slug),
+        text: `Открыть ${products[0].name}`,
       },
+      buttons: products.map((product) => ({
+        ...buildProductOpenButton(product.id, product.business.slug),
+        text: product.name,
+      })),
     };
   }
 
@@ -440,13 +604,13 @@ export async function runTelegramMarketplaceAgent(input: {
   }
 
   if (detectedIntent === "payment_info") {
-    const payment = await getBusinessPaymentMethods(business.id);
+    const payment = await getBusinessPaymentInfo(business.id);
     const methods = ["наличными"];
     if (payment?.transferPaymentEnabled) methods.push("переводом по реквизитам продавца");
     return {
       text: `В ${safeText(payment?.name || business.name)} можно оплатить ${methods.join(" или ")}.${payment?.transferBankName ? ` Банк для перевода: ${safeText(payment.transferBankName)}.` : ""}`,
       detectedIntent,
-      toolsCalled: ["getBusinessPaymentMethods"],
+      toolsCalled: ["getBusinessPaymentInfo"],
       responseSource: "database",
       button: { text: "Открыть магазин", url: businessUrl(business.slug) },
     };

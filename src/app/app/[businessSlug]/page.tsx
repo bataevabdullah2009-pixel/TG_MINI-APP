@@ -14,6 +14,7 @@ import { ProductGrid } from "@/components/storefront/ProductGrid";
 import type { StorefrontBusiness as Business, StorefrontCartLine as CartItem, StorefrontItem as Item } from "@/components/storefront/types";
 import { miniAppFetch } from "@/lib/miniAppFetch";
 import { normalizeRuPhone } from "@/lib/phone/phone-utils";
+import { DateBottomSheetPicker } from "@/components/ui/DateBottomSheetPicker";
 
 type Staff = { id: string; name: string; role?: string | null };
 
@@ -538,7 +539,19 @@ export default function BusinessMiniAppPage() {
   }
 
   if (loading) {
-    return <main className="grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-500">Загрузка Mini App...</main>;
+    return (
+      <main className="min-h-screen animate-pulse bg-slate-50 p-4">
+        <div className="mx-auto max-w-3xl space-y-4">
+          <div className="h-44 rounded-[32px] bg-slate-200" />
+          <div className="h-12 rounded-2xl bg-white ring-1 ring-slate-100" />
+          <div className="grid grid-cols-2 gap-3">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div key={index} className="h-56 rounded-3xl bg-white ring-1 ring-slate-100" />
+            ))}
+          </div>
+        </div>
+      </main>
+    );
   }
 
   if (loadError) {
@@ -780,7 +793,14 @@ export default function BusinessMiniAppPage() {
                 ))}
               </div>
             )}
-            <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full rounded-2xl border px-4 py-3 text-sm" />
+            <DateBottomSheetPicker
+              value={selectedDate}
+              onChange={setSelectedDate}
+              title="Выберите дату записи"
+              minDate={isoDate()}
+              maxDate={isoDate(60)}
+              buttonClassName="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold"
+            />
             <div className="grid grid-cols-4 gap-2">
               {slots.map((time) => (
                 <button type="button" key={time} onClick={() => setSelectedTime(time)} className={`rounded-xl px-2 py-2 text-xs font-bold ${selectedTime === time ? "bg-slate-950 text-white" : "bg-slate-100"}`}>

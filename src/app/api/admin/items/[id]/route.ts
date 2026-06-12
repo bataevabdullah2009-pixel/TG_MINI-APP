@@ -86,10 +86,10 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         ...(body.stock !== undefined || body.stockMode !== undefined || body.type !== undefined
           ? { stock: nextStock }
           : {}),
-        ...(nextAvailability !== undefined
-          ? { isAvailable: nextStockMode === "TRACK_STOCK" && nextStock === 0 ? false : nextAvailability }
-          : nextStockMode === "TRACK_STOCK" && nextStock === 0
-            ? { isAvailable: false }
+        ...(nextStockMode === "TRACK_STOCK" && (body.stock !== undefined || body.stockMode !== undefined)
+          ? { isAvailable: Number(nextStock) > 0 }
+          : nextAvailability !== undefined
+            ? { isAvailable: nextAvailability }
             : {}),
         ...(body.isPopular !== undefined ? { isPopular: Boolean(body.isPopular) } : {}),
         ...(body.archivedAt !== undefined

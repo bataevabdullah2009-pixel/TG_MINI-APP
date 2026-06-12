@@ -315,11 +315,6 @@ export async function POST(request: NextRequest) {
         targetUrl = `${miniAppUrl}?mode=super`;
         buttonText = "SaaS Панель";
         message = "Добро пожаловать в SaaS Панель управления! 👑\n\nНажмите на кнопку ниже, чтобы открыть кабинет...";
-      } else if (payload === "demo-cafe" || payload === "cafe") {
-        targetUrl = `${miniAppUrl}/demo-cafe`;
-
-        buttonText = "Открыть Demo Cafe";
-        message = "Добро пожаловать в <b>Demo Cafe</b>! ✨\n\nНажмите на кнопку ниже, чтобы открыть наше Mini App приложение, посмотреть каталог товаров/услуг и оформить заказ.";
       } else if (payload) {
         // Deep link payload: check if link code
         if (payload.startsWith("link-") || payload.startsWith("link_") || payload.length === 6) {
@@ -506,13 +501,18 @@ export async function POST(request: NextRequest) {
       telegramUserId: String(from.id),
       business,
     });
-    const replyMarkup = agentResponse.button
+    const responseButtons = agentResponse.buttons?.length
+      ? agentResponse.buttons.slice(0, 5)
+      : agentResponse.button
+        ? [agentResponse.button]
+        : [];
+    const replyMarkup = responseButtons.length
       ? {
           reply_markup: {
-            inline_keyboard: [[{
-              text: agentResponse.button.text,
-              web_app: { url: withTelegramWebAppCacheBust(agentResponse.button.url) },
-            }]],
+            inline_keyboard: responseButtons.map((button) => [{
+              text: button.text,
+              web_app: { url: withTelegramWebAppCacheBust(button.url) },
+            }]),
           },
         }
       : undefined;

@@ -35,6 +35,7 @@ export default function MarketplacePage() {
   const [session, setSession] = useState<any>(null);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [loading, setLoading] = useState(true);
+  const [catalogLoading, setCatalogLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -137,7 +138,8 @@ export default function MarketplacePage() {
       .catch((err) => {
         console.error("Error loading businesses:", err);
         setCatalogError(err instanceof Error ? err.message : "Не удалось загрузить каталог.");
-      });
+      })
+      .finally(() => setCatalogLoading(false));
   }, [allowMockLogin, router]);
 
   useEffect(() => {
@@ -285,16 +287,6 @@ export default function MarketplacePage() {
       }
     }
   };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center text-slate-900">
-        <div className="animate-spin rounded-full h-9 w-9 border-b-2 border-slate-950 mb-3" />
-        <h4 className="font-extrabold text-sm">Vitrina AI</h4>
-        <p className="text-xs text-slate-400 mt-1">Авторизация...</p>
-      </div>
-    );
-  }
 
   // Auth Fallback UI if not loaded via Telegram
   if (showMockLogin) {
@@ -456,7 +448,7 @@ export default function MarketplacePage() {
                 setQuery={setQuery}
                 activeCategory={activeCategory}
                 setActiveCategory={setActiveCategory}
-                loading={loading}
+                loading={catalogLoading}
                 loadError={catalogError}
                 favorites={favorites}
                 toggleFavorite={toggleFavorite}

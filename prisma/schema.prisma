@@ -245,27 +245,28 @@ model Business {
   owner   User?   @relation("BusinessOwner", fields: [ownerId], references: [id])
   ownerId String?
 
-  users              User[]             @relation("BusinessUsers")
-  categories         Category[]
-  items              Item[]
-  customers          Customer[]
-  orders             Order[]
-  orderAttempts      OrderAttempt[]
-  bookings           Booking[]
-  staff              Staff[]
-  workingHours       WorkingHours[]
-  settings           BusinessSettings?
-  notifications      Notification[]
-  aiUsageLogs        AIUsageLog[]
-  favoriteBusinesses FavoriteBusiness[]
-  favoriteItems      FavoriteItem[]
-  marketingPosts     MarketingPost[]
-  mediaAssets        MediaAsset[]
-  sellerInvites      SellerInvite[]     @relation("BusinessSellerInvites")
-  aiRequestLogs      AiRequestLog[]     @relation("BusinessAiRequestLogs")
-  couriers           Courier[]
-  deliveryZones      DeliveryZone[]
-  promoCodes         PromoCode[]
+  users                User[]                @relation("BusinessUsers")
+  categories           Category[]
+  items                Item[]
+  customers            Customer[]
+  orders               Order[]
+  orderAttempts        OrderAttempt[]
+  bookings             Booking[]
+  staff                Staff[]
+  workingHours         WorkingHours[]
+  settings             BusinessSettings?
+  notifications        Notification[]
+  aiUsageLogs          AIUsageLog[]
+  favoriteBusinesses   FavoriteBusiness[]
+  favoriteItems        FavoriteItem[]
+  marketingPosts       MarketingPost[]
+  mediaAssets          MediaAsset[]
+  sellerInvites        SellerInvite[]        @relation("BusinessSellerInvites")
+  aiRequestLogs        AiRequestLog[]        @relation("BusinessAiRequestLogs")
+  telegramChatContexts TelegramChatContext[]
+  couriers             Courier[]
+  deliveryZones        DeliveryZone[]
+  promoCodes           PromoCode[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -385,12 +386,12 @@ model Item {
   imageUrl String?
 
   durationMinutes Int?
-  stockMode      StockMode @default(SIMPLE_AVAILABILITY)
+  stockMode       StockMode @default(SIMPLE_AVAILABILITY)
   stock           Int?
 
-  isAvailable Boolean @default(true)
-  isPopular   Boolean @default(false)
-  sortOrder   Int     @default(0)
+  isAvailable Boolean   @default(true)
+  isPopular   Boolean   @default(false)
+  sortOrder   Int       @default(0)
   archivedAt  DateTime?
 
   orderItems    OrderItem[]
@@ -557,12 +558,12 @@ model PromoCode {
 
   code            String
   discountPercent Int
-  isActive         Boolean   @default(true)
-  startsAt         DateTime?
-  expiresAt        DateTime?
-  usageLimit       Int?
-  usageCount       Int       @default(0)
-  archivedAt       DateTime?
+  isActive        Boolean   @default(true)
+  startsAt        DateTime?
+  expiresAt       DateTime?
+  usageLimit      Int?
+  usageCount      Int       @default(0)
+  archivedAt      DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -621,13 +622,13 @@ model Order {
   customerAddress String?
   idempotencyKey  String?
 
-  items         OrderItem[]
-  itemsSubtotal Float       @default(0)
-  promoCode     String?
+  items                OrderItem[]
+  itemsSubtotal        Float       @default(0)
+  promoCode            String?
   promoDiscountPercent Int?
-  discountAmount Float      @default(0)
-  deliveryFee   Float       @default(0)
-  totalPrice    Float       @default(0)
+  discountAmount       Float       @default(0)
+  deliveryFee          Float       @default(0)
+  totalPrice           Float       @default(0)
 
   status                OrderStatus         @default(NEW)
   deliveryType          DeliveryType        @default(PICKUP)
@@ -653,6 +654,7 @@ model Order {
   paymentReviewedAt        DateTime?
   paymentReviewedBy        String?
   paymentRejectReason      String?
+  stockRestoredAt          DateTime?
 
   comment       String?
   internalNotes String?
@@ -665,9 +667,11 @@ model Order {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([businessId, customerId, idempotencyKey])
   @@index([businessId])
   @@index([customerId])
   @@index([businessId, createdAt])
+  @@index([businessId, status, createdAt])
   @@index([customerId, createdAt])
   @@index([status])
   @@index([paymentMethod])
@@ -945,4 +949,15 @@ model AiRequestLog {
 
   @@index([businessId])
   @@index([createdAt])
+}
+
+model TelegramChatContext {
+  telegramUserId   BigInt    @id
+  businessId       String?
+  business         Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  lastProductQuery String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([businessId])
 }

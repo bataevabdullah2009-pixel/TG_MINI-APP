@@ -91,14 +91,18 @@ npm run typecheck
   - `fallback`.
 - Разрешённые read-only tools:
   - `listActiveBusinesses(query?)`;
+  - `resolveBusinessByName(query)`;
   - `getBusinessBySlug(slug)`;
   - `searchProductsAcrossBusinesses(query)`;
   - `searchProductsInBusiness(businessId, query)`;
   - `getBusinessDeliveryInfo(businessId)`;
-  - `getBusinessPaymentMethods(businessId)`;
+  - `getBusinessPaymentInfo(businessId)`;
   - `getBusinessWorkingHours(businessId)`;
+  - `buildBusinessOpenButton(businessSlug)`;
+  - `buildProductOpenButton(productSlug, businessSlug)`;
   - `getCustomerOrders(telegramUserId)`;
   - `getOrderStatus(orderCode, telegramUserId)`.
+- Выбранный бизнес и последний товарный запрос сохраняются для Telegram-пользователя в `TelegramChatContext`.
 - В лог AI-чата записываются `telegramUserId`, исходный текст, `detectedIntent`, `businessSlug`, `businessId`, `toolsCalled` и `responseSource`. Секреты, bot token и полные платёжные данные в лог не попадают.
 
 ## Product Stock and Availability Rules
@@ -115,6 +119,7 @@ npm run typecheck
 - Физическое удаление товара из рабочего интерфейса запрещено. Используются `isAvailable`, hidden или archive.
 - `OrderItem` хранит snapshot названия, цены и количества на момент оформления.
 - Изменение товара или цены влияет только на новые заказы.
+- При создании заказа остаток `TRACK_STOCK` уменьшается атомарно. При отмене заказа или отклонении оплаты остаток возвращается ровно один раз.
 
 ## Seller Product Management Flow
 
@@ -172,8 +177,11 @@ npm run typecheck
   - `recipientMatches: boolean | null`;
   - `extractedBank: string | null`;
   - `confidencePercent: number`;
-  - `status: LIKELY_VALID | MANUAL_REVIEW | LIKELY_INVALID`;
+  - `status: LIKELY_VALID | MANUAL_REVIEW | LIKELY_INVALID | AI_FAILED`;
   - `reasonRu: string`.
+- Пока анализ выполняется, заказ имеет `AI_CHECKING`. Если AI не ответил за 30 секунд, статус автоматически меняется на `MANUAL_REVIEW`.
+- При отсутствующем `POLZA_AI_API_KEY` или неподдерживаемом `AI_PROVIDER` анализ сразу переходит в `MANUAL_REVIEW`.
+- Повторное решение продавца не меняет заказ и возвращает сообщение `Оплата уже обработана продавцом`.
 - Если модель вернула текст вокруг JSON или повреждённый JSON, применяется safe parser. Ошибка чтения не ломает checkout.
 - Продавец видит сумму на чеке, ожидаемую сумму, дату, получателя, банк, уверенность и комментарий AI.
 - Обязательные сообщения:
@@ -236,6 +244,7 @@ npm run typecheck
 - Частичная загрузка показывает skeleton конкретного блока и не блокирует весь экран.
 - Используются индексы:
   - `Order(businessId, createdAt)`;
+  - `Order(businessId, status, createdAt)`;
   - `Order(customerId, createdAt)`;
   - `Item(businessId, isAvailable, archivedAt)`;
   - `Item(businessId, categoryId)`;
@@ -296,6 +305,7 @@ npm run typecheck
   - топ товаров по количеству и выручке;
   - топ клиентов по сумме покупок;
   - использование промокодов.
-- В расчёт выручки входят завершённые и доставленные заказы; отменённые и просроченные не входят.
+- В расчёт выручки входят оплаченные, завершённые и доставленные заказы без отклонённой оплаты; отменённые и просроченные не входят.
+- Средний чек и топ товаров считаются только по заказам, вошедшим в выручку.
 - API использует агрегаты, `groupBy`, ограниченные top-списки и Prisma `select`; полные списки заказов и клиентов не загружаются.
 - Если данных нет, UI показывает нормальный русский empty state, а не нули без пояснения или техническую ошибку.

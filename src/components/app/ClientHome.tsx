@@ -113,10 +113,22 @@ export function ClientHome({
         {/* Directory List */}
         <div className="mt-4 grid gap-4">
           {loading && (
-            <div className="flex flex-col items-center justify-center rounded-3xl bg-white py-12 text-center ring-1 ring-slate-100">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-3" />
-              <p className="text-xs font-bold text-slate-500">Загрузка каталога...</p>
-            </div>
+            <>
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="animate-pulse rounded-3xl bg-white p-4 ring-1 ring-slate-100">
+                  <div className="flex gap-4">
+                    <div className="h-[72px] w-[72px] shrink-0 rounded-2xl bg-slate-200" />
+                    <div className="min-w-0 flex-1 space-y-3">
+                      <div className="h-4 w-2/3 rounded bg-slate-200" />
+                      <div className="h-3 w-1/3 rounded bg-slate-100" />
+                      <div className="h-3 w-full rounded bg-slate-100" />
+                      <div className="h-3 w-4/5 rounded bg-slate-100" />
+                    </div>
+                  </div>
+                  <div className="mt-4 h-9 rounded-xl bg-slate-100" />
+                </div>
+              ))}
+            </>
           )}
 
           {!loading && loadError && (
