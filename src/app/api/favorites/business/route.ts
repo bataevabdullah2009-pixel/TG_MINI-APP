@@ -24,15 +24,25 @@ async function resolveBusiness(body: FavoriteBusinessBody, searchParams: URLSear
   const slug = body.slug || searchParams.get("slug") || undefined;
 
   if (businessId) {
-    return prisma.business.findUnique({
-      where: { id: businessId },
+    return prisma.business.findFirst({
+      where: {
+        id: businessId,
+        isActive: true,
+        accessStatus: "ACTIVE",
+        archivedAt: null,
+      },
       select: { id: true, slug: true },
     });
   }
 
   if (slug) {
-    return prisma.business.findUnique({
-      where: { slug },
+    return prisma.business.findFirst({
+      where: {
+        slug,
+        isActive: true,
+        accessStatus: "ACTIVE",
+        archivedAt: null,
+      },
       select: { id: true, slug: true },
     });
   }
@@ -69,7 +79,16 @@ export async function GET(request: NextRequest) {
     }
 
     const favoriteBusinesses = await prisma.favoriteBusiness.findMany({
-      where: { telegramUserId },
+      where: {
+        telegramUserId,
+        business: {
+          is: {
+            isActive: true,
+            accessStatus: "ACTIVE",
+            archivedAt: null,
+          },
+        },
+      },
       include: { business: { select: favoriteBusinessSelect } },
       orderBy: { createdAt: "desc" },
     });

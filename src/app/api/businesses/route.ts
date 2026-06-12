@@ -76,6 +76,8 @@ export async function GET(request: NextRequest) {
     const businesses = await prisma.business.findMany({
       where: {
         isActive: true,
+        accessStatus: "ACTIVE",
+        archivedAt: null,
         ...(businessId ? { id: businessId } : {}),
       },
       select: businessListSelect,

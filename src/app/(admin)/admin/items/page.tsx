@@ -189,7 +189,7 @@ export default function AdminItemsPage() {
     setError("");
     try {
       const res = await apiClient.get(`/admin/items?businessId=${businessId}`);
-      setItems(res.data?.data || []);
+      setItems(Array.isArray(res.data?.data) ? res.data.data.filter(Boolean) : []);
     } catch (err) {
       setError(apiError(err));
     }
@@ -366,7 +366,7 @@ export default function AdminItemsPage() {
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    return items.filter((item) => {
+    return items.filter(Boolean).filter((item) => {
       const typeMatch = filter === "ALL" || item.type === filter;
       const categoryMatch = categoryFilter === "ALL" || item.categoryId === categoryFilter || item.category?.id === categoryFilter;
       const availabilityMatch =
@@ -458,17 +458,33 @@ export default function AdminItemsPage() {
               </button>
             ))}
           </div>
-          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
-            <option value="ALL">Все категории</option>
-            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-          </select>
-          <select value={availabilityFilter} onChange={(e) => setAvailabilityFilter(e.target.value as typeof availabilityFilter)} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold md:col-start-3">
-            <option value="ALL">Активные</option>
-            <option value="AVAILABLE">В наличии</option>
-            <option value="OUT_OF_STOCK">Нет в наличии</option>
-            <option value="HIDDEN">Скрытые</option>
-            <option value="ARCHIVED">Архив</option>
-          </select>
+          <BottomSheetPicker
+            title="Фильтр категорий"
+            value={categoryFilter}
+            onChange={setCategoryFilter}
+            buttonClassName="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold"
+            options={[
+              { value: "ALL", label: "Все категории", icon: <ShoppingBag size={16} /> },
+              ...categories.map((category) => ({
+                value: category.id,
+                label: category.name,
+                icon: <ShoppingBag size={16} />,
+              })),
+            ]}
+          />
+          <BottomSheetPicker
+            title="Фильтр товаров"
+            value={availabilityFilter}
+            onChange={(value) => setAvailabilityFilter(value as typeof availabilityFilter)}
+            buttonClassName="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold md:col-start-3"
+            options={[
+              { value: "ALL", label: "Активные", icon: <ShoppingBag size={16} /> },
+              { value: "AVAILABLE", label: "В наличии", icon: <RefreshCw size={16} /> },
+              { value: "OUT_OF_STOCK", label: "Нет в наличии", icon: <Minus size={16} /> },
+              { value: "HIDDEN", label: "Скрытые", icon: <X size={16} /> },
+              { value: "ARCHIVED", label: "Архив", icon: <Archive size={16} /> },
+            ]}
+          />
         </div>
 
         {loading ? (
@@ -605,10 +621,30 @@ export default function AdminItemsPage() {
                 <Field label="Длительность, минут"><input type="number" min="0" value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} className="field" /></Field>
               ) : (
                 <Field label="Учёт остатков">
-                  <select value={form.stockMode} onChange={(e) => setForm({ ...form, stockMode: e.target.value as FormState["stockMode"], stock: e.target.value === "TRACKED" ? (form.stock || "0") : "" })} className="field">
-                    <option value="UNTRACKED">Просто в наличии / нет</option>
-                    <option value="TRACKED">Считать остатки</option>
-                  </select>
+                  <BottomSheetPicker
+                    title="Учёт остатков"
+                    value={form.stockMode}
+                    onChange={(value) => setForm({
+                      ...form,
+                      stockMode: value as FormState["stockMode"],
+                      stock: value === "TRACKED" ? (form.stock || "0") : "",
+                    })}
+                    buttonClassName="field cursor-pointer"
+                    options={[
+                      {
+                        value: "UNTRACKED",
+                        label: "Просто в наличии / нет",
+                        description: "Без точного количества",
+                        icon: <ShoppingBag size={16} />,
+                      },
+                      {
+                        value: "TRACKED",
+                        label: "Считать остатки",
+                        description: "Указывать точное количество",
+                        icon: <RefreshCw size={16} />,
+                      },
+                    ]}
+                  />
                 </Field>
               )}
               {form.type === "PRODUCT" && form.stockMode === "TRACKED" && (

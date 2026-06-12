@@ -85,10 +85,15 @@ export async function POST(request: NextRequest) {
     }
 
     const business = await prisma.business.findFirst({
-      where: { OR: [{ id: businessId }, { slug: businessId }] },
-      select: { id: true, isActive: true },
+      where: {
+        AND: [
+          { OR: [{ id: businessId }, { slug: businessId }] },
+          { isActive: true, accessStatus: "ACTIVE", archivedAt: null },
+        ],
+      },
+      select: { id: true },
     });
-    if (!business || !business.isActive) {
+    if (!business) {
       return NextResponse.json({ error: "Бизнес не найден или временно недоступен." }, { status: 404 });
     }
 

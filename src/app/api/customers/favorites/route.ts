@@ -28,14 +28,33 @@ export async function GET(req: Request) {
     const telegramUserId = BigInt(telegramUserIdStr);
 
     const favoriteBusinesses = await prisma.favoriteBusiness.findMany({
-      where: { telegramUserId },
+      where: {
+        telegramUserId,
+        business: {
+          is: {
+            isActive: true,
+            accessStatus: "ACTIVE",
+            archivedAt: null,
+          },
+        },
+      },
       include: {
         business: { select: favoriteBusinessSelect },
       },
     });
 
     const favoriteItems = await prisma.favoriteItem.findMany({
-      where: { telegramUserId },
+      where: {
+        telegramUserId,
+        item: { is: { isAvailable: true, archivedAt: null } },
+        business: {
+          is: {
+            isActive: true,
+            accessStatus: "ACTIVE",
+            archivedAt: null,
+          },
+        },
+      },
       include: {
         item: true,
         business: { select: favoriteBusinessSelect },
@@ -70,8 +89,32 @@ export async function POST(req: Request) {
     }
 
     const telegramUserId = BigInt(tgId);
+    const business = await prisma.business.findFirst({
+      where: {
+        id: businessId,
+        isActive: true,
+        accessStatus: "ACTIVE",
+        archivedAt: null,
+      },
+      select: { id: true },
+    });
+    if (!business) {
+      return NextResponse.json({ ok: false, error: "Бизнес временно недоступен." }, { status: 404 });
+    }
 
     if (itemId) {
+      const item = await prisma.item.findFirst({
+        where: {
+          id: itemId,
+          businessId,
+          isAvailable: true,
+          archivedAt: null,
+        },
+        select: { id: true },
+      });
+      if (!item && action !== "remove") {
+        return NextResponse.json({ ok: false, error: "Товар недоступен." }, { status: 404 });
+      }
       // Toggle Favorite Item
       const existing = await prisma.favoriteItem.findUnique({
         where: {

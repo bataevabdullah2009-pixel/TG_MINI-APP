@@ -10,7 +10,12 @@ export async function GET(request: NextRequest) {
     const where =
       session.role === "SUPER_ADMIN"
         ? {}
-        : { isActive: true, id: session.businessId || "__none__" };
+        : {
+            isActive: true,
+            accessStatus: "ACTIVE" as const,
+            archivedAt: null,
+            id: session.businessId || "__none__",
+          };
 
     const businesses = await prisma.business.findMany({
       where,

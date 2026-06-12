@@ -199,6 +199,19 @@ export interface Order {
   paymentProofAiStatus?: string | null;
   paymentProofAiSummary?: string | null;
   paymentProofAiConfidence?: number | null;
+  paymentProofAiResult?: {
+    extractedAmount: number | null;
+    expectedAmount: number;
+    amountMatches: boolean | null;
+    extractedDate: string | null;
+    extractedRecipient: string | null;
+    expectedRecipient: string | null;
+    recipientMatches: boolean | null;
+    extractedBank: string | null;
+    confidencePercent: number;
+    status: "LIKELY_VALID" | "MANUAL_REVIEW" | "LIKELY_INVALID";
+    reasonRu: string;
+  } | null;
   paymentReviewedAt?: Date | null;
   paymentReviewedBy?: string | null;
   paymentRejectReason?: string | null;

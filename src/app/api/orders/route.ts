@@ -19,6 +19,8 @@ const checkoutBusinessLegacySelect = {
   slug: true,
   name: true,
   isActive: true,
+  accessStatus: true,
+  archivedAt: true,
   subscriptionStatus: true,
 } as const;
 
@@ -335,7 +337,12 @@ export async function POST(request: NextRequest) {
         : null;
     }
 
-    if (!business || !business.isActive) {
+    if (
+      !business ||
+      !business.isActive ||
+      business.accessStatus !== "ACTIVE" ||
+      business.archivedAt
+    ) {
       await recordAttempt({ telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "BUSINESS_NOT_FOUND" });
       return orderError("BUSINESS_NOT_FOUND", "Бизнес не найден или временно недоступен.", 404);
     }
@@ -672,7 +679,7 @@ export async function POST(request: NextRequest) {
               paymentProofFileName: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofFileName) || null : null,
               paymentProofMimeType: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofMimeType) || null : null,
               paymentProofAiStatus: requestedPaymentMethod === "TRANSFER"
-                ? cleanString(paymentProofMimeType).startsWith("image/") ? "PENDING" : "manual_review"
+                ? cleanString(paymentProofMimeType).startsWith("image/") ? "PENDING" : "MANUAL_REVIEW"
                 : null,
             },
             include: checkoutOrderInclude,
@@ -716,6 +723,7 @@ export async function POST(request: NextRequest) {
       paymentProofAiStatus: "paymentProofAiStatus" in orderResult ? orderResult.paymentProofAiStatus : null,
       paymentProofAiSummary: "paymentProofAiSummary" in orderResult ? orderResult.paymentProofAiSummary : null,
       paymentProofAiConfidence: "paymentProofAiConfidence" in orderResult ? orderResult.paymentProofAiConfidence : null,
+      paymentProofAiResult: "paymentProofAiResult" in orderResult ? orderResult.paymentProofAiResult : null,
       paymentReviewedAt: "paymentReviewedAt" in orderResult ? orderResult.paymentReviewedAt : null,
       paymentReviewedBy: "paymentReviewedBy" in orderResult ? orderResult.paymentReviewedBy : null,
       paymentRejectReason: "paymentRejectReason" in orderResult ? orderResult.paymentRejectReason : null,
@@ -773,7 +781,8 @@ export async function POST(request: NextRequest) {
             data: {
               paymentProofAiStatus: analysis.status,
               paymentProofAiSummary: analysis.summary,
-              paymentProofAiConfidence: analysis.confidence,
+              paymentProofAiConfidence: analysis.confidencePercent,
+              paymentProofAiResult: analysis,
             },
             select: { id: true },
           })

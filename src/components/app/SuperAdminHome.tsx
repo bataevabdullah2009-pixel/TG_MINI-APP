@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { 
   ShieldCheck, 
   Plus, 
@@ -23,6 +23,12 @@ import {
 } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
 import { BottomSheetPicker } from "@/components/ui/BottomSheetPicker";
+import {
+  formatBusinessStatusRu,
+  formatDeliveryTypeRu,
+  formatOrderStatusRu,
+  getBookingStatusLabel,
+} from "@/lib/utils";
 
 interface SuperAdminHomeProps {
   session: any;
@@ -45,6 +51,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
   });
 
   const [businesses, setBusinesses] = useState<any[]>([]);
+  const [businessFilter, setBusinessFilter] = useState<"ALL" | "ACTIVE" | "BLOCKED" | "ARCHIVED">("ALL");
   const [orders, setOrders] = useState<any[]>([]);
   const [bookings, setBookings] = useState<any[]>([]);
   const [aiUsageLogs, setAiUsageLogs] = useState<any[]>([]);
@@ -68,6 +75,22 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
   const [defaultAiProvider, setDefaultAiProvider] = useState("polza");
   const [defaultAiLimit, setDefaultAiLimit] = useState(15);
   const [allowedModules, setAllowedModules] = useState("catalog,cart,profile,booking,staff,calendar,delivery,pickup");
+
+  const businessStatus = (business: any) =>
+    business.accessStatus || (business.archivedAt || !business.isActive ? "ARCHIVED" : "ACTIVE");
+
+  const nonArchivedBusinesses = useMemo(
+    () => businesses.filter((business) => businessStatus(business) !== "ARCHIVED"),
+    [businesses]
+  );
+
+  const filteredBusinesses = useMemo(
+    () => businesses.filter((business) => {
+      const status = businessStatus(business);
+      return businessFilter === "ALL" ? status !== "ARCHIVED" : status === businessFilter;
+    }),
+    [businessFilter, businesses]
+  );
 
   useEffect(() => {
     fetchSaaSData();
@@ -289,6 +312,17 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
     }
   };
 
+  const formatLogStatus = (status: string) => {
+    const labels: Record<string, string> = {
+      SUCCESS: "Успешно",
+      COMPLETED: "Завершено",
+      FAILED: "Ошибка",
+      ERROR: "Ошибка",
+      PENDING: "В процессе",
+    };
+    return labels[String(status || "").toUpperCase()] || "Статус не указан";
+  };
+
   return (
     <div className="pb-24 text-slate-900 min-h-screen bg-slate-50">
       
@@ -412,11 +446,11 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
               {/* Short Recent Businesses Table */}
               <div className="bg-white rounded-3xl p-4 shadow-sm ring-1 ring-slate-100 space-y-3">
                 <div className="flex justify-between items-center">
-                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">Последние подключенные ({businesses.length})</h3>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">Последние подключенные ({nonArchivedBusinesses.length})</h3>
                   <button onClick={() => setActiveTab("BUSINESSES")} className="text-[10px] font-black text-indigo-600">Все →</button>
                 </div>
                 <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                  {businesses.slice(0, 5).map((biz) => (
+                  {nonArchivedBusinesses.slice(0, 5).map((biz) => (
                     <div key={biz.id} className="flex justify-between items-center p-2 rounded-xl bg-slate-50 border border-slate-100">
                       <div>
                         <strong className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
@@ -443,23 +477,48 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
             <div className="space-y-3">
               <div className="mb-1">
                 <h3 className="text-sm font-black text-slate-900">Каталог бизнесов на платформе</h3>
-                <p className="text-[10px] font-semibold text-slate-400 mt-0.5">Полный список белых клиентов в системе ({businesses.length})</p>
+                <p className="text-[10px] font-semibold text-slate-400 mt-0.5">Бизнесов в выбранном фильтре: {filteredBusinesses.length}</p>
               </div>
 
-              {businesses.length === 0 ? (
+              <div className="grid grid-cols-4 gap-1 rounded-2xl bg-white p-1 ring-1 ring-slate-100">
+                {[
+                  { value: "ALL", label: "Все" },
+                  { value: "ACTIVE", label: "Активные" },
+                  { value: "BLOCKED", label: "Блок" },
+                  { value: "ARCHIVED", label: "Архив" },
+                ].map((filter) => (
+                  <button
+                    key={filter.value}
+                    type="button"
+                    onClick={() => setBusinessFilter(filter.value as typeof businessFilter)}
+                    className={`rounded-xl px-2 py-2 text-[9px] font-black transition ${
+                      businessFilter === filter.value ? "bg-slate-950 text-white" : "text-slate-500"
+                    }`}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+
+              {filteredBusinesses.length === 0 ? (
                 <div className="p-8 text-center bg-white rounded-3xl border border-slate-100">
                   <span className="text-4xl">🏢</span>
-                  <h4 className="text-xs font-black text-slate-800 mt-3">Нет созданных бизнесов</h4>
-                  <button 
-                    onClick={() => setActiveTab("CREATE_BUSINESS")}
-                    className="mt-3 rounded-xl bg-indigo-600 text-white px-4 py-2 text-[10px] font-black"
-                  >
-                    Создать первый бизнес
-                  </button>
+                  <h4 className="text-xs font-black text-slate-800 mt-3">В этом фильтре бизнесов нет</h4>
+                  {businesses.length === 0 && (
+                    <button
+                      onClick={() => setActiveTab("CREATE_BUSINESS")}
+                      className="mt-3 rounded-xl bg-indigo-600 text-white px-4 py-2 text-[10px] font-black"
+                    >
+                      Создать первый бизнес
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {businesses.map((biz) => (
+                  {filteredBusinesses.map((biz) => {
+                    const status = businessStatus(biz);
+                    const archived = status === "ARCHIVED";
+                    return (
                     <div 
                       key={biz.id} 
                       className="bg-white rounded-3xl p-4 ring-1 ring-slate-100 shadow-sm space-y-3"
@@ -475,11 +534,11 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
                           </p>
                         </div>
                         <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
-                          biz.accessStatus === "BLOCKED" ? "bg-rose-50 text-rose-700" :
-                          biz.accessStatus === "ARCHIVED" ? "bg-slate-100 text-slate-600" :
+                          status === "BLOCKED" ? "bg-rose-50 text-rose-700" :
+                          status === "ARCHIVED" ? "bg-slate-100 text-slate-600" :
                           "bg-emerald-50 text-emerald-700"
                         }`}>
-                          {biz.accessStatus || (biz.isActive ? "ACTIVE" : "ARCHIVED")}
+                          {formatBusinessStatusRu(status)}
                         </span>
                       </div>
 
@@ -503,28 +562,33 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
                         </div>
                       </div>
 
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => onManageBusiness?.(biz.id)}
-                          className="flex-1 rounded-xl bg-slate-900 text-white font-black text-xs py-2.5 hover:bg-indigo-600 transition flex items-center justify-center gap-1.5"
-                        >
-                          <Store size={12} />
-                          Управлять как продавец
-                        </button>
-                      </div>
+                      {!archived && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => onManageBusiness?.(biz.id)}
+                            className="flex-1 rounded-xl bg-slate-900 text-white font-black text-xs py-2.5 hover:bg-indigo-600 transition flex items-center justify-center gap-1.5"
+                          >
+                            <Store size={12} />
+                            Управлять как продавец
+                          </button>
+                        </div>
+                      )}
                       <div className="grid grid-cols-2 gap-2">
                         <button onClick={() => updateBusinessAccess(biz, "MARK_PAID")} className="rounded-xl bg-emerald-50 px-3 py-2 text-[10px] font-black text-emerald-700">
                           {biz.paidAt ? `Оплачено ${biz.paidAmount || 50000} ₽` : "Отметить 50 000 ₽"}
                         </button>
-                        {biz.accessStatus === "ACTIVE" || (!biz.accessStatus && biz.isActive) ? (
+                        {status === "ACTIVE" ? (
                           <button onClick={() => updateBusinessAccess(biz, "BLOCKED")} className="rounded-xl bg-rose-50 px-3 py-2 text-[10px] font-black text-rose-700">Заблокировать</button>
                         ) : (
-                          <button onClick={() => updateBusinessAccess(biz, "ACTIVE")} className="rounded-xl bg-indigo-50 px-3 py-2 text-[10px] font-black text-indigo-700">Восстановить</button>
+                          <button onClick={() => updateBusinessAccess(biz, "ACTIVE")} className="rounded-xl bg-indigo-50 px-3 py-2 text-[10px] font-black text-indigo-700">Восстановить бизнес</button>
                         )}
-                        <button onClick={() => updateBusinessAccess(biz, "ARCHIVED")} className="col-span-2 rounded-xl bg-slate-100 px-3 py-2 text-[10px] font-black text-slate-700">Архивировать бизнес</button>
+                        {!archived && (
+                          <button onClick={() => updateBusinessAccess(biz, "ARCHIVED")} className="col-span-2 rounded-xl bg-slate-100 px-3 py-2 text-[10px] font-black text-slate-700">Архивировать бизнес</button>
+                        )}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -637,8 +701,8 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
                         Клиент: {o.customerName} ({o.customerPhone})
                       </p>
                       <div className="flex justify-between items-center pt-1">
-                        <span className="text-[9px] text-slate-400 font-black">Статус: {o.status}</span>
-                        <span className="text-[9px] text-slate-400 font-bold">Доставка: {o.deliveryType}</span>
+                        <span className="text-[9px] text-slate-400 font-black">Статус: {formatOrderStatusRu(o.status)}</span>
+                        <span className="text-[9px] text-slate-400 font-bold">Получение: {formatDeliveryTypeRu(o.deliveryType)}</span>
                       </div>
                     </div>
                   ))}
@@ -660,7 +724,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
                       <div className="flex justify-between items-center">
                         <strong className="text-slate-800">{b.customerName}</strong>
                         <span className="text-[9px] font-black bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">
-                          {b.status}
+                          {getBookingStatusLabel(b.status)}
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-400 font-semibold">
@@ -702,7 +766,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
                         <p className="text-[9px] text-slate-400 font-semibold">Провайдер: {log.provider} ({log.model})</p>
                         <p className="text-slate-500 font-medium italic mt-0.5 truncate">Запрос: "{log.prompt}"</p>
                         <div className="flex justify-between pt-0.5 text-[8px] text-slate-400 font-black">
-                          <span>Статус: {log.status}</span>
+                          <span>Статус: {formatLogStatus(log.status)}</span>
                           <span>{new Date(log.createdAt).toLocaleTimeString("ru-RU")}</span>
                         </div>
                       </div>

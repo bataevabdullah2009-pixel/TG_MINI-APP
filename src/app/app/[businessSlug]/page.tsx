@@ -65,6 +65,7 @@ export default function BusinessMiniAppPage() {
   const [cartPulse, setCartPulse] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
@@ -103,12 +104,17 @@ export default function BusinessMiniAppPage() {
 
     setLoading(true);
     setNotFound(false);
+    setUnavailable(false);
     setLoadError("");
     fetch(`/api/businesses/${encodeURIComponent(slug)}/catalog`)
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (res.status === 404) {
           setNotFound(true);
+          return null;
+        }
+        if (res.status === 410 || data.code === "BUSINESS_ARCHIVED") {
+          setUnavailable(true);
           return null;
         }
         if (!res.ok) {
@@ -498,6 +504,21 @@ export default function BusinessMiniAppPage() {
               Вернуться в каталог
             </Link>
           </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (unavailable) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-slate-950 px-5 text-center text-white">
+        <div>
+          <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-3xl bg-white/10 text-3xl">×</div>
+          <h1 className="text-2xl font-black">Витрина временно недоступна.</h1>
+          <p className="mt-2 text-sm text-white/60">Бизнес сохранил историю заказов, но сейчас не принимает новые обращения.</p>
+          <Link href="/app" className="mt-6 inline-flex rounded-full bg-white px-5 py-3 text-sm font-bold text-slate-950">
+            Вернуться в каталог
+          </Link>
         </div>
       </main>
     );

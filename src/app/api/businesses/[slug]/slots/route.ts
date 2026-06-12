@@ -12,8 +12,16 @@ export async function GET(
   const date = searchParams.get("date") || new Date().toISOString().slice(0, 10);
   const staffId = searchParams.get("staffId") || undefined;
 
-  const business = await prisma.business.findUnique({ where: { slug }, select: { id: true, isActive: true } });
-  if (!business || !business.isActive) {
+  const business = await prisma.business.findFirst({
+    where: {
+      slug,
+      isActive: true,
+      accessStatus: "ACTIVE",
+      archivedAt: null,
+    },
+    select: { id: true },
+  });
+  if (!business) {
     return NextResponse.json({ error: "Бизнес не найден" }, { status: 404 });
   }
 

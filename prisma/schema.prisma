@@ -140,6 +140,7 @@ model User {
   username              String?
   telegramLinkCode      String?   @unique
   telegramLinkExpiresAt DateTime?
+  lastBusinessId        String?
 
   role            Role       @default(CUSTOMER)
   businessId      String?
@@ -155,6 +156,7 @@ model User {
 
   @@index([businessId])
   @@index([telegramId])
+  @@index([lastBusinessId])
 }
 
 // ============= BUSINESS CORE =============
@@ -613,6 +615,7 @@ model Order {
   paymentProofAiStatus     String?
   paymentProofAiSummary    String?
   paymentProofAiConfidence Int?
+  paymentProofAiResult     Json?
   paymentReviewedAt        DateTime?
   paymentReviewedBy        String?
   paymentRejectReason      String?

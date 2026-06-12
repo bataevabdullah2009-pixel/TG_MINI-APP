@@ -23,8 +23,19 @@ async function resolveProduct(body: FavoriteProductBody, searchParams: URLSearch
   const productId = body.productId || body.itemId || searchParams.get("productId") || searchParams.get("itemId");
   if (!productId) return null;
 
-  return prisma.item.findUnique({
-    where: { id: productId },
+  return prisma.item.findFirst({
+    where: {
+      id: productId,
+      isAvailable: true,
+      archivedAt: null,
+      business: {
+        is: {
+          isActive: true,
+          accessStatus: "ACTIVE",
+          archivedAt: null,
+        },
+      },
+    },
     select: { id: true, businessId: true },
   });
 }
@@ -58,7 +69,17 @@ export async function GET(request: NextRequest) {
     }
 
     const favoriteProducts = await prisma.favoriteItem.findMany({
-      where: { telegramUserId },
+      where: {
+        telegramUserId,
+        item: { is: { isAvailable: true, archivedAt: null } },
+        business: {
+          is: {
+            isActive: true,
+            accessStatus: "ACTIVE",
+            archivedAt: null,
+          },
+        },
+      },
       include: favoriteItemInclude,
       orderBy: { createdAt: "desc" },
     });

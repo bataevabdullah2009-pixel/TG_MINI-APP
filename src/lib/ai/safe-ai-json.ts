@@ -9,12 +9,16 @@ export type ProductCardJson = {
 
 export type PaymentProofAnalysisJson = {
   extractedAmount: number | null;
+  expectedAmount: number;
+  amountMatches: boolean | null;
   extractedDate: string | null;
   extractedRecipient: string | null;
+  expectedRecipient: string | null;
+  recipientMatches: boolean | null;
   extractedBank: string | null;
-  confidence: number;
-  status: "likely_valid" | "manual_review" | "likely_invalid";
-  reason: string;
+  confidencePercent: number;
+  status: "LIKELY_VALID" | "MANUAL_REVIEW" | "LIKELY_INVALID";
+  reasonRu: string;
 };
 
 export function aiRawPreview(raw: string, limit = 200) {
@@ -99,14 +103,18 @@ export function validatePaymentProofAnalysisJson(value: unknown): PaymentProofAn
     recipient?: unknown;
     bank?: unknown;
     comment?: unknown;
+    confidence?: unknown;
+    reason?: unknown;
   };
 
-  const confidence = Number(input.confidence);
+  const confidence = Number(input.confidencePercent ?? input.confidence);
   const rawStatus = String(input.status || "").toLowerCase();
   const status =
-    rawStatus === "likely_valid" || rawStatus === "likely_invalid" || rawStatus === "manual_review"
-      ? rawStatus
-      : "manual_review";
+    rawStatus === "likely_valid"
+      ? "LIKELY_VALID"
+      : rawStatus === "likely_invalid"
+        ? "LIKELY_INVALID"
+        : "MANUAL_REVIEW";
   const amount = input.extractedAmount ?? input.amount;
   const date = input.extractedDate ?? input.date;
   const recipient = input.extractedRecipient ?? input.recipient;
@@ -114,11 +122,17 @@ export function validatePaymentProofAnalysisJson(value: unknown): PaymentProofAn
 
   return {
     extractedAmount: typeof amount === "number" && Number.isFinite(amount) ? amount : null,
+    expectedAmount: Number.isFinite(Number(input.expectedAmount)) ? Number(input.expectedAmount) : 0,
+    amountMatches: typeof input.amountMatches === "boolean" ? input.amountMatches : null,
     extractedDate: typeof date === "string" && date.trim() ? date.trim() : null,
     extractedRecipient: typeof recipient === "string" && recipient.trim() ? recipient.trim().slice(0, 200) : null,
+    expectedRecipient: typeof input.expectedRecipient === "string" && input.expectedRecipient.trim()
+      ? input.expectedRecipient.trim().slice(0, 200)
+      : null,
+    recipientMatches: typeof input.recipientMatches === "boolean" ? input.recipientMatches : null,
     extractedBank: typeof bank === "string" && bank.trim() ? bank.trim().slice(0, 120) : null,
-    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(100, Math.round(confidence))) : 0,
+    confidencePercent: Number.isFinite(confidence) ? Math.max(0, Math.min(100, Math.round(confidence))) : 0,
     status,
-    reason: requiredString(input.reason ?? input.comment, "reason").slice(0, 600),
+    reasonRu: requiredString(input.reasonRu ?? input.reason ?? input.comment, "reasonRu").slice(0, 600),
   };
 }

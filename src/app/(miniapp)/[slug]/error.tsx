@@ -11,6 +11,7 @@ export default function MiniAppError({
   reset: () => void;
 }) {
   const [showDetails, setShowDetails] = useState(false);
+  const canShowTechnicalDetails = process.env.NODE_ENV !== "production";
 
   useEffect(() => {
     console.error("Mini App Error Caught:", error);
@@ -61,7 +62,7 @@ export default function MiniAppError({
         </div>
 
         {/* Technical Drawer */}
-        <div className="mt-5 border-t border-slate-900 pt-3 text-left">
+        {canShowTechnicalDetails && <div className="mt-5 border-t border-slate-900 pt-3 text-left">
           <button
             onClick={() => setShowDetails(!showDetails)}
             className="flex items-center justify-between w-full text-slate-650 hover:text-slate-550 text-[9px] font-bold font-mono transition-colors"
@@ -82,7 +83,7 @@ export default function MiniAppError({
               )}
             </div>
           )}
-        </div>
+        </div>}
       </div>
     </main>
   );

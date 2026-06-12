@@ -50,22 +50,84 @@ export function getBusinessTypeLabel(type: string): string {
 }
 
 export function getOrderStatusLabel(status: string): string {
+  return formatOrderStatusRu(status);
+}
+
+export function formatOrderStatusRu(status: string | null | undefined): string {
   const labels: Record<string, string> = {
-    NEW: "🆕 Новый",
-    ACCEPTED: "✅ Принят",
-    PREPARING: "👨‍🍳 Готовится",
-    READY_FOR_PICKUP: "📦 Готов к самовывозу",
-    READY_FOR_DELIVERY: "🚚 Ожидает курьера",
-    COURIER_ASSIGNED: "🛵 Курьер назначен",
-    PICKED_UP: "🚚 Заказ в пути",
-    DELIVERED: "✅ Доставлен",
-    READY: "📦 Готово",
-    DELIVERING: "🚚 В пути",
-    COMPLETED: "✔️ Завершен",
-    CANCELLED: "❌ Отменен",
-    EXPIRED: "⏱️ Истёк",
+    NEW: "Новый",
+    ACCEPTED: "Принят",
+    PROCESSING: "Принят",
+    PREPARING: "Готовится",
+    READY_FOR_PICKUP: "Готов к самовывозу",
+    READY_FOR_DELIVERY: "Ожидает курьера",
+    COURIER_ASSIGNED: "Курьер назначен",
+    PICKED_UP: "Забрал у продавца",
+    DELIVERED: "Доставлен",
+    READY: "Готов",
+    DELIVERING: "В пути",
+    COMPLETED: "Завершён",
+    CANCELLED: "Отменён",
+    EXPIRED: "Истёк",
   };
-  return labels[status] || status;
+  return labels[String(status || "")] || "Статус не указан";
+}
+
+export function formatDeliveryStatusRu(status: string | null | undefined): string {
+  const labels: Record<string, string> = {
+    NONE: "Без доставки",
+    NEW: "Новая доставка",
+    WAITING_COURIER: "Ожидает курьера",
+    ASSIGNED: "Назначен",
+    ACCEPTED_BY_COURIER: "Принят курьером",
+    PICKED_UP: "Забрал у продавца",
+    DELIVERED: "Доставлен",
+    CANCELLED: "Отменена",
+    EXPIRED: "Истекла",
+  };
+  return labels[String(status || "")] || "Статус не указан";
+}
+
+export function formatPaymentMethodRu(method: string | null | undefined): string {
+  const labels: Record<string, string> = {
+    CASH: "Наличные",
+    TRANSFER: "Перевод",
+    TELEGRAM_STARS: "Telegram Stars",
+    YOOKASSA: "ЮKassa",
+    MANUAL: "Ручная оплата",
+  };
+  return labels[String(method || "")] || "Не указан";
+}
+
+export function formatDeliveryTypeRu(type: string | null | undefined): string {
+  const labels: Record<string, string> = {
+    DELIVERY: "Доставка",
+    PICKUP: "Самовывоз",
+    NONE: "Не указано",
+  };
+  return labels[String(type || "")] || "Не указано";
+}
+
+export function formatPaymentStatusRu(status: string | null | undefined): string {
+  const labels: Record<string, string> = {
+    PENDING: "Ожидает оплаты",
+    AWAITING_REVIEW: "Ожидает проверки",
+    PAID: "Оплачено",
+    PAYMENT_REJECTED: "Оплата отклонена",
+    REJECTED: "Оплата отклонена",
+    FAILED: "Ошибка оплаты",
+    REFUNDED: "Возврат",
+  };
+  return labels[String(status || "")] || "Статус не указан";
+}
+
+export function formatBusinessStatusRu(status: string | null | undefined): string {
+  const labels: Record<string, string> = {
+    ACTIVE: "Активен",
+    BLOCKED: "Заблокирован",
+    ARCHIVED: "В архиве",
+  };
+  return labels[String(status || "")] || "Статус не указан";
 }
 
 export function getBookingStatusLabel(status: string): string {

@@ -101,6 +101,19 @@ export async function getTelegramSessionUser(initData: string, businessId?: stri
     lastName: tgUser.last_name,
   });
 
+  if (businessId && businessId !== "global") {
+    try {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { lastBusinessId: businessId },
+        select: { id: true },
+      });
+    } catch (error) {
+      if (!isPrismaMissingColumnError(error, "User", "lastBusinessId")) throw error;
+      warnPrismaSchemaDrift("Telegram business context was not persisted because User.lastBusinessId is missing", error);
+    }
+  }
+
   // Check if there is an Admin/Seller User (which is the same User object, check its role)
   let adminUser: AdminSessionUser | null;
   try {

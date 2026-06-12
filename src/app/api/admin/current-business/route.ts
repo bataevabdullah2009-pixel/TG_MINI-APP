@@ -73,10 +73,28 @@ export async function GET(request: NextRequest) {
     const value = searchParams.get("businessId") || session.businessId || undefined;
     const business = value
       ? await prisma.business.findFirst({ where: { OR: [{ id: value }, { slug: value }] }, select: currentBusinessSelect })
-      : await prisma.business.findFirst({ where: { isActive: true }, select: currentBusinessSelect });
+      : await prisma.business.findFirst({
+          where: session.role === "SUPER_ADMIN"
+            ? {}
+            : { isActive: true, accessStatus: "ACTIVE", archivedAt: null },
+          select: currentBusinessSelect,
+        });
 
     if (!business) return jsonError("Бизнес не найден.", 404);
     if (!canUseBusiness(session, business.id)) return jsonError("Нет доступа к этому бизнесу.", 403);
+    if (
+      session.role !== "SUPER_ADMIN" &&
+      (business.accessStatus === "ARCHIVED" || business.archivedAt)
+    ) {
+      return jsonError("Этот бизнес недоступен. Обратитесь к администратору платформы.", 403);
+    }
+    if (
+      session.role !== "SUPER_ADMIN" &&
+      !business.isActive &&
+      business.accessStatus !== "BLOCKED"
+    ) {
+      return jsonError("Этот бизнес недоступен. Обратитесь к администратору платформы.", 403);
+    }
 
     return NextResponse.json({ ok: true, data: { ...business, telegramAdminChatId: business.telegramAdminChatId?.toString() || null } });
   } catch (error) {
