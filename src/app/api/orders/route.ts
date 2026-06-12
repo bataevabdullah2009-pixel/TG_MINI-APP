@@ -1,14 +1,22 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession } from "@/lib/admin-auth";
 import { NotificationService } from "@/lib/notifications/notification-service";
 import { ensureTelegramUser } from "@/lib/auth/telegram-user-service";
-import { analyzePaymentProof } from "@/lib/ai/payment-proof-analyzer";
+import {
+  processPaymentProofAnalysis,
+  recoverStalePaymentProofChecks,
+} from "@/lib/ai/payment-proof-service";
+import {
+  isPaymentProofAiConfigured,
+  PAYMENT_PROOF_CONFIG_SUMMARY,
+} from "@/lib/ai/payment-proof-analyzer";
 import { getTelegramSessionUser, parseTelegramInitData } from "@/lib/auth-telegram";
 import { classifyDatabaseError, isBusinessIsDemoMissingColumnError, isPrismaMissingColumnError, warnPrismaSchemaDrift, toJsonSafe } from "@/lib/prisma-schema-guard";
 import { isStrictRuPhoneInput, normalizeRuPhone, validateCustomerName } from "@/lib/phone/phone-utils";
 import { getApplicablePromoCode, normalizePromoCode } from "@/lib/promo-codes";
+import { createServerTiming } from "@/lib/server-timing";
 
 const ORDER_ERROR = "Не удалось оформить заказ. Проверьте данные и попробуйте снова.";
 const PHONE_VERIFICATION_ERROR = "Для оформления заказа подтвердите номер телефона.";
@@ -36,14 +44,6 @@ type CheckoutBusiness = Prisma.BusinessGetPayload<{ select: typeof checkoutBusin
 const checkoutOrderInclude = {
   items: true,
   business: { select: { name: true, slug: true } },
-} as const;
-
-const adminOrdersInclude = {
-  items: true,
-  business: { select: { name: true, slug: true } },
-  customer: true,
-  deliveryZone: true,
-  deliveryAssignment: { include: { courier: true } },
 } as const;
 
 const legacyCheckoutOrderSelect = {
@@ -97,6 +97,43 @@ const paymentCheckoutOrderSelect = {
   paymentProofFileName: true,
   paymentProofMimeType: true,
   paymentProofAiDetails: true,
+  stockRestoredAt: true,
+} as const;
+
+const adminOrdersSelect = {
+  ...paymentCheckoutOrderSelect,
+  expiredAt: true,
+  expireReason: true,
+  customer: {
+    select: {
+      id: true,
+      telegramUserId: true,
+      name: true,
+      phone: true,
+    },
+  },
+  deliveryZone: {
+    select: {
+      id: true,
+      name: true,
+      cityArea: true,
+      fee: true,
+      estimatedMinutes: true,
+    },
+  },
+  deliveryAssignment: {
+    select: {
+      id: true,
+      status: true,
+      courier: {
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+        },
+      },
+    },
+  },
 } as const;
 
 type CurrentCheckoutOrder = Prisma.OrderGetPayload<{ include: typeof checkoutOrderInclude }>;
@@ -168,6 +205,7 @@ function normalizeCheckoutOrder(orderResult: CheckoutOrderResult) {
     paymentReviewedAt: "paymentReviewedAt" in orderResult ? orderResult.paymentReviewedAt : null,
     paymentReviewedBy: "paymentReviewedBy" in orderResult ? orderResult.paymentReviewedBy : null,
     paymentRejectReason: "paymentRejectReason" in orderResult ? orderResult.paymentRejectReason : null,
+    stockRestoredAt: "stockRestoredAt" in orderResult ? orderResult.stockRestoredAt : null,
     expiredAt: "expiredAt" in orderResult ? orderResult.expiredAt : null,
     expireReason: "expireReason" in orderResult ? orderResult.expireReason : null,
     itemsSubtotal: "itemsSubtotal" in orderResult ? orderResult.itemsSubtotal : orderResult.totalPrice,
@@ -447,6 +485,7 @@ export async function POST(request: NextRequest) {
     }
 
     const requestedPaymentMethod = paymentMethod === "TRANSFER" || paymentMethod === "transfer" ? "TRANSFER" : "CASH";
+    const paymentProofAiConfigured = isPaymentProofAiConfigured();
     if (requestedPaymentMethod === "TRANSFER") {
       if (!business.transferPaymentEnabled) {
         return orderError("TRANSFER_DISABLED", "Оплата переводом сейчас недоступна.");
@@ -759,6 +798,14 @@ export async function POST(request: NextRequest) {
             data: { stock: { decrement: trackedItem.quantity } },
           });
           if (updated.count !== 1) throw new CheckoutConflictError("OUT_OF_STOCK");
+          await tx.item.updateMany({
+            where: {
+              id: trackedItem.id,
+              stockMode: "TRACK_STOCK",
+              stock: { lte: 0 },
+            },
+            data: { isAvailable: false },
+          });
         }
 
         if (appliedPromo) {
@@ -790,7 +837,12 @@ export async function POST(request: NextRequest) {
             paymentProofUrl: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofUrl) : null,
             paymentProofFileName: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofFileName) || null : null,
             paymentProofMimeType: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofMimeType) || null : null,
-            paymentProofAiStatus: requestedPaymentMethod === "TRANSFER" ? "PENDING" : null,
+            paymentProofAiStatus: requestedPaymentMethod === "TRANSFER"
+              ? paymentProofAiConfigured ? "AI_CHECKING" : "MANUAL_REVIEW"
+              : null,
+            paymentProofAiSummary: requestedPaymentMethod === "TRANSFER" && !paymentProofAiConfigured
+              ? PAYMENT_PROOF_CONFIG_SUMMARY
+              : null,
           },
           include: checkoutOrderInclude,
         });
@@ -835,6 +887,13 @@ export async function POST(request: NextRequest) {
             data: { stock: { decrement: trackedItem.quantity } },
           });
           if (updated.count !== 1) throw new CheckoutConflictError("OUT_OF_STOCK");
+          await tx.item.updateMany({
+            where: {
+              id: trackedItem.id,
+              stock: { lte: 0 },
+            },
+            data: { isAvailable: false },
+          });
         }
         return requestedPaymentMethod === "TRANSFER"
           ? tx.order.create({
@@ -843,7 +902,8 @@ export async function POST(request: NextRequest) {
                 paymentMethod: "TRANSFER",
                 paymentStatus: "AWAITING_REVIEW",
                 paymentProofUrl: cleanString(paymentProofUrl),
-                paymentProofAiStatus: null,
+                paymentProofAiStatus: paymentProofAiConfigured ? "AI_CHECKING" : "MANUAL_REVIEW",
+                paymentProofAiSummary: paymentProofAiConfigured ? null : PAYMENT_PROOF_CONFIG_SUMMARY,
               },
               select: paymentCheckoutLegacySelect,
             })
@@ -876,30 +936,32 @@ export async function POST(request: NextRequest) {
       warnPrismaSchemaDrift("Order created, but customer counters could not be updated", error);
     }
 
-    if (requestedPaymentMethod === "TRANSFER" && order.paymentProofUrl) {
-      analyzePaymentProof({
-        imageUrl: order.paymentProofUrl,
-        orderTotal: order.totalPrice,
-        businessName: business.name,
-        recipientName: business.transferRecipientName,
-        paymentPhone: business.transferPaymentPhone,
-        bankName: business.transferBankName,
-        orderCreatedAt: order.createdAt,
-        mimeType: order.paymentProofMimeType,
-      })
-        .then((analysis) =>
-          prisma.order.update({
-            where: { id: order.id },
-            data: {
-              paymentProofAiStatus: analysis.status,
-              paymentProofAiSummary: analysis.summary,
-              paymentProofAiConfidence: analysis.confidencePercent,
-              paymentProofAiDetails: JSON.stringify(analysis),
+    if (
+      requestedPaymentMethod === "TRANSFER" &&
+      order.paymentProofUrl &&
+      order.paymentProofAiStatus === "AI_CHECKING"
+    ) {
+      after(async () => {
+        try {
+          await processPaymentProofAnalysis(order.id);
+        } catch (error) {
+          console.error("[PAYMENT PROOF AI] background processing failed:", error);
+          await prisma.order.updateMany({
+            where: {
+              id: order.id,
+              paymentProofAiStatus: { in: ["PENDING", "AI_CHECKING"] },
+              paymentReviewedAt: null,
             },
-            select: { id: true },
-          })
-        )
-        .catch((error) => console.warn("[PAYMENT PROOF AI] background update failed:", error));
+            data: {
+              paymentProofAiStatus: "AI_FAILED",
+              paymentProofAiSummary: "ИИ не смог проверить чек. Проверьте оплату вручную.",
+              paymentProofAiConfidence: 0,
+            },
+          }).catch((updateError) => {
+            console.error("[PAYMENT PROOF AI] failed to persist AI_FAILED status:", updateError);
+          });
+        }
+      });
     }
 
     try {
@@ -936,10 +998,11 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const finishTiming = createServerTiming("seller_orders");
   try {
     const session = await getAdminSession(request);
     if (!session) {
-      return NextResponse.json({ error: "Нужна авторизация." }, { status: 401 });
+      return finishTiming(NextResponse.json({ error: "Нужна авторизация." }, { status: 401 }));
     }
 
     const { searchParams } = new URL(request.url);
@@ -948,6 +1011,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get("status");
     const limit = parseInt(searchParams.get("limit") || "20", 10);
     const requestedOffset = Number(searchParams.get("offset") || 0);
+    const cursor = searchParams.get("cursor");
 
     const where: any = {};
 
@@ -957,7 +1021,7 @@ export async function GET(request: NextRequest) {
       }
     } else {
       if (!session.businessId) {
-        return NextResponse.json({ error: "У вас нет привязанного бизнеса." }, { status: 403 });
+        return finishTiming(NextResponse.json({ error: "У вас нет привязанного бизнеса." }, { status: 403 }));
       }
       where.businessId = session.businessId;
     }
@@ -971,14 +1035,20 @@ export async function GET(request: NextRequest) {
 
     const take = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 20;
     const skip = Number.isFinite(requestedOffset) ? Math.max(Math.floor(requestedOffset), 0) : 0;
+    await recoverStalePaymentProofChecks({
+      businessId: typeof where.businessId === "string" ? where.businessId : undefined,
+    }).catch((error) => {
+      console.warn("[PAYMENT PROOF AI] stale status recovery skipped:", error);
+    });
+
     let orders;
     try {
       orders = await prisma.order.findMany({
         where,
-        include: adminOrdersInclude,
-        orderBy: { createdAt: "desc" },
-        take,
-        skip,
+        select: adminOrdersSelect,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: take + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : { skip }),
       });
     } catch (error) {
       const classification = classifyDatabaseError(error);
@@ -987,19 +1057,26 @@ export async function GET(request: NextRequest) {
       orders = await prisma.order.findMany({
         where,
         select: adminOrdersLegacySelect,
-        orderBy: { createdAt: "desc" },
-        take,
-        skip,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: take + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : { skip }),
       });
     }
 
-    return NextResponse.json(toJsonSafe(orders));
+    const hasMore = orders.length > take;
+    const page = hasMore ? orders.slice(0, take) : orders;
+    const response = NextResponse.json(toJsonSafe(page));
+    response.headers.set("X-Has-More", hasMore ? "true" : "false");
+    if (hasMore && page.length > 0) {
+      response.headers.set("X-Next-Cursor", page[page.length - 1].id);
+    }
+    return finishTiming(response);
   } catch (error) {
     console.error("Error fetching orders:", error);
     if (isBusinessIsDemoMissingColumnError(error)) {
       warnPrismaSchemaDrift("Orders query failed while Business.isDemo is missing", error);
     }
     const classification = classifyDatabaseError(error);
-    return NextResponse.json({ code: classification.code, error: "Не удалось загрузить заказы." }, { status: 503 });
+    return finishTiming(NextResponse.json({ code: classification.code, error: "Не удалось загрузить заказы." }, { status: 503 }));
   }
 }

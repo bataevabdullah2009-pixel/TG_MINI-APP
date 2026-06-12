@@ -3,6 +3,7 @@ import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 import { toJsonSafe } from "@/lib/prisma-schema-guard";
 import { telegramBot } from "@/lib/telegram-bot-service";
+import { restoreTrackedStockForOrder } from "@/lib/orders/order-stock";
 
 export async function POST(
   request: NextRequest,
@@ -23,7 +24,14 @@ export async function POST(
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { business: true, customer: true },
+      select: {
+        id: true,
+        businessId: true,
+        paymentMethod: true,
+        paymentStatus: true,
+        paymentReviewedAt: true,
+        customer: { select: { telegramUserId: true } },
+      },
     });
 
     if (!order) return jsonError("Заказ не найден.", 404);
@@ -33,16 +41,35 @@ export async function POST(
     if (order.paymentMethod !== "TRANSFER") {
       return jsonError("У заказа не выбран перевод.", 400);
     }
+    if (order.paymentReviewedAt || order.paymentStatus !== "AWAITING_REVIEW") {
+      return jsonError("Оплата уже обработана продавцом.", 409);
+    }
 
-    const updated = await prisma.order.update({
+    const claimed = await prisma.$transaction(async (tx) => {
+      const result = await tx.order.updateMany({
+        where: {
+          id: order.id,
+          paymentStatus: "AWAITING_REVIEW",
+          paymentReviewedAt: null,
+        },
+        data: {
+          paymentStatus: "PAYMENT_REJECTED",
+          status: "CANCELLED",
+          paymentReviewedAt: new Date(),
+          paymentReviewedBy: session.id,
+          paymentRejectReason: reason,
+        },
+      });
+      if (result.count !== 1) return false;
+      await restoreTrackedStockForOrder(tx, order.id);
+      return true;
+    });
+    if (!claimed) {
+      return jsonError("Оплата уже обработана продавцом.", 409);
+    }
+
+    const updated = await prisma.order.findUnique({
       where: { id: order.id },
-      data: {
-        paymentStatus: "PAYMENT_REJECTED",
-        status: "CANCELLED",
-        paymentReviewedAt: new Date(),
-        paymentReviewedBy: session.id,
-        paymentRejectReason: reason,
-      },
       include: { items: true, business: { select: { name: true, slug: true } }, customer: true },
     });
 

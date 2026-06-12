@@ -133,9 +133,10 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
       </div>
 
       {loading && (
-        <div className="py-12 text-center">
-          <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-slate-900 mx-auto mb-2" />
-          <p className="text-xs font-bold text-slate-400">Загрузка...</p>
+        <div className="grid animate-pulse gap-3">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="h-24 rounded-3xl bg-white ring-1 ring-slate-100" />
+          ))}
         </div>
       )}
 

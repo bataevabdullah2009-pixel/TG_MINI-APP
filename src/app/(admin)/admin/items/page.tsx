@@ -523,10 +523,16 @@ export default function AdminItemsPage() {
                 <Field label="Длительность, минут"><input type="number" min="0" value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} className="field" /></Field>
               ) : (
                 <Field label="Учёт наличия">
-                  <select value={form.stockMode} onChange={(e) => setForm({ ...form, stockMode: e.target.value as FormState["stockMode"] })} className="field">
-                    <option value="SIMPLE_AVAILABILITY">Только в наличии / нет</option>
-                    <option value="TRACK_STOCK">Считать точный остаток</option>
-                  </select>
+                  <BottomSheetPicker
+                    title="Режим наличия"
+                    value={form.stockMode}
+                    onChange={(stockMode) => setForm({ ...form, stockMode: stockMode as FormState["stockMode"] })}
+                    buttonClassName="field cursor-pointer"
+                    options={[
+                      { value: "SIMPLE_AVAILABILITY", label: "Просто наличие", description: "Переключатель в наличии / нет" },
+                      { value: "TRACK_STOCK", label: "Считать остаток", description: "Точное количество товара" },
+                    ]}
+                  />
                 </Field>
               )}
               {form.type === "PRODUCT" && form.stockMode === "TRACK_STOCK" && (

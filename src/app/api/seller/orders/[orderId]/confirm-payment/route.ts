@@ -18,7 +18,14 @@ export async function POST(
     const { orderId } = await context.params;
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { business: true, customer: true },
+      select: {
+        id: true,
+        businessId: true,
+        paymentMethod: true,
+        paymentStatus: true,
+        paymentReviewedAt: true,
+        customer: { select: { telegramUserId: true } },
+      },
     });
 
     if (!order) return jsonError("Заказ не найден.", 404);
@@ -28,9 +35,16 @@ export async function POST(
     if (order.paymentMethod !== "TRANSFER") {
       return jsonError("У заказа не выбран перевод.", 400);
     }
+    if (order.paymentReviewedAt || order.paymentStatus !== "AWAITING_REVIEW") {
+      return jsonError("Оплата уже обработана продавцом.", 409);
+    }
 
-    const updated = await prisma.order.update({
-      where: { id: order.id },
+    const claimed = await prisma.order.updateMany({
+      where: {
+        id: order.id,
+        paymentStatus: "AWAITING_REVIEW",
+        paymentReviewedAt: null,
+      },
       data: {
         paymentStatus: "PAID",
         status: "ACCEPTED",
@@ -38,6 +52,13 @@ export async function POST(
         paymentReviewedBy: session.id,
         paymentRejectReason: null,
       },
+    });
+    if (claimed.count !== 1) {
+      return jsonError("Оплата уже обработана продавцом.", 409);
+    }
+
+    const updated = await prisma.order.findUnique({
+      where: { id: order.id },
       include: { items: true, business: { select: { name: true, slug: true } }, customer: true },
     });
 

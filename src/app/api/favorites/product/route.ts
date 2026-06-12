@@ -6,6 +6,7 @@ import {
   resolveFavoriteTelegramUserId,
 } from "@/lib/favorites-api";
 import { toJsonSafe } from "@/lib/prisma-schema-guard";
+import { createServerTiming } from "@/lib/server-timing";
 
 type FavoriteProductBody = {
   productId?: string;
@@ -34,6 +35,7 @@ function unauthorized() {
 }
 
 export async function GET(request: NextRequest) {
+  const finishTiming = createServerTiming("favorite_products");
   try {
     const { searchParams } = new URL(request.url);
     const telegramUserId = await resolveFavoriteTelegramUserId(request, identityValuesFromSearch(searchParams));
@@ -51,10 +53,10 @@ export async function GET(request: NextRequest) {
         select: { id: true },
       });
 
-      return NextResponse.json({
+      return finishTiming(NextResponse.json({
         ok: true,
         data: { favorited: Boolean(favorite), productId: targetProduct.id, itemId: targetProduct.id },
-      });
+      }));
     }
 
     const favoriteProducts = await prisma.favoriteItem.findMany({
@@ -63,17 +65,17 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json({
+    return finishTiming(NextResponse.json({
       ok: true,
       data: toJsonSafe({
         favoriteProducts,
         favoriteItems: favoriteProducts,
         productIds: favoriteProducts.map((favorite) => favorite.itemId),
       }),
-    });
+    }));
   } catch (error) {
     console.error("[favorites/product GET error]", error);
-    return NextResponse.json({ ok: false, error: "Избранные товары временно недоступны." }, { status: 500 });
+    return finishTiming(NextResponse.json({ ok: false, error: "Избранные товары временно недоступны." }, { status: 500 }));
   }
 }
 

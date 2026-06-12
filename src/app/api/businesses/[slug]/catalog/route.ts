@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { classifyDatabaseError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { createServerTiming } from "@/lib/server-timing";
 
 const catalogBusinessBaseSelect = {
   id: true,
@@ -12,37 +13,10 @@ const catalogBusinessBaseSelect = {
   logoUrl: true,
   coverImageUrl: true,
   primaryColor: true,
-  secondaryColor: true,
-  backgroundColor: true,
   accentColor: true,
   phone: true,
-  email: true,
   address: true,
-  latitude: true,
-  longitude: true,
-  telegramUrl: true,
-  whatsappUrl: true,
-  instagramUrl: true,
-  telegramBotUsername: true,
-  telegramUsername: true,
-  telegramAdminChatId: true,
-  currency: true,
-  language: true,
-  timezone: true,
-  subscriptionStatus: true,
-  subscriptionPlanId: true,
-  subscriptionStartDate: true,
-  subscriptionEndDate: true,
-  modulesEnabled: true,
-  aiProvider: true,
-  aiModel: true,
-  aiEnabled: true,
-  aiDailyLimit: true,
-  aiMonthlyLimit: true,
   isActive: true,
-  ownerId: true,
-  createdAt: true,
-  updatedAt: true,
 } as const;
 
 const currentBusinessFieldsSelect = {
@@ -66,19 +40,28 @@ function normalizeLookup(value: string) {
 function catalogRelations(search: string | undefined, includeDeliveryConfig: boolean, limit: number) {
   return {
     settings: includeDeliveryConfig
-      ? true
+      ? {
+          select: {
+            deliveryEnabled: true,
+            pickupEnabled: true,
+            bookingEnabled: true,
+            minOrderAmount: true,
+            deliveryFee: true,
+            deliveryTime: true,
+            pickupWaitHours: true,
+            courierAcceptanceMinutes: true,
+          },
+        }
       : {
           select: {
             deliveryEnabled: true,
             pickupEnabled: true,
             bookingEnabled: true,
-            reviewsEnabled: true,
-            loyaltyEnabled: true,
             minOrderAmount: true,
             deliveryFee: true,
             deliveryTime: true,
-            notificationsEnabled: true,
-            reminderTime: true,
+            pickupWaitHours: true,
+            courierAcceptanceMinutes: true,
           },
         },
     ...(includeDeliveryConfig
@@ -100,11 +83,28 @@ function catalogRelations(search: string | undefined, includeDeliveryConfig: boo
         archivedAt: null,
         ...(search ? { name: { contains: search, mode: "insensitive" as const } } : {}),
       },
-      include: { category: true },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        price: true,
+        imageUrl: true,
+        type: true,
+        durationMinutes: true,
+        stockMode: true,
+        stock: true,
+        isAvailable: true,
+        isPopular: true,
+        category: { select: { id: true, name: true } },
+      },
       orderBy: [{ isPopular: "desc" as const }, { sortOrder: "asc" as const }],
       take: limit,
     },
-    staff: { where: { isActive: true }, orderBy: { createdAt: "asc" as const } },
+    staff: {
+      where: { isActive: true },
+      orderBy: { createdAt: "asc" as const },
+      select: { id: true, name: true, role: true },
+    },
   };
 }
 
@@ -131,6 +131,7 @@ export async function GET(
   context: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await context.params;
+  const finishTiming = createServerTiming("business_catalog", { slug });
   const searchParams = new URL(request.url).searchParams;
   const search = searchParams.get("search")?.trim();
   const requestedLimit = Number(searchParams.get("limit") || 50);
@@ -150,7 +151,7 @@ export async function GET(
     }
 
     if (!business || !business.isActive) {
-      return NextResponse.json({ ok: false, code: "BUSINESS_NOT_FOUND", error: "Бизнес не найден." }, { status: 404 });
+      return finishTiming(NextResponse.json({ ok: false, code: "BUSINESS_NOT_FOUND", error: "Бизнес не найден." }, { status: 404 }));
     }
 
     if (business.categories.length === 0) {
@@ -173,27 +174,26 @@ export async function GET(
       transferRecipientName: "transferRecipientName" in business ? business.transferRecipientName : null,
       transferPaymentCommentRequired: "transferPaymentCommentRequired" in business ? business.transferPaymentCommentRequired : false,
       transferPaymentInstructions: "transferPaymentInstructions" in business ? business.transferPaymentInstructions : null,
-      telegramAdminChatId: business.telegramAdminChatId?.toString() || null,
     };
 
-    return NextResponse.json({
+    return finishTiming(NextResponse.json({
       ok: true,
       business: normalizedBusiness,
       categories: business.categories,
       items: business.items,
       staff: business.staff,
       schemaFallback: usedSchemaFallback,
-    });
+    }));
   } catch (error) {
     const classification = classifyDatabaseError(error);
     warnPrismaSchemaDrift(`Catalog ${slug} failed`, error);
-    return NextResponse.json(
+    return finishTiming(NextResponse.json(
       {
         ok: false,
         code: classification.code,
         error: "Каталог временно недоступен из-за ошибки базы данных. Повторите попытку после проверки подключения и применения SQL-патча.",
       },
       { status: 503 }
-    );
+    ));
   }
 }

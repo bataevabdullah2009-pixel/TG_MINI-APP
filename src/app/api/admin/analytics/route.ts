@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
+import { createServerTiming } from "@/lib/server-timing";
 
 const COMPLETED_STATUSES = ["COMPLETED", "DELIVERED"] as const;
+const INVALID_PAYMENT_STATUSES = ["PAYMENT_REJECTED", "REJECTED", "FAILED", "REFUNDED"] as const;
 
 const statusLabels: Record<string, string> = {
   NEW: "Новый",
@@ -73,23 +76,41 @@ function growth(current: number, previous: number) {
 }
 
 export async function GET(request: NextRequest) {
+  const finishTiming = createServerTiming("seller_analytics");
   const session = await getAdminSession(request);
-  if (!session) return jsonError("Нужен вход в панель продавца.", 401);
-  if (session.role === "MANAGER") return jsonError("У менеджера нет доступа к аналитике.", 403);
+  if (!session) return finishTiming(jsonError("Нужен вход в панель продавца.", 401));
+  if (session.role === "MANAGER") return finishTiming(jsonError("У менеджера нет доступа к аналитике.", 403));
 
   const { searchParams } = new URL(request.url);
   const businessId = searchParams.get("businessId") || session.businessId;
   if (!businessId || !canUseBusiness(session, businessId)) {
-    return jsonError("Нет доступа к аналитике этого бизнеса.", 403);
+    return finishTiming(jsonError("Нет доступа к аналитике этого бизнеса.", 403));
   }
 
   const period = parsePeriod(searchParams);
-  if (!period) return jsonError("Проверьте выбранный период.", 400);
+  if (!period) return finishTiming(jsonError("Проверьте выбранный период.", 400));
 
-  const currentWhere = { businessId, createdAt: { gte: period.from, lt: period.to } };
-  const completedWhere = { ...currentWhere, status: { in: [...COMPLETED_STATUSES] } };
-  const previousWhere = { businessId, createdAt: { gte: period.previousFrom, lt: period.previousTo } };
-  const previousCompletedWhere = { ...previousWhere, status: { in: [...COMPLETED_STATUSES] } };
+  const currentWhere: Prisma.OrderWhereInput = { businessId, createdAt: { gte: period.from, lt: period.to } };
+  const previousWhere: Prisma.OrderWhereInput = { businessId, createdAt: { gte: period.previousFrom, lt: period.previousTo } };
+  const validRevenueFilter: Prisma.OrderWhereInput = {
+    status: { notIn: ["CANCELLED", "EXPIRED"] },
+    AND: [
+      {
+        OR: [
+          { paymentStatus: null },
+          { paymentStatus: { notIn: [...INVALID_PAYMENT_STATUSES] } },
+        ],
+      },
+      {
+        OR: [
+          { paymentStatus: "PAID" },
+          { status: { in: [...COMPLETED_STATUSES] } },
+        ],
+      },
+    ],
+  };
+  const completedWhere: Prisma.OrderWhereInput = { AND: [currentWhere, validRevenueFilter] };
+  const previousCompletedWhere: Prisma.OrderWhereInput = { AND: [previousWhere, validRevenueFilter] };
 
   const [
     business,
@@ -127,7 +148,7 @@ export async function GET(request: NextRequest) {
     }),
     prisma.order.findMany({
       where: currentWhere,
-      select: { createdAt: true, totalPrice: true, status: true },
+      select: { createdAt: true, totalPrice: true, status: true, paymentStatus: true },
       orderBy: { createdAt: "asc" },
     }),
     prisma.orderItem.aggregate({
@@ -173,14 +194,22 @@ export async function GET(request: NextRequest) {
     prisma.customer.count({ where: { businessId, createdAt: { gte: period.previousFrom, lt: period.previousTo } } }),
   ]);
 
-  if (!business) return jsonError("Бизнес не найден.", 404);
+  if (!business) return finishTiming(jsonError("Бизнес не найден.", 404));
 
   const dailyMap = new Map<string, { date: string; revenue: number; orders: number }>();
   for (const order of dailySource) {
     const date = order.createdAt.toISOString().slice(0, 10);
     const entry = dailyMap.get(date) || { date, revenue: 0, orders: 0 };
     entry.orders += 1;
-    if (COMPLETED_STATUSES.includes(order.status as (typeof COMPLETED_STATUSES)[number])) {
+    const hasValidPayment = !INVALID_PAYMENT_STATUSES.includes(
+      order.paymentStatus as (typeof INVALID_PAYMENT_STATUSES)[number]
+    );
+    const countsAsRevenue = hasValidPayment &&
+      order.status !== "CANCELLED" &&
+      order.status !== "EXPIRED" &&
+      (order.paymentStatus === "PAID" ||
+        COMPLETED_STATUSES.includes(order.status as (typeof COMPLETED_STATUSES)[number]));
+    if (countsAsRevenue) {
       entry.revenue += order.totalPrice;
     }
     dailyMap.set(date, entry);
@@ -191,7 +220,7 @@ export async function GET(request: NextRequest) {
   const averageCheck = completed._avg.totalPrice || 0;
   const previousAverageCheck = previousCompleted._avg.totalPrice || 0;
 
-  return NextResponse.json({
+  return finishTiming(NextResponse.json({
     ok: true,
     business,
     period: { preset: period.preset, from: period.from.toISOString(), to: period.to.toISOString() },
@@ -206,6 +235,13 @@ export async function GET(request: NextRequest) {
       completionPercent: totalOrders ? Math.round((completed._count.id / totalOrders) * 1000) / 10 : 0,
       soldUnits: soldItems._sum.quantity || 0,
       discountAmount: completed._sum.discountAmount || 0,
+    },
+    explanations: {
+      revenue: "Только оплаченные, завершённые или доставленные заказы без отмены и отклонённой оплаты.",
+      averageCheck: "Среднее только по заказам, вошедшим в выручку.",
+      conversion: "Доля оплаченных, завершённых или доставленных заказов от всех заказов периода.",
+      topProducts: "По количеству проданных единиц из заказов, вошедших в выручку.",
+      cancelled: "Отменённые заказы показаны отдельно и не входят в выручку.",
     },
     growth: {
       revenue: growth(revenue, previousRevenue),
@@ -238,5 +274,5 @@ export async function GET(request: NextRequest) {
       discountAmount: item._sum.discountAmount || 0,
       revenue: item._sum.totalPrice || 0,
     })),
-  });
+  }));
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { NotificationService } from "@/lib/notifications/notification-service";
+import { restoreTrackedStockForOrder } from "@/lib/orders/order-stock";
 
 // Strict Prisma OrderStatus values
 const ALLOWED_STATUSES = new Set([
@@ -83,14 +84,20 @@ export async function PATCH(
       status === "READY_FOR_PICKUP" ? "NONE" :
       undefined;
 
-    const updatedOrder = await prisma.order.update({
-      where: { id },
-      data: {
-        status,
-        ...(deliveryStatus ? { deliveryStatus } : {}),
-        ...(internalNotes !== undefined ? { internalNotes } : {}),
-      },
-      include: { items: true },
+    const updatedOrder = await prisma.$transaction(async (tx) => {
+      const updated = await tx.order.update({
+        where: { id },
+        data: {
+          status,
+          ...(deliveryStatus ? { deliveryStatus } : {}),
+          ...(internalNotes !== undefined ? { internalNotes } : {}),
+        },
+        include: { items: true },
+      });
+      if (status === "CANCELLED") {
+        await restoreTrackedStockForOrder(tx, id);
+      }
+      return updated;
     });
 
     // 5. Notify the customer of status updates safely in the background

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTelegramSessionUser } from "@/lib/auth-telegram";
 import { prisma } from "@/lib/prisma";
 import { classifyDatabaseError, toJsonSafe, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { recoverStalePaymentProofChecks } from "@/lib/ai/payment-proof-service";
+import { createServerTiming } from "@/lib/server-timing";
 
 const orderHistoryLegacySelect = {
   id: true,
@@ -67,8 +69,8 @@ const bookingHistoryLegacySelect = {
   createdAt: true,
   updatedAt: true,
   business: { select: { id: true, slug: true, name: true, primaryColor: true, accentColor: true } },
-  service: true,
-  staff: true,
+  service: { select: { id: true, name: true, price: true } },
+  staff: { select: { id: true, name: true } },
 } as const;
 
 const bookingHistorySelect = {
@@ -112,10 +114,11 @@ async function loadHistory(customerIds: string[], useLegacySelect: boolean) {
 }
 
 export async function GET(request: NextRequest) {
+  const finishTiming = createServerTiming("customer_order_history");
   try {
     const initData = request.headers.get("x-telegram-init-data") || "";
     if (!initData) {
-      return NextResponse.json({ ok: false, error: "Нужна авторизация через Telegram." }, { status: 401 });
+      return finishTiming(NextResponse.json({ ok: false, error: "Нужна авторизация через Telegram." }, { status: 401 }));
     }
 
     const businessSlug = new URL(request.url).searchParams.get("businessSlug") || "";
@@ -123,7 +126,7 @@ export async function GET(request: NextRequest) {
     const session = await getTelegramSessionUser(initData, businessId);
 
     if (!session) {
-      return NextResponse.json({ ok: false, error: "Нужна авторизация через Telegram." }, { status: 401 });
+      return finishTiming(NextResponse.json({ ok: false, error: "Нужна авторизация через Telegram." }, { status: 401 }));
     }
 
     const customers = await prisma.customer.findMany({
@@ -135,10 +138,13 @@ export async function GET(request: NextRequest) {
     });
 
     if (customers.length === 0) {
-      return NextResponse.json({ ok: true, orders: [], bookings: [] });
+      return finishTiming(NextResponse.json({ ok: true, orders: [], bookings: [] }));
     }
 
     const customerIds = customers.map((customer) => customer.id);
+    await recoverStalePaymentProofChecks({ businessId }).catch((error) => {
+      console.warn("[PAYMENT PROOF AI] stale customer checks recovery skipped:", error);
+    });
     let schemaFallback = false;
     let history;
 
@@ -152,18 +158,18 @@ export async function GET(request: NextRequest) {
       history = await loadHistory(customerIds, true);
     }
 
-    return NextResponse.json(toJsonSafe({
+    return finishTiming(NextResponse.json(toJsonSafe({
       ok: true,
       orders: history.orders,
       bookings: history.bookings,
       schemaFallback,
-    }));
+    })));
   } catch (error) {
     const classification = classifyDatabaseError(error);
     warnPrismaSchemaDrift("GET /api/customer/orders failed", error);
-    return NextResponse.json(
+    return finishTiming(NextResponse.json(
       { ok: false, code: classification.code, error: "Не удалось загрузить историю заказов и записей. Причина записана в server logs." },
       { status: 503 }
-    );
+    ));
   }
 }

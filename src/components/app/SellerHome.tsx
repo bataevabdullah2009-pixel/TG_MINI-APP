@@ -36,6 +36,7 @@ import { SellerDeliverySettings } from "./SellerDeliverySettings";
 import { SellerCouriers } from "./SellerCouriers";
 import { SellerPromoCodes } from "./SellerPromoCodes";
 import { miniAppFetch } from "@/lib/miniAppFetch";
+import { BottomSheetPicker } from "@/components/ui/BottomSheetPicker";
 
 interface SellerHomeProps {
   session: any;
@@ -43,11 +44,11 @@ interface SellerHomeProps {
 }
 
 function paymentProofAiLabel(status: string) {
-  if (status === "PENDING") return "ИИ проверяет чек";
-  if (status === "LIKELY_VALID") return "Чек похож на корректный";
-  if (status === "LIKELY_INVALID") return "Чек требует внимания";
+  if (status === "PENDING" || status === "AI_CHECKING") return "ИИ проверяет чек";
+  if (status === "LIKELY_VALID") return "Похоже верно";
+  if (status === "LIKELY_INVALID") return "Сумма/данные не совпадают";
   if (status === "MANUAL_REVIEW") return "Нужна ручная проверка";
-  if (status === "AI_UNAVAILABLE") return "ИИ временно недоступен, чек отправлен продавцу";
+  if (status === "AI_FAILED" || status === "AI_UNAVAILABLE") return "ИИ не смог проверить чек";
   return "Нужна ручная проверка";
 }
 
@@ -196,7 +197,11 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const [couriers, setCouriers] = useState<any[]>([]);
   const [assigningOrderId, setAssigningOrderId] = useState<string | null>(null);
   const [ordersHasMore, setOrdersHasMore] = useState(true);
+  const [ordersCursor, setOrdersCursor] = useState<string | null>(null);
   const [ordersLoadingMore, setOrdersLoadingMore] = useState(false);
+  const [paymentActionOrderId, setPaymentActionOrderId] = useState<string | null>(null);
+  const [customersLoaded, setCustomersLoaded] = useState(false);
+  const [couriersLoaded, setCouriersLoaded] = useState(false);
 
   const syncBusinessState = (bData: any) => {
     setBusinessData(bData);
@@ -217,8 +222,56 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   };
 
   useEffect(() => {
+    setCustomersLoaded(false);
+    setCouriersLoaded(false);
     fetchSellerData();
   }, [businessId]);
+
+  useEffect(() => {
+    if (activeTab !== "CLIENTS" || customersLoaded) return;
+    miniAppFetch(`/api/admin/customers?businessId=${encodeURIComponent(businessId)}&limit=50`)
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "Не удалось загрузить клиентов.");
+        setCustomers(data.data || []);
+        setCustomersLoaded(true);
+      })
+      .catch((loadError) => showError(loadError instanceof Error ? loadError.message : "Не удалось загрузить клиентов."));
+  }, [activeTab, businessId, customersLoaded]);
+
+  useEffect(() => {
+    const hasCheckingReceipt = stats.orders.some((order) =>
+      order.paymentMethod === "TRANSFER" &&
+      ["PENDING", "AI_CHECKING"].includes(order.paymentProofAiStatus)
+    );
+    if (!hasCheckingReceipt || !["DASHBOARD", "ORDERS"].includes(activeTab)) return undefined;
+
+    const timer = window.setTimeout(() => {
+      miniAppFetch(`/api/orders?businessId=${encodeURIComponent(businessId)}&limit=20`)
+        .then(async (response) => {
+          const orders = await response.json().catch(() => []);
+          if (!response.ok || !Array.isArray(orders)) return;
+          setStats((current) => ({ ...current, orders }));
+          setOrdersHasMore(response.headers.get("X-Has-More") === "true");
+          setOrdersCursor(response.headers.get("X-Next-Cursor"));
+        })
+        .catch(() => undefined);
+    }, 5000);
+
+    return () => window.clearTimeout(timer);
+  }, [activeTab, businessId, stats.orders]);
+
+  useEffect(() => {
+    if (!["ORDERS", "COURIERS"].includes(activeTab) || couriersLoaded) return;
+    miniAppFetch(`/api/admin/couriers?businessId=${encodeURIComponent(businessId)}`)
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "Не удалось загрузить курьеров.");
+        setCouriers((data.couriers || []).filter((courier: any) => courier.isActive));
+        setCouriersLoaded(true);
+      })
+      .catch((loadError) => showError(loadError instanceof Error ? loadError.message : "Не удалось загрузить курьеров."));
+  }, [activeTab, businessId, couriersLoaded]);
 
   const updateOrderInStats = (updatedOrder: any) => {
     setStats((current) => {
@@ -248,12 +301,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const fetchSellerData = async () => {
     setLoading(true);
     try {
-      const [bizRes, catRes, itemRes, custRes, courierRes, ordRes, bookRes] = await Promise.all([
+      const [bizRes, catRes, itemRes, ordRes, bookRes] = await Promise.all([
         miniAppFetch(`/api/admin/current-business?businessId=${encodeURIComponent(businessId)}`),
-        miniAppFetch(`/api/businesses/${businessId}/catalog?limit=50`),
+        miniAppFetch(`/api/businesses/${businessId}/categories`),
         miniAppFetch(`/api/admin/items?businessId=${encodeURIComponent(businessId)}&filter=ALL&limit=100`),
-        miniAppFetch(`/api/admin/customers?businessId=${encodeURIComponent(businessId)}&limit=50`),
-        miniAppFetch(`/api/admin/couriers?businessId=${encodeURIComponent(businessId)}`),
         miniAppFetch(`/api/orders?businessId=${encodeURIComponent(businessId)}&limit=20`),
         miniAppFetch(`/api/bookings?businessId=${encodeURIComponent(businessId)}&limit=20`),
       ]);
@@ -278,21 +329,12 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
         fetchedItemsCount = sellerItems.filter((item: any) => !item.archivedAt).length;
       }
 
-      if (custRes.ok) {
-        const custData = await custRes.json();
-        setCustomers(custData.data || []);
-      }
-
-      if (courierRes.ok) {
-        const courierData = await courierRes.json();
-        setCouriers((courierData.couriers || []).filter((courier: any) => courier.isActive));
-      }
-
       let ords = [] as any[];
       let bks = [] as any[];
 
       if (ordRes.ok) ords = await ordRes.json();
-      setOrdersHasMore(ords.length === 20);
+      setOrdersHasMore(ordRes.headers.get("X-Has-More") === "true");
+      setOrdersCursor(ordRes.headers.get("X-Next-Cursor"));
       if (bookRes.ok) bks = await bookRes.json();
 
       // Calculate today's stats
@@ -481,7 +523,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     setOrdersLoadingMore(true);
     try {
       const response = await miniAppFetch(
-        `/api/orders?businessId=${encodeURIComponent(businessId)}&limit=20&offset=${stats.orders.length}`
+        `/api/orders?businessId=${encodeURIComponent(businessId)}&limit=20${ordersCursor ? `&cursor=${encodeURIComponent(ordersCursor)}` : ""}`
       );
       const nextOrders = await response.json().catch(() => []);
       if (!response.ok || !Array.isArray(nextOrders)) throw new Error("Не удалось загрузить следующие заказы.");
@@ -492,7 +534,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
           ...nextOrders.filter((nextOrder: any) => !current.orders.some((order: any) => order.id === nextOrder.id)),
         ],
       }));
-      setOrdersHasMore(nextOrders.length === 20);
+      setOrdersHasMore(response.headers.get("X-Has-More") === "true");
+      setOrdersCursor(response.headers.get("X-Next-Cursor"));
     } catch (loadError) {
       showError(loadError instanceof Error ? loadError.message : "Не удалось загрузить следующие заказы.");
     } finally {
@@ -524,6 +567,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   };
 
   const handleConfirmPayment = async (orderId: string) => {
+    if (paymentActionOrderId) return;
+    setPaymentActionOrderId(orderId);
     try {
       const res = await miniAppFetch(`/api/seller/orders/${orderId}/confirm-payment`, {
         method: "POST",
@@ -531,17 +576,21 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok) {
         showSuccess("Оплата подтверждена.");
-        fetchSellerData();
+        if (data.order) updateOrderInStats(data.order);
       } else {
         showError(data.error || "Не удалось подтвердить оплату.");
       }
     } catch (error) {
       showError("Не удалось подтвердить оплату. Проверьте соединение и попробуйте снова.");
+    } finally {
+      setPaymentActionOrderId(null);
     }
   };
 
   const handleRejectPayment = async (orderId: string) => {
+    if (paymentActionOrderId) return;
     const reason = window.prompt("Причина отклонения оплаты", "Оплата не подтверждена продавцом.") || "";
+    setPaymentActionOrderId(orderId);
     try {
       const res = await miniAppFetch(`/api/seller/orders/${orderId}/reject-payment`, {
         method: "POST",
@@ -550,12 +599,14 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok) {
         showSuccess("Оплата отклонена.");
-        fetchSellerData();
+        if (data.order) updateOrderInStats(data.order);
       } else {
         showError(data.error || "Не удалось отклонить оплату.");
       }
     } catch (error) {
       showError("Не удалось отклонить оплату. Проверьте соединение и попробуйте снова.");
+    } finally {
+      setPaymentActionOrderId(null);
     }
   };
 
@@ -691,9 +742,16 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
   if (loading && items.length === 0) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-500">
-        <div className="animate-spin rounded-full h-10 w-10 border-2 border-indigo-600 border-t-transparent mb-3" />
-        <span className="text-xs font-black tracking-wider uppercase">Загрузка панели...</span>
+      <div className="min-h-screen bg-slate-50 p-4">
+        <div className="mx-auto max-w-md space-y-4">
+          <div className="h-28 animate-pulse rounded-3xl bg-slate-900" />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="h-24 animate-pulse rounded-3xl bg-white" />
+            <div className="h-24 animate-pulse rounded-3xl bg-white" />
+          </div>
+          <div className="h-48 animate-pulse rounded-3xl bg-white" />
+          <div className="h-64 animate-pulse rounded-3xl bg-white" />
+        </div>
       </div>
     );
   }
@@ -975,7 +1033,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                                   ? "Ожидает проверки"
                                   : order.paymentStatus === "PAID"
                                     ? "Оплачено"
-                                    : order.paymentStatus === "REJECTED"
+                                    : ["REJECTED", "PAYMENT_REJECTED"].includes(order.paymentStatus)
                                       ? "Отклонено"
                                       : "Ожидает оплаты"}
                               </span>
@@ -992,6 +1050,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                                   order.paymentProofAiStatus === "LIKELY_VALID" ? "bg-emerald-100 text-emerald-700" :
                                   order.paymentProofAiStatus === "MANUAL_REVIEW" ? "bg-amber-100 text-amber-700" :
                                   order.paymentProofAiStatus === "LIKELY_INVALID" ? "bg-rose-100 text-rose-700" :
+                                  order.paymentProofAiStatus === "AI_FAILED" ? "bg-slate-200 text-slate-700" :
                                   "bg-slate-100 text-slate-600"
                                 }`}>
                                   {paymentProofAiLabel(order.paymentProofAiStatus)}
@@ -1053,13 +1112,15 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           <>
                             <button
                               onClick={() => handleConfirmPayment(order.id)}
-                              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-2 rounded-xl transition"
+                              disabled={paymentActionOrderId === order.id}
+                              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-2 rounded-xl transition disabled:cursor-wait disabled:opacity-60"
                             >
                               Подтвердить оплату
                             </button>
                             <button
                               onClick={() => handleRejectPayment(order.id)}
-                              className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs px-3.5 py-2 rounded-xl transition"
+                              disabled={paymentActionOrderId === order.id}
+                              className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs px-3.5 py-2 rounded-xl transition disabled:cursor-wait disabled:opacity-60"
                             >
                               Отклонить оплату
                             </button>
@@ -1423,15 +1484,17 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                 </div>
 
                 {newItemType === "PRODUCT" && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <select
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <BottomSheetPicker
+                      title="Режим наличия"
                       value={newItemStockMode}
-                      onChange={(e) => setNewItemStockMode(e.target.value as "SIMPLE_AVAILABILITY" | "TRACK_STOCK")}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold outline-none"
-                    >
-                      <option value="SIMPLE_AVAILABILITY">Только наличие</option>
-                      <option value="TRACK_STOCK">Считать остаток</option>
-                    </select>
+                      onChange={(value) => setNewItemStockMode(value as "SIMPLE_AVAILABILITY" | "TRACK_STOCK")}
+                      buttonClassName="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold outline-none"
+                      options={[
+                        { value: "SIMPLE_AVAILABILITY", label: "Просто наличие", description: "Переключатель в наличии / нет" },
+                        { value: "TRACK_STOCK", label: "Считать остаток", description: "Точное количество товара" },
+                      ]}
+                    />
                     {newItemStockMode === "TRACK_STOCK" ? (
                       <input
                         type="number"
@@ -1479,42 +1542,37 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                 placeholder="Поиск по товарам"
                 className="mb-2 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-bold outline-none"
               />
-              <div className="mb-3 flex gap-1.5 overflow-x-auto">
-                {([
-                  ["ACTIVE", "Активные"],
-                  ["AVAILABLE", "В наличии"],
-                  ["UNAVAILABLE", "Нет в наличии"],
-                  ["HIDDEN", "Скрытые"],
-                  ["ARCHIVED", "Архив"],
-                ] as const).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setItemFilter(value)}
-                    className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[9px] font-black ${
-                      itemFilter === value ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
+              <div className="mb-3">
+                <BottomSheetPicker
+                  title="Фильтр товаров"
+                  value={itemFilter}
+                  onChange={(value) => setItemFilter(value as typeof itemFilter)}
+                  buttonClassName="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-black"
+                  options={[
+                    { value: "ACTIVE", label: "Активные" },
+                    { value: "AVAILABLE", label: "В наличии" },
+                    { value: "UNAVAILABLE", label: "Нет в наличии" },
+                    { value: "HIDDEN", label: "Скрытые" },
+                    { value: "ARCHIVED", label: "Архив" },
+                  ]}
+                />
               </div>
               <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
                 {visibleItems.length === 0 ? (
                   <p className="text-center py-8 text-xs text-slate-400 font-semibold">Товары по выбранному фильтру не найдены.</p>
                 ) : (
                   visibleItems.map((it) => (
-                    <div key={it.id} className="flex gap-3 items-center justify-between p-2 rounded-2xl border border-slate-50 bg-slate-50/40">
-                      <div className="flex items-center gap-3">
-                        <div className="h-11 w-11 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center text-slate-400">
+                    <div key={it.id} className="min-w-0 rounded-2xl border border-slate-100 bg-slate-50/40 p-3">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100 flex items-center justify-center text-slate-400">
                           {it.imageUrl ? (
                             <img src={it.imageUrl} alt={it.name} className="h-full w-full object-cover" />
                           ) : (
                             <ImageIcon size={14} />
                           )}
                         </div>
-                        <div className="min-w-0">
-                          <strong className="line-clamp-2 text-xs font-black text-slate-900">{it.name}</strong>
+                        <div className="min-w-0 flex-1">
+                          <strong className="break-words text-xs font-black leading-snug text-slate-900">{it.name}</strong>
                           <div className="mt-1 flex flex-wrap items-center gap-1">
                             <input
                               type="number"
@@ -1549,7 +1607,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="mt-3 flex min-w-0 flex-wrap items-center justify-end gap-1.5 border-t border-slate-100 pt-2">
                         <button
                           type="button"
                           onClick={() => void handleQuickItemUpdate(it.id, { isAvailable: !it.isAvailable })}

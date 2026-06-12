@@ -6,9 +6,24 @@ import {
   validatePaymentProofAnalysisJson,
 } from "@/lib/ai/safe-ai-json";
 
-export type PaymentProofAnalysisResult = PaymentProofAnalysisJson & {
+export type PaymentProofAiStatus =
+  | "MANUAL_REVIEW"
+  | "LIKELY_VALID"
+  | "LIKELY_INVALID"
+  | "AI_FAILED";
+
+export type PaymentProofAnalysisResult = Omit<PaymentProofAnalysisJson, "status"> & {
+  status: PaymentProofAiStatus;
   summary: string;
 };
+
+export const PAYMENT_PROOF_CONFIG_SUMMARY =
+  "Нужна ручная проверка: ИИ-проверка сейчас не настроена.";
+
+export function isPaymentProofAiConfigured() {
+  return Boolean(process.env.POLZA_AI_API_KEY) &&
+    (process.env.AI_PROVIDER || "").trim().toLowerCase() === "polza";
+}
 
 function normalizedText(value?: string | null) {
   return (value || "").toLowerCase().replace(/[^a-zа-яё0-9]/gi, "");
@@ -62,9 +77,14 @@ export async function analyzePaymentProof(input: {
   mimeType?: string | null;
 }): Promise<PaymentProofAnalysisResult> {
   const apiKey = process.env.POLZA_AI_API_KEY;
-  if (!apiKey || process.env.AI_PROVIDER !== "polza") {
-    if (process.env.AI_PROVIDER === "polza") {
+  const providerName = (process.env.AI_PROVIDER || "").trim().toLowerCase();
+  if (!isPaymentProofAiConfigured() || !apiKey) {
+    if (providerName === "polza") {
       console.error("[AI CONFIG ERROR] POLZA_AI_API_KEY missing");
+    } else {
+      console.error("[AI CONFIG ERROR] Payment proof analysis requires AI_PROVIDER=polza", {
+        configuredProvider: providerName || null,
+      });
     }
     return {
       extractedAmount: null,
@@ -77,8 +97,8 @@ export async function analyzePaymentProof(input: {
       extractedBank: null,
       confidencePercent: 0,
       status: "MANUAL_REVIEW",
-      reasonRu: "ИИ не смог прочитать чек. Проверьте оплату вручную.",
-      summary: "ИИ-проверка чека не выполнена. Проверьте чек вручную.",
+      reasonRu: "ИИ-проверка недоступна из-за конфигурации. Проверьте оплату вручную.",
+      summary: PAYMENT_PROOF_CONFIG_SUMMARY,
     };
   }
 
@@ -156,9 +176,9 @@ export async function analyzePaymentProof(input: {
       recipientMatches: null,
       extractedBank: null,
       confidencePercent: 0,
-      status: "MANUAL_REVIEW",
-      reasonRu: "ИИ не смог прочитать чек. Проверьте оплату вручную.",
-      summary: "ИИ не смог прочитать чек. Проверьте оплату вручную.",
+      status: "AI_FAILED",
+      reasonRu: "ИИ не смог проверить чек. Проверьте оплату вручную.",
+      summary: "ИИ не смог проверить чек. Проверьте оплату вручную.",
     };
   }
 }

@@ -18,7 +18,19 @@ export const favoriteBusinessSelect = {
 
 export const favoriteItemInclude = {
   item: {
-    include: {
+    select: {
+      id: true,
+      businessId: true,
+      name: true,
+      description: true,
+      price: true,
+      imageUrl: true,
+      type: true,
+      durationMinutes: true,
+      stockMode: true,
+      stock: true,
+      isAvailable: true,
+      archivedAt: true,
       category: { select: { id: true, name: true } },
     },
   },
