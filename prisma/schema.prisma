@@ -54,6 +54,11 @@ enum ItemType {
   SERVICE
 }
 
+enum StockMode {
+  SIMPLE_AVAILABILITY
+  TRACK_STOCK
+}
+
 enum OrderStatus {
   NEW
   ACCEPTED
@@ -260,6 +265,7 @@ model Business {
   aiRequestLogs      AiRequestLog[]     @relation("BusinessAiRequestLogs")
   couriers           Courier[]
   deliveryZones      DeliveryZone[]
+  promoCodes         PromoCode[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -379,6 +385,7 @@ model Item {
   imageUrl String?
 
   durationMinutes Int?
+  stockMode      StockMode @default(SIMPLE_AVAILABILITY)
   stock           Int?
 
   isAvailable Boolean @default(true)
@@ -397,6 +404,7 @@ model Item {
   @@index([categoryId])
   @@index([businessId, archivedAt])
   @@index([businessId, isAvailable, archivedAt])
+  @@index([businessId, categoryId])
 }
 
 // ============= STAFF & SCHEDULE =============
@@ -542,6 +550,27 @@ model DeliveryZone {
   @@index([businessId, archivedAt])
 }
 
+model PromoCode {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  code            String
+  discountPercent Int
+  isActive         Boolean   @default(true)
+  startsAt         DateTime?
+  expiresAt        DateTime?
+  usageLimit       Int?
+  usageCount       Int       @default(0)
+  archivedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, code])
+  @@index([businessId, isActive, archivedAt])
+}
+
 model FavoriteBusiness {
   id         String   @id @default(cuid())
   businessId String
@@ -590,9 +619,13 @@ model Order {
   customerName    String
   customerPhone   String
   customerAddress String?
+  idempotencyKey  String?
 
   items         OrderItem[]
   itemsSubtotal Float       @default(0)
+  promoCode     String?
+  promoDiscountPercent Int?
+  discountAmount Float      @default(0)
   deliveryFee   Float       @default(0)
   totalPrice    Float       @default(0)
 
@@ -616,6 +649,7 @@ model Order {
   paymentProofAiSummary    String?
   paymentProofAiConfidence Int?
   paymentProofAiResult     Json?
+  paymentProofAiDetails    String?
   paymentReviewedAt        DateTime?
   paymentReviewedBy        String?
   paymentRejectReason      String?
@@ -633,6 +667,8 @@ model Order {
 
   @@index([businessId])
   @@index([customerId])
+  @@index([businessId, createdAt])
+  @@index([customerId, createdAt])
   @@index([status])
   @@index([paymentMethod])
   @@index([paymentStatus])
@@ -640,6 +676,7 @@ model Order {
   @@index([deliveryStatus, status, createdAt])
   @@index([deliveryZoneId])
   @@index([stockRestoredAt])
+  @@unique([businessId, customerId, idempotencyKey])
 }
 
 model DeliveryAssignment {

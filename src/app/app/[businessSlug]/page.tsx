@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { CalendarDays, LayoutGrid, List, Package, Search, X } from "lucide-react";
 import { PhoneVerificationScreen } from "@/components/app/PhoneVerificationScreen";
@@ -38,6 +38,10 @@ function telegramUser() {
   } catch {
     return null;
   }
+}
+
+function createIdempotencyKey() {
+  return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function rub(value: number) {
@@ -88,6 +92,13 @@ export default function BusinessMiniAppPage() {
   const [paymentProofFileName, setPaymentProofFileName] = useState("");
   const [paymentProofMimeType, setPaymentProofMimeType] = useState("");
   const [paymentProofUploading, setPaymentProofUploading] = useState(false);
+  const [checkoutSubmitting, setCheckoutSubmitting] = useState(false);
+  const checkoutSubmittingRef = useRef(false);
+  const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey);
+  const [promoCode, setPromoCode] = useState("");
+  const [promoDiscountPercent, setPromoDiscountPercent] = useState(0);
+  const [promoMessage, setPromoMessage] = useState("");
+  const [promoValidating, setPromoValidating] = useState(false);
   const businessId = business?.id || "";
   const businessTemplateKey = business?.templateKey || "";
   const businessTemplate = businessTemplateKey ? templateUi[businessTemplateKey] : undefined;
@@ -371,6 +382,7 @@ export default function BusinessMiniAppPage() {
 
   async function submitOrder(event: React.FormEvent) {
     event.preventDefault();
+    if (checkoutSubmittingRef.current) return;
     setCheckoutError("");
     setNeedsPhoneVerification(false);
     const user = telegramUser();
@@ -386,6 +398,8 @@ export default function BusinessMiniAppPage() {
       setCheckoutError("Загрузите чек перевода.");
       return;
     }
+    checkoutSubmittingRef.current = true;
+    setCheckoutSubmitting(true);
     try {
       const res = await miniAppFetch(`/api/businesses/${slug}/orders`, {
         method: "POST",
@@ -403,6 +417,8 @@ export default function BusinessMiniAppPage() {
           paymentProofUrl: paymentMethod === "TRANSFER" ? paymentProofUrl : undefined,
           paymentProofFileName: paymentMethod === "TRANSFER" ? paymentProofFileName : undefined,
           paymentProofMimeType: paymentMethod === "TRANSFER" ? paymentProofMimeType : undefined,
+          idempotencyKey,
+          promoCode: promoDiscountPercent > 0 ? promoCode : undefined,
           items: cart.map((line) => ({ itemId: line.item.id, quantity: line.quantity })),
         }),
       });
@@ -415,7 +431,11 @@ export default function BusinessMiniAppPage() {
         setPaymentProofFileName("");
         setPaymentProofMimeType("");
         setPaymentMethod("CASH");
-        setSuccess("Заказ оформлен. Продавец уже получил уведомление.");
+        setPromoCode("");
+        setPromoDiscountPercent(0);
+        setPromoMessage("");
+        setIdempotencyKey(createIdempotencyKey());
+        setSuccess(data.alreadyCreated ? "Заказ уже создан. Открываем существующий заказ." : "Заказ оформлен. Продавец уже получил уведомление.");
       } else {
         const message = data.code === "INSUFFICIENT_STOCK"
           ? data.error || "Некоторых товаров уже недостаточно. Обновите корзину."
@@ -424,9 +444,40 @@ export default function BusinessMiniAppPage() {
         const phoneNotVerified = data.code === "PHONE_NOT_VERIFIED";
         setNeedsPhoneVerification(phoneNotVerified);
         if (phoneNotVerified) setVerifyOpen(true);
+        checkoutSubmittingRef.current = false;
+        setCheckoutSubmitting(false);
       }
     } catch (error) {
       setCheckoutError("Не удалось отправить заказ. Проверьте соединение и попробуйте снова.");
+      checkoutSubmittingRef.current = false;
+      setCheckoutSubmitting(false);
+    }
+  }
+
+  async function applyPromoCode() {
+    const code = promoCode.trim();
+    if (!code) {
+      setPromoDiscountPercent(0);
+      setPromoMessage("Введите промокод.");
+      return;
+    }
+    setPromoValidating(true);
+    setPromoMessage("");
+    try {
+      const response = await miniAppFetch(`/api/businesses/${encodeURIComponent(slug)}/promo-code`, {
+        method: "POST",
+        body: JSON.stringify({ code }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(data.error || "Промокод не применён.");
+      setPromoCode(data.code);
+      setPromoDiscountPercent(data.discountPercent);
+      setPromoMessage(data.message);
+    } catch (error) {
+      setPromoDiscountPercent(0);
+      setPromoMessage(error instanceof Error ? error.message : "Промокод не применён.");
+    } finally {
+      setPromoValidating(false);
     }
   }
 
@@ -629,7 +680,12 @@ export default function BusinessMiniAppPage() {
           cartPulse={cartPulse}
           formatPrice={rub}
           onQuantityChange={updateCart}
-          onCheckout={() => setCheckoutOpen(true)}
+          onCheckout={() => {
+            checkoutSubmittingRef.current = false;
+            setCheckoutSubmitting(false);
+            setIdempotencyKey(createIdempotencyKey());
+            setCheckoutOpen(true);
+          }}
         />
       )}
 
@@ -665,6 +721,17 @@ export default function BusinessMiniAppPage() {
           paymentProofFileName={paymentProofFileName}
           paymentProofUploading={paymentProofUploading}
           onPaymentProofUpload={handlePaymentProofUpload}
+          promoCode={promoCode}
+          setPromoCode={(value) => {
+            setPromoCode(value.toUpperCase());
+            setPromoDiscountPercent(0);
+            setPromoMessage("");
+          }}
+          promoDiscountPercent={promoDiscountPercent}
+          promoMessage={promoMessage}
+          promoValidating={promoValidating}
+          onApplyPromoCode={applyPromoCode}
+          submitting={checkoutSubmitting}
           checkoutError={checkoutError}
           needsPhoneVerification={needsPhoneVerification}
           onSubmit={submitOrder}

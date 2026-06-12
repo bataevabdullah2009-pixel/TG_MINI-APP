@@ -8,6 +8,7 @@ import { analyzePaymentProof } from "@/lib/ai/payment-proof-analyzer";
 import { getTelegramSessionUser, parseTelegramInitData } from "@/lib/auth-telegram";
 import { classifyDatabaseError, isBusinessIsDemoMissingColumnError, isPrismaMissingColumnError, warnPrismaSchemaDrift, toJsonSafe } from "@/lib/prisma-schema-guard";
 import { isStrictRuPhoneInput, normalizeRuPhone, validateCustomerName } from "@/lib/phone/phone-utils";
+import { getApplicablePromoCode, normalizePromoCode } from "@/lib/promo-codes";
 
 const ORDER_ERROR = "Не удалось оформить заказ. Проверьте данные и попробуйте снова.";
 const PHONE_VERIFICATION_ERROR = "Для оформления заказа подтвердите номер телефона.";
@@ -70,7 +71,7 @@ const adminOrdersLegacySelect = {
   customer: true,
 } as const;
 
-const paymentCheckoutOrderSelect = {
+const paymentCheckoutLegacySelect = {
   ...legacyCheckoutOrderSelect,
   paymentMethod: true,
   paymentStatus: true,
@@ -85,7 +86,8 @@ const paymentCheckoutOrderSelect = {
 
 type CurrentCheckoutOrder = Prisma.OrderGetPayload<{ include: typeof checkoutOrderInclude }>;
 type LegacyCheckoutOrder = Prisma.OrderGetPayload<{ select: typeof legacyCheckoutOrderSelect }>;
-type PaymentCheckoutOrder = Prisma.OrderGetPayload<{ select: typeof paymentCheckoutOrderSelect }>;
+type LegacyPaymentCheckoutOrder = Prisma.OrderGetPayload<{ select: typeof paymentCheckoutLegacySelect }>;
+type CheckoutOrderResult = CurrentCheckoutOrder | LegacyPaymentCheckoutOrder | LegacyCheckoutOrder;
 
 const checkoutCustomerLegacySelect = {
   id: true,
@@ -105,16 +107,6 @@ type CheckoutCustomer = Prisma.CustomerGetPayload<{ select: typeof checkoutCusto
   blockReason: string | null;
 };
 
-class CheckoutStockError extends Error {
-  readonly itemNames: string[];
-
-  constructor(itemNames: string[]) {
-    super("INSUFFICIENT_STOCK");
-    this.name = "CheckoutStockError";
-    this.itemNames = Array.from(new Set(itemNames));
-  }
-}
-
 function withCheckoutCustomerDefaults(
   customer: Prisma.CustomerGetPayload<{ select: typeof checkoutCustomerLegacySelect }>
 ): CheckoutCustomer {
@@ -133,6 +125,47 @@ function toPositiveInt(value: unknown) {
 
 function orderError(code: string, error: string, status = 400) {
   return NextResponse.json({ ok: false, code, error }, { status });
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+class CheckoutConflictError extends Error {
+  constructor(public readonly code: "OUT_OF_STOCK" | "PROMO_LIMIT_REACHED") {
+    super(code);
+  }
+}
+
+function normalizeCheckoutOrder(orderResult: CheckoutOrderResult) {
+  return {
+    ...orderResult,
+    idempotencyKey: "idempotencyKey" in orderResult ? orderResult.idempotencyKey : null,
+    paymentMethod: "paymentMethod" in orderResult ? orderResult.paymentMethod : "CASH",
+    paymentStatus: "paymentStatus" in orderResult ? orderResult.paymentStatus : "PENDING",
+    paymentProofUrl: "paymentProofUrl" in orderResult ? orderResult.paymentProofUrl : null,
+    paymentProofFileName: "paymentProofFileName" in orderResult ? orderResult.paymentProofFileName : null,
+    paymentProofMimeType: "paymentProofMimeType" in orderResult ? orderResult.paymentProofMimeType : null,
+    paymentProofAiStatus: "paymentProofAiStatus" in orderResult ? orderResult.paymentProofAiStatus : null,
+    paymentProofAiSummary: "paymentProofAiSummary" in orderResult ? orderResult.paymentProofAiSummary : null,
+    paymentProofAiConfidence: "paymentProofAiConfidence" in orderResult ? orderResult.paymentProofAiConfidence : null,
+    paymentProofAiResult: "paymentProofAiResult" in orderResult ? orderResult.paymentProofAiResult : null,
+    paymentProofAiDetails: "paymentProofAiDetails" in orderResult ? orderResult.paymentProofAiDetails : null,
+    paymentReviewedAt: "paymentReviewedAt" in orderResult ? orderResult.paymentReviewedAt : null,
+    paymentReviewedBy: "paymentReviewedBy" in orderResult ? orderResult.paymentReviewedBy : null,
+    paymentRejectReason: "paymentRejectReason" in orderResult ? orderResult.paymentRejectReason : null,
+    expiredAt: "expiredAt" in orderResult ? orderResult.expiredAt : null,
+    expireReason: "expireReason" in orderResult ? orderResult.expireReason : null,
+    itemsSubtotal: "itemsSubtotal" in orderResult ? orderResult.itemsSubtotal : orderResult.totalPrice,
+    promoCode: "promoCode" in orderResult ? orderResult.promoCode : null,
+    promoDiscountPercent: "promoDiscountPercent" in orderResult ? orderResult.promoDiscountPercent : null,
+    discountAmount: "discountAmount" in orderResult ? orderResult.discountAmount : 0,
+    deliveryFee: "deliveryFee" in orderResult ? orderResult.deliveryFee : 0,
+    deliveryStatus: "deliveryStatus" in orderResult ? orderResult.deliveryStatus : "NONE",
+    deliveryZoneId: "deliveryZoneId" in orderResult ? orderResult.deliveryZoneId : null,
+    deliveryZoneName: "deliveryZoneName" in orderResult ? orderResult.deliveryZoneName : null,
+    deliveryCityArea: "deliveryCityArea" in orderResult ? orderResult.deliveryCityArea : null,
+  };
 }
 
 async function recordOrderAttempt(input: {
@@ -248,7 +281,13 @@ export async function POST(request: NextRequest) {
       paymentProofUrl,
       paymentProofFileName,
       paymentProofMimeType,
+      idempotencyKey,
+      promoCode,
     } = body;
+    const cleanIdempotencyKey = cleanString(idempotencyKey);
+    if (cleanIdempotencyKey && (cleanIdempotencyKey.length < 8 || cleanIdempotencyKey.length > 128)) {
+      return orderError("INVALID_IDEMPOTENCY_KEY", "Не удалось подтвердить уникальность заказа. Обновите checkout и попробуйте снова.");
+    }
 
     const businessValue = businessId || businessSlug;
     if (!businessValue) {
@@ -430,41 +469,60 @@ export async function POST(request: NextRequest) {
       businessId: string;
       name: string;
       price: number;
-      stock: number | null;
       isAvailable: boolean;
+      stockMode: "SIMPLE_AVAILABILITY" | "TRACK_STOCK";
+      stock: number | null;
       archivedAt: Date | null;
     }>;
     try {
       dbItems = await prisma.item.findMany({
         where: { id: { in: itemIds } },
-        select: { id: true, businessId: true, name: true, price: true, stock: true, isAvailable: true, archivedAt: true },
+        select: {
+          id: true,
+          businessId: true,
+          name: true,
+          price: true,
+          isAvailable: true,
+          stockMode: true,
+          stock: true,
+          archivedAt: true,
+        },
       });
     } catch (error) {
-      if (!isPrismaMissingColumnError(error, "Item", "archivedAt")) throw error;
+      if (!isPrismaMissingColumnError(error, "Item", "stockMode") && !isPrismaMissingColumnError(error, "Item", "archivedAt")) {
+        throw error;
+      }
       usedCheckoutSchemaFallback = true;
-      warnPrismaSchemaDrift("Checkout item validation retried without Item.archivedAt", error);
+      warnPrismaSchemaDrift("Checkout loaded products without stock mode/archive fields", error);
       const legacyItems = await prisma.item.findMany({
-        where: { id: { in: itemIds } },
-        select: { id: true, businessId: true, name: true, price: true, stock: true, isAvailable: true },
+        where: { id: { in: Array.from(requestedItems.keys()) } },
+        select: { id: true, businessId: true, name: true, price: true, isAvailable: true, stock: true },
       });
-      dbItems = legacyItems.map((item) => ({ ...item, archivedAt: null }));
+      dbItems = legacyItems.map((item) => ({
+        ...item,
+        stockMode: item.stock === null ? "SIMPLE_AVAILABILITY" as const : "TRACK_STOCK" as const,
+        archivedAt: null,
+      }));
     }
 
-    const dbItemsById = new Map(dbItems.map((item) => [item.id, item]));
-    const unavailableItems: string[] = [];
-    const insufficientItems: string[] = [];
-    let totalPrice = 0;
-    const orderItems: Array<{ name: string; price: number; quantity: number; itemId: string; stock: number | null }> = [];
+    if (dbItems.length !== requestedItems.size) {
+      return orderError("ITEM_UNAVAILABLE", "Одна из позиций больше недоступна. Обновите корзину.");
+    }
 
-    for (const [itemId, quantity] of requestedItems) {
-      const dbItem = dbItemsById.get(itemId);
-      if (!dbItem || dbItem.businessId !== business.id || !dbItem.isAvailable || dbItem.archivedAt) {
-        unavailableItems.push(dbItem?.name || "Позиция из корзины");
-        continue;
+    let totalPrice = 0;
+    const trackedStockItems: Array<{ id: string; quantity: number }> = [];
+    const orderItems: Array<{ name: string; price: number; quantity: number; itemId: string; stock: number | null }> = [];
+    for (const dbItem of dbItems) {
+      const quantity = requestedItems.get(dbItem.id) || 0;
+      if (dbItem.businessId !== business.id || !dbItem.isAvailable || dbItem.archivedAt) {
+        await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "ITEM_UNAVAILABLE" });
+        return orderError("ITEM_UNAVAILABLE", "Одна из позиций больше недоступна. Обновите корзину.");
       }
-      if (dbItem.stock !== null && dbItem.stock < quantity) {
-        insufficientItems.push(dbItem.name);
-        continue;
+      if (dbItem.stockMode === "TRACK_STOCK") {
+        if (dbItem.stock === null || dbItem.stock < quantity) {
+          return orderError("OUT_OF_STOCK", `Товара «${dbItem.name}» недостаточно на складе.`);
+        }
+        trackedStockItems.push({ id: dbItem.id, quantity });
       }
 
       totalPrice += dbItem.price * quantity;
@@ -475,21 +533,6 @@ export async function POST(request: NextRequest) {
         itemId: dbItem.id,
         stock: dbItem.stock,
       });
-    }
-
-    if (unavailableItems.length > 0) {
-      await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "ITEM_UNAVAILABLE" });
-      return NextResponse.json(
-        { ok: false, code: "ITEM_UNAVAILABLE", error: `Недоступны: ${unavailableItems.join(", ")}. Обновите корзину.`, items: unavailableItems },
-        { status: 409 }
-      );
-    }
-    if (insufficientItems.length > 0) {
-      await recordAttempt({ businessId: business.id, telegramUserId: telegramId, phone: normalizedPhone, success: false, reason: "INSUFFICIENT_STOCK" });
-      return NextResponse.json(
-        { ok: false, code: "INSUFFICIENT_STOCK", error: `Недостаточно товара: ${insufficientItems.join(", ")}. Обновите корзину.`, items: insufficientItems },
-        { status: 409 }
-      );
     }
 
     const user = await ensureTelegramUser({
@@ -604,6 +647,51 @@ export async function POST(request: NextRequest) {
       return orderError("PHONE_MISMATCH", PHONE_MISMATCH_ERROR, 403);
     }
 
+    if (cleanIdempotencyKey) {
+      try {
+        const existingOrder = await prisma.order.findFirst({
+          where: {
+            businessId: business.id,
+            customerId: customer.id,
+            idempotencyKey: cleanIdempotencyKey,
+          },
+          include: checkoutOrderInclude,
+        });
+        if (existingOrder) {
+          const replayedOrder = normalizeCheckoutOrder(existingOrder);
+          return NextResponse.json(toJsonSafe({
+            ...replayedOrder,
+            ok: true,
+            alreadyCreated: true,
+            message: "Заказ уже создан.",
+          }));
+        }
+      } catch (error) {
+        if (!isPrismaMissingColumnError(error, "Order", "idempotencyKey")) throw error;
+        usedCheckoutSchemaFallback = true;
+        warnPrismaSchemaDrift("Checkout idempotency is unavailable until the commercial readiness patch is applied", error);
+      }
+    }
+
+    const requestedPromoCode = normalizePromoCode(promoCode);
+    let appliedPromo: { id: string; code: string; discountPercent: number; usageLimit: number | null } | null = null;
+    if (requestedPromoCode) {
+      try {
+        const promoResult = await getApplicablePromoCode(business.id, requestedPromoCode);
+        if (!promoResult.ok) return orderError("PROMO_CODE_INVALID", promoResult.error);
+        appliedPromo = {
+          id: promoResult.promo.id,
+          code: promoResult.promo.code,
+          discountPercent: promoResult.promo.discountPercent,
+          usageLimit: promoResult.promo.usageLimit,
+        };
+      } catch (error) {
+        const classification = classifyDatabaseError(error);
+        if (classification.type !== "missing_table" && classification.type !== "missing_column") throw error;
+        return orderError("PROMO_CODE_UNAVAILABLE", "Промокоды временно недоступны. Попробуйте оформить заказ без промокода.", 503);
+      }
+    }
+
     const rateLimited = await enforceOrderRateLimit({
       businessId: business.id,
       telegramUserId: telegramId,
@@ -620,8 +708,11 @@ export async function POST(request: NextRequest) {
     if (normalizedDeliveryType === "DELIVERY" && itemsSubtotal < minimumDeliveryAmount) {
       return orderError("MIN_DELIVERY_AMOUNT", `Минимальная сумма заказа для доставки: ${minimumDeliveryAmount} ₽.`);
     }
+    const discountAmount = appliedPromo
+      ? Math.round(itemsSubtotal * appliedPromo.discountPercent) / 100
+      : 0;
     const calculatedDeliveryFee = normalizedDeliveryType === "DELIVERY" ? deliveryZone?.fee ?? legacyDeliveryFee : 0;
-    totalPrice = itemsSubtotal + calculatedDeliveryFee;
+    totalPrice = Math.max(0, itemsSubtotal - discountAmount) + calculatedDeliveryFee;
 
     const snapshotItems = orderItems.map(({ stock: _stock, ...snapshot }) => snapshot);
     const legacyBaseOrderData = {
@@ -640,32 +731,58 @@ export async function POST(request: NextRequest) {
     };
     const baseOrderData = {
       ...legacyBaseOrderData,
+      idempotencyKey: cleanIdempotencyKey || null,
       itemsSubtotal,
+      promoCode: appliedPromo?.code || null,
+      promoDiscountPercent: appliedPromo?.discountPercent || null,
+      discountAmount,
       deliveryFee: calculatedDeliveryFee,
       deliveryStatus: normalizedDeliveryType === "DELIVERY" ? "NEW" as const : "NONE" as const,
       deliveryZoneId: deliveryZone?.id || null,
       deliveryZoneName: deliveryZone?.name || null,
       deliveryCityArea: deliveryZone?.cityArea || null,
     };
-    let orderResult: CurrentCheckoutOrder | PaymentCheckoutOrder | LegacyCheckoutOrder;
+    let orderResult: CheckoutOrderResult;
 
     const createOrderTransaction = (useCurrentSchema: boolean) =>
       prisma.$transaction(async (tx) => {
-        for (const item of orderItems) {
+        for (const trackedItem of trackedStockItems) {
           const reservation = await tx.item.updateMany({
             where: {
-              id: item.itemId,
+              id: trackedItem.id,
               businessId: business.id,
               isAvailable: true,
-              price: item.price,
-              ...(useCurrentSchema ? { archivedAt: null } : {}),
-              ...(item.stock === null ? { stock: null } : { stock: { gte: item.quantity } }),
+              stock: { gte: trackedItem.quantity },
+              ...(useCurrentSchema ? { stockMode: "TRACK_STOCK" as const, archivedAt: null } : {}),
             },
-            data: item.stock === null ? { stock: null } : { stock: { decrement: item.quantity } },
+            data: { stock: { decrement: trackedItem.quantity } },
           });
 
           if (reservation.count !== 1) {
-            throw new CheckoutStockError([item.name]);
+            throw new CheckoutConflictError("OUT_OF_STOCK");
+          }
+        }
+
+        if (appliedPromo) {
+          const now = new Date();
+          const updatedPromo = await tx.promoCode.updateMany({
+            where: {
+              id: appliedPromo.id,
+              businessId: business.id,
+              isActive: true,
+              archivedAt: null,
+              AND: [
+                { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+                { OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] },
+                ...(appliedPromo.usageLimit !== null
+                  ? [{ usageCount: { lt: appliedPromo.usageLimit } }]
+                  : []),
+              ],
+            },
+            data: { usageCount: { increment: 1 } },
+          });
+          if (updatedPromo.count !== 1) {
+            throw new CheckoutConflictError("PROMO_LIMIT_REACHED");
           }
         }
 
@@ -695,7 +812,7 @@ export async function POST(request: NextRequest) {
                 paymentProofUrl: cleanString(paymentProofUrl),
                 paymentProofAiStatus: null,
               },
-              select: paymentCheckoutOrderSelect,
+              select: paymentCheckoutLegacySelect,
             })
           : tx.order.create({
               data: legacyBaseOrderData,
@@ -706,36 +823,37 @@ export async function POST(request: NextRequest) {
     try {
       orderResult = await createOrderTransaction(true);
     } catch (error) {
-      if (error instanceof CheckoutStockError) throw error;
+      if (error instanceof CheckoutConflictError) {
+        if (error.code === "OUT_OF_STOCK") {
+          return orderError("OUT_OF_STOCK", "Остаток одного из товаров изменился. Обновите корзину и попробуйте снова.", 409);
+        }
+        return orderError("PROMO_CODE_INVALID", "Лимит использований промокода исчерпан.", 409);
+      }
+      if (isUniqueConstraintError(error) && cleanIdempotencyKey) {
+        const existingOrder = await prisma.order.findFirst({
+          where: { businessId: business.id, customerId: customer.id, idempotencyKey: cleanIdempotencyKey },
+          include: checkoutOrderInclude,
+        });
+        if (existingOrder) {
+          const replayedOrder = normalizeCheckoutOrder(existingOrder);
+          return NextResponse.json(toJsonSafe({
+            ...replayedOrder,
+            ok: true,
+            alreadyCreated: true,
+            message: "Заказ уже создан.",
+          }));
+        }
+      }
       if (!isPrismaMissingColumnError(error)) throw error;
+      if (appliedPromo) {
+        return orderError("PROMO_CODE_UNAVAILABLE", "Промокоды станут доступны после обновления базы данных.", 503);
+      }
       usedCheckoutSchemaFallback = true;
       warnPrismaSchemaDrift("Checkout retried without courier/delivery columns", error);
       orderResult = await createOrderTransaction(false);
     }
 
-    const order = {
-      ...orderResult,
-      paymentMethod: "paymentMethod" in orderResult ? orderResult.paymentMethod : "CASH",
-      paymentStatus: "paymentStatus" in orderResult ? orderResult.paymentStatus : "PENDING",
-      paymentProofUrl: "paymentProofUrl" in orderResult ? orderResult.paymentProofUrl : null,
-      paymentProofFileName: "paymentProofFileName" in orderResult ? orderResult.paymentProofFileName : null,
-      paymentProofMimeType: "paymentProofMimeType" in orderResult ? orderResult.paymentProofMimeType : null,
-      paymentProofAiStatus: "paymentProofAiStatus" in orderResult ? orderResult.paymentProofAiStatus : null,
-      paymentProofAiSummary: "paymentProofAiSummary" in orderResult ? orderResult.paymentProofAiSummary : null,
-      paymentProofAiConfidence: "paymentProofAiConfidence" in orderResult ? orderResult.paymentProofAiConfidence : null,
-      paymentProofAiResult: "paymentProofAiResult" in orderResult ? orderResult.paymentProofAiResult : null,
-      paymentReviewedAt: "paymentReviewedAt" in orderResult ? orderResult.paymentReviewedAt : null,
-      paymentReviewedBy: "paymentReviewedBy" in orderResult ? orderResult.paymentReviewedBy : null,
-      paymentRejectReason: "paymentRejectReason" in orderResult ? orderResult.paymentRejectReason : null,
-      expiredAt: "expiredAt" in orderResult ? orderResult.expiredAt : null,
-      expireReason: "expireReason" in orderResult ? orderResult.expireReason : null,
-      itemsSubtotal: "itemsSubtotal" in orderResult ? orderResult.itemsSubtotal : orderResult.totalPrice,
-      deliveryFee: "deliveryFee" in orderResult ? orderResult.deliveryFee : 0,
-      deliveryStatus: "deliveryStatus" in orderResult ? orderResult.deliveryStatus : "NONE",
-      deliveryZoneId: "deliveryZoneId" in orderResult ? orderResult.deliveryZoneId : null,
-      deliveryZoneName: "deliveryZoneName" in orderResult ? orderResult.deliveryZoneName : null,
-      deliveryCityArea: "deliveryCityArea" in orderResult ? orderResult.deliveryCityArea : null,
-    };
+    const order = normalizeCheckoutOrder(orderResult);
 
     await recordAttempt({
       businessId: business.id,
@@ -774,6 +892,7 @@ export async function POST(request: NextRequest) {
         paymentPhone: business.transferPaymentPhone,
         bankName: business.transferBankName,
         orderCreatedAt: order.createdAt,
+        mimeType: order.paymentProofMimeType,
       })
         .then((analysis) =>
           prisma.order.update({
@@ -783,6 +902,7 @@ export async function POST(request: NextRequest) {
               paymentProofAiSummary: analysis.summary,
               paymentProofAiConfidence: analysis.confidencePercent,
               paymentProofAiResult: analysis,
+              paymentProofAiDetails: JSON.stringify(analysis),
             },
             select: { id: true },
           })
@@ -799,26 +919,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(toJsonSafe({ ...order, ok: true, schemaFallback: usedCheckoutSchemaFallback }), { status: 201 });
   } catch (error) {
     console.error("Error creating order:", error);
-    if (error instanceof CheckoutStockError) {
-      if (telegramId) {
-        await recordAttempt({
-          businessId: resolvedBusinessId,
-          telegramUserId: telegramId,
-          phone: normalizedPhone,
-          success: false,
-          reason: "INSUFFICIENT_STOCK",
-        });
-      }
-      return NextResponse.json(
-        {
-          ok: false,
-          code: "INSUFFICIENT_STOCK",
-          error: `Недостаточно товара: ${error.itemNames.join(", ")}. Обновите корзину.`,
-          items: error.itemNames,
-        },
-        { status: 409 }
-      );
-    }
     const classification = classifyDatabaseError(error);
     if (classification.type !== "database_error") {
       warnPrismaSchemaDrift("Order creation failed because production schema is behind", error);
@@ -853,7 +953,9 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const requestedBusinessId = searchParams.get("businessId");
     const customerId = searchParams.get("customerId");
+    const status = searchParams.get("status");
     const limit = parseInt(searchParams.get("limit") || "20", 10);
+    const requestedOffset = Number(searchParams.get("offset") || 0);
 
     const where: any = {};
 
@@ -871,8 +973,12 @@ export async function GET(request: NextRequest) {
     if (customerId) {
       where.customerId = customerId;
     }
+    if (status && status !== "ALL") {
+      where.status = status;
+    }
 
     const take = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 20;
+    const skip = Number.isFinite(requestedOffset) ? Math.max(Math.floor(requestedOffset), 0) : 0;
     let orders;
     try {
       orders = await prisma.order.findMany({
@@ -880,6 +986,7 @@ export async function GET(request: NextRequest) {
         include: adminOrdersInclude,
         orderBy: { createdAt: "desc" },
         take,
+        skip,
       });
     } catch (error) {
       const classification = classifyDatabaseError(error);
@@ -890,6 +997,7 @@ export async function GET(request: NextRequest) {
         select: adminOrdersLegacySelect,
         orderBy: { createdAt: "desc" },
         take,
+        skip,
       });
     }
 

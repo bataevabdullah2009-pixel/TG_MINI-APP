@@ -71,7 +71,8 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const businessId = searchParams.get("businessId");
-    const limit = parseInt(searchParams.get("limit") || "20");
+    const requestedLimit = Number(searchParams.get("limit") || 20);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.floor(requestedLimit), 1), 50) : 20;
 
     const businesses = await prisma.business.findMany({
       where: {

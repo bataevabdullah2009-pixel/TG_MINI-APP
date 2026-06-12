@@ -38,14 +38,38 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const resolved = await resolveBusiness(request, searchParams.get("businessId") || searchParams.get("businessSlug"));
     if ("error" in resolved) return resolved.error;
+    const filter = searchParams.get("filter") || "ACTIVE";
+    const query = searchParams.get("query")?.trim();
+    const requestedLimit = Number(searchParams.get("limit") || 50);
+    const take = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.floor(requestedLimit), 1), 100) : 50;
 
     const items = await prisma.item.findMany({
-      where: { businessId: resolved.business.id },
+      where: {
+        businessId: resolved.business.id,
+        ...(query
+          ? {
+              OR: [
+                { name: { contains: query, mode: "insensitive" } },
+                { description: { contains: query, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+        ...(filter === "ALL"
+          ? {}
+          : filter === "ARCHIVED"
+          ? { archivedAt: { not: null } }
+          : {
+              archivedAt: null,
+              ...(filter === "AVAILABLE" ? { isAvailable: true } : {}),
+              ...(filter === "UNAVAILABLE" ? { isAvailable: false } : {}),
+            }),
+      },
       include: {
         category: { select: { id: true, name: true } },
         business: { select: { id: true, name: true, slug: true, type: true, templateKey: true } },
       },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+      take,
     });
 
     return NextResponse.json({ ok: true, data: items, business: resolved.business });
@@ -70,10 +94,18 @@ export async function POST(request: NextRequest) {
     if (!Number.isFinite(price) || price < 0) {
       return jsonError("Укажите корректную цену.", 400);
     }
-
+    const type = body.type === "SERVICE" ? "SERVICE" : "PRODUCT";
     const stock = parseOptionalStock(body.stock);
     if (body.stock !== undefined && stock === undefined) {
       return jsonError("Количество должно быть целым числом не меньше нуля.", 400);
+    }
+    const stockMode =
+      type === "PRODUCT" &&
+      (body.stockMode === "TRACK_STOCK" || (body.stockMode === undefined && stock !== null))
+        ? "TRACK_STOCK"
+        : "SIMPLE_AVAILABILITY";
+    if (stockMode === "TRACK_STOCK" && stock === null) {
+      return jsonError("Для учёта остатков укажите целое количество от 0.", 400);
     }
 
     const rawCategoryId = body.categoryId;
@@ -113,14 +145,15 @@ export async function POST(request: NextRequest) {
       data: {
         businessId: resolved.business.id,
         categoryId: categoryId,
-        type: body.type === "SERVICE" ? "SERVICE" : "PRODUCT",
+        type,
         name: itemName,
         description: body.description ? String(body.description).trim() : "",
         price,
         imageUrl: body.imageUrl || undefined,
         durationMinutes: body.durationMinutes ? Number(body.durationMinutes) : undefined,
-        stock: body.type === "SERVICE" ? null : stock,
-        isAvailable: body.isAvailable ?? true,
+        stockMode,
+        stock: stockMode === "TRACK_STOCK" ? stock : null,
+        isAvailable: stockMode === "TRACK_STOCK" && stock === 0 ? false : body.isAvailable ?? true,
         isPopular: body.isPopular ?? false,
       },
       include: { category: true, business: { select: { id: true, name: true, slug: true } } },

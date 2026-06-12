@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -30,7 +30,8 @@ import {
   Smartphone,
   ShoppingBag,
   CheckCircle2,
-  ChevronRight
+  ChevronRight,
+  Tag
 } from "lucide-react";
 
 const CheckoutSchema = z.object({
@@ -44,6 +45,10 @@ const CheckoutSchema = z.object({
 });
 
 type CheckoutInput = z.infer<typeof CheckoutSchema>;
+
+function createIdempotencyKey() {
+  return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 export default function CheckoutPage() {
   const params = useParams();
@@ -59,7 +64,15 @@ export default function CheckoutPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paymentProofUrl, setPaymentProofUrl] = useState("");
+  const [paymentProofFileName, setPaymentProofFileName] = useState("");
+  const [paymentProofMimeType, setPaymentProofMimeType] = useState("");
   const [paymentProofUploading, setPaymentProofUploading] = useState(false);
+  const submittingRef = useRef(false);
+  const [idempotencyKey] = useState(createIdempotencyKey);
+  const [promoCode, setPromoCode] = useState("");
+  const [promoDiscountPercent, setPromoDiscountPercent] = useState(0);
+  const [promoMessage, setPromoMessage] = useState("");
+  const [promoValidating, setPromoValidating] = useState(false);
 
   // Verification states
   const [phoneVerified, setPhoneVerified] = useState(false);
@@ -155,7 +168,10 @@ export default function CheckoutPage() {
   const itemsSubtotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const selectedZone = business?.deliveryZones?.find((zone) => zone.id === deliveryZoneId);
   const deliveryFee = deliveryType === "DELIVERY" ? selectedZone?.fee || 0 : 0;
-  const total = itemsSubtotal + deliveryFee;
+  const discountAmount = promoDiscountPercent > 0
+    ? Math.round(itemsSubtotal * promoDiscountPercent) / 100
+    : 0;
+  const total = Math.max(0, itemsSubtotal - discountAmount) + deliveryFee;
   const pickupEnabled = business?.settings?.pickupEnabled !== false;
   const deliveryEnabled = business?.settings?.deliveryEnabled === true && Boolean(business?.deliveryZones?.length);
 
@@ -209,8 +225,12 @@ export default function CheckoutPage() {
         throw new Error(data.error || "Не удалось загрузить чек.");
       }
       setPaymentProofUrl(data.url);
+      setPaymentProofFileName(data.fileName || file.name);
+      setPaymentProofMimeType(data.mimeType || file.type);
     } catch (e: any) {
       setPaymentProofUrl("");
+      setPaymentProofFileName("");
+      setPaymentProofMimeType("");
       setError(e.message || "Не удалось загрузить чек перевода.");
     } finally {
       setPaymentProofUploading(false);
@@ -218,6 +238,7 @@ export default function CheckoutPage() {
   };
 
   const onSubmit = async (data: CheckoutInput) => {
+    if (submittingRef.current) return;
     if (!business) return;
     if (cartItems.length === 0) {
       setError("Корзина пуста");
@@ -243,6 +264,7 @@ export default function CheckoutPage() {
       return;
     }
 
+    submittingRef.current = true;
     setSubmitting(true);
     setError(null);
 
@@ -262,6 +284,10 @@ export default function CheckoutPage() {
         deliveryZoneId: data.deliveryType === "DELIVERY" ? data.deliveryZoneId : undefined,
         paymentMethod: data.paymentMethod,
         paymentProofUrl: data.paymentMethod === "TRANSFER" ? paymentProofUrl : undefined,
+        paymentProofFileName: data.paymentMethod === "TRANSFER" ? paymentProofFileName : undefined,
+        paymentProofMimeType: data.paymentMethod === "TRANSFER" ? paymentProofMimeType : undefined,
+        idempotencyKey,
+        promoCode: promoDiscountPercent > 0 ? promoCode : undefined,
         comment: data.comment,
         telegramUserId: user?.id?.toString(),
         username: user?.username,
@@ -289,8 +315,30 @@ export default function CheckoutPage() {
         setPhoneVerified(false);
         setShowVerifyModal(true);
       }
+      submittingRef.current = false;
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const applyPromoCode = async () => {
+    if (!business || !promoCode.trim()) {
+      setPromoDiscountPercent(0);
+      setPromoMessage("Введите промокод.");
+      return;
+    }
+    setPromoValidating(true);
+    setPromoMessage("");
+    try {
+      const response = await apiClient.post(`/businesses/${encodeURIComponent(slug)}/promo-code`, { code: promoCode });
+      setPromoCode(response.data.code);
+      setPromoDiscountPercent(response.data.discountPercent);
+      setPromoMessage(response.data.message);
+    } catch (error: any) {
+      setPromoDiscountPercent(0);
+      setPromoMessage(error?.response?.data?.error || "Промокод не применён.");
+    } finally {
+      setPromoValidating(false);
     }
   };
 
@@ -492,6 +540,12 @@ export default function CheckoutPage() {
                 {formatPrice(itemsSubtotal)}
               </span>
             </div>
+            {discountAmount > 0 && (
+              <div className="flex justify-between items-center text-xs font-bold text-emerald-700">
+                <span>Скидка по промокоду ({promoDiscountPercent}%):</span>
+                <span>−{formatPrice(discountAmount)}</span>
+              </div>
+            )}
             {deliveryType === "DELIVERY" && (
               <div className="flex justify-between items-center text-xs font-bold text-slate-500">
                 <span>Стоимость доставки:</span>
@@ -502,6 +556,33 @@ export default function CheckoutPage() {
               <span className="text-xs font-black text-slate-900">Итого к оплате:</span>
               <span className="text-base font-black" style={{ color: business.primaryColor }}>{formatPrice(total)}</span>
             </div>
+          </div>
+
+          <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-3">
+            <h2 className="flex items-center gap-2 text-xs font-black uppercase text-slate-400 tracking-wider">
+              <Tag size={15} /> Промокод
+            </h2>
+            <div className="flex gap-2">
+              <Input
+                value={promoCode}
+                onChange={(event) => {
+                  setPromoCode(event.target.value.toUpperCase());
+                  setPromoDiscountPercent(0);
+                  setPromoMessage("");
+                }}
+                maxLength={32}
+                placeholder="Введите промокод"
+                className="uppercase"
+              />
+              <Button type="button" variant="outline" onClick={applyPromoCode} disabled={promoValidating || !promoCode.trim()}>
+                {promoValidating ? "Проверяем..." : "Применить"}
+              </Button>
+            </div>
+            {promoMessage && (
+              <p className={`rounded-xl p-2 text-xs font-bold ${promoDiscountPercent > 0 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+                {promoMessage}
+              </p>
+            )}
           </div>
 
           {/* Delivery Type selectable cards */}
@@ -687,10 +768,10 @@ export default function CheckoutPage() {
                   {business.transferPaymentInstructions || "После перевода загрузите чек."}
                 </p>
                 <label className="block rounded-xl bg-white p-3 text-center text-[11px] font-black text-emerald-700 ring-1 ring-emerald-100">
-                  {paymentProofUploading ? "Загружаем PDF-чек..." : paymentProofUrl ? "PDF-чек загружен" : "Загрузить PDF-чек перевода"}
+                  {paymentProofUploading ? "Загружаем чек..." : paymentProofUrl ? "Чек загружен" : "Загрузить чек перевода"}
                   <input
                     type="file"
-                    accept="application/pdf,.pdf"
+                    accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
                     className="hidden"
                     disabled={paymentProofUploading}
                     onChange={(event) => handlePaymentProofUpload(event.target.files?.[0])}

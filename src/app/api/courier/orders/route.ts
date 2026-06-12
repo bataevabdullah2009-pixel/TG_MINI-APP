@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
       },
       include: courierOrderInclude,
       orderBy: { createdAt: "asc" },
+      take: 20,
     }),
     prisma.order.findMany({
       where: {
@@ -46,6 +47,7 @@ export async function GET(request: NextRequest) {
       },
       include: courierOrderInclude,
       orderBy: { updatedAt: "desc" },
+      take: 20,
     }),
     prisma.order.findMany({
       where: {
@@ -58,7 +60,7 @@ export async function GET(request: NextRequest) {
       },
       include: courierOrderInclude,
       orderBy: { updatedAt: "desc" },
-      take: 50,
+      take: 20,
     }),
   ]);
 

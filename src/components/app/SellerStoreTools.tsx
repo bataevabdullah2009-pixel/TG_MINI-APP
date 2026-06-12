@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bot, Copy, ExternalLink, Send, Share2, X } from "lucide-react";
+import { BarChart3, Bot, Copy, ExternalLink, Send, Share2, X } from "lucide-react";
 import { buildBusinessShareLinks } from "@/lib/business-share-links";
 
-export function SellerStoreTools({ businessSlug }: { businessSlug: string }) {
+export function SellerStoreTools({ businessSlug, businessId }: { businessSlug: string; businessId: string }) {
   const router = useRouter();
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -61,6 +61,28 @@ export function SellerStoreTools({ businessSlug }: { businessSlug: string }) {
                 className="mt-3 w-full rounded-2xl bg-slate-950 px-4 py-3 text-xs font-black text-white disabled:opacity-40"
               >
                 Поделиться витриной
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-100/80">
+          <div className="flex items-start gap-3">
+            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-emerald-50 text-emerald-700">
+              <BarChart3 size={19} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-black text-slate-950">Аналитика бизнеса</h3>
+              <p className="mt-1 text-xs font-bold leading-relaxed text-slate-400">
+                Выручка, заказы, клиенты, рост, товары и промокоды по периодам.
+              </p>
+              <button
+                type="button"
+                onClick={() => router.push(`/app/seller/analytics?businessId=${encodeURIComponent(businessId)}`)}
+                disabled={!businessId}
+                className="mt-3 w-full rounded-2xl bg-emerald-600 px-4 py-3 text-xs font-black text-white disabled:opacity-40"
+              >
+                Открыть аналитику
               </button>
             </div>
           </div>

@@ -29,8 +29,9 @@ type Item = {
   isAvailable: boolean;
   isPopular: boolean;
   stock?: number | null;
-  durationMinutes?: number | null;
+  stockMode?: "SIMPLE_AVAILABILITY" | "TRACK_STOCK";
   archivedAt?: string | null;
+  durationMinutes?: number | null;
   category?: { id: string; name: string } | null;
 };
 
@@ -39,8 +40,8 @@ type FormState = {
   name: string;
   description: string;
   price: string;
-  stockMode: "TRACKED" | "UNTRACKED";
   stock: string;
+  stockMode: "SIMPLE_AVAILABILITY" | "TRACK_STOCK";
   durationMinutes: string;
   isPopular: boolean;
   isAvailable: boolean;
@@ -53,8 +54,8 @@ const initialForm: FormState = {
   name: "",
   description: "",
   price: "",
-  stockMode: "UNTRACKED",
   stock: "",
+  stockMode: "SIMPLE_AVAILABILITY",
   durationMinutes: "",
   isPopular: false,
   isAvailable: true,
@@ -259,7 +260,7 @@ export default function AdminItemsPage() {
       const archived = res.data?.data;
       setItems((current) => current.map((entry) => (entry.id === item.id ? archived : entry)));
       if (editingItem?.id === item.id) closeModal();
-      setToast("Позиция архивирована");
+    setToast("Позиция архивирована");
       setTimeout(() => setToast(""), 2500);
     } catch (err) {
       setError(apiError(err));
@@ -304,8 +305,8 @@ export default function AdminItemsPage() {
       name: item.name || "",
       description: item.description || "",
       price: String(item.price ?? ""),
-      stockMode: item.stock === null || item.stock === undefined ? "UNTRACKED" : "TRACKED",
       stock: item.stock === null || item.stock === undefined ? "" : String(item.stock),
+      stockMode: item.stockMode === "TRACK_STOCK" ? "TRACK_STOCK" : "SIMPLE_AVAILABILITY",
       durationMinutes:
         item.durationMinutes === null || item.durationMinutes === undefined ? "" : String(item.durationMinutes),
       isPopular: Boolean(item.isPopular),
@@ -344,7 +345,8 @@ export default function AdminItemsPage() {
         businessId: business.id,
         ...form,
         price: Number(form.price),
-        stock: form.type === "PRODUCT" && form.stockMode === "TRACKED" ? form.stock : null,
+        stock: form.type === "PRODUCT" ? form.stock : "",
+        stockMode: form.type === "PRODUCT" ? form.stockMode : "SIMPLE_AVAILABILITY",
         durationMinutes: form.type === "SERVICE" ? form.durationMinutes : "",
       };
       const res = editingItem
@@ -627,18 +629,18 @@ export default function AdminItemsPage() {
                     onChange={(value) => setForm({
                       ...form,
                       stockMode: value as FormState["stockMode"],
-                      stock: value === "TRACKED" ? (form.stock || "0") : "",
+                      stock: value === "TRACK_STOCK" ? (form.stock || "0") : "",
                     })}
                     buttonClassName="field cursor-pointer"
                     options={[
                       {
-                        value: "UNTRACKED",
+                        value: "SIMPLE_AVAILABILITY",
                         label: "Просто в наличии / нет",
                         description: "Без точного количества",
                         icon: <ShoppingBag size={16} />,
                       },
                       {
-                        value: "TRACKED",
+                        value: "TRACK_STOCK",
                         label: "Считать остатки",
                         description: "Указывать точное количество",
                         icon: <RefreshCw size={16} />,
@@ -647,7 +649,7 @@ export default function AdminItemsPage() {
                   />
                 </Field>
               )}
-              {form.type === "PRODUCT" && form.stockMode === "TRACKED" && (
+              {form.type === "PRODUCT" && form.stockMode === "TRACK_STOCK" && (
                 <Field label="Количество в наличии"><input required type="number" min="0" step="1" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} className="field" /></Field>
               )}
               <Field label="Категория">

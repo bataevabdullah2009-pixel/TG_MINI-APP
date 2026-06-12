@@ -31,12 +31,14 @@ import {
   Archive,
   Minus,
   RotateCcw,
+  Tag,
 } from "lucide-react";
 import { MediaUpload } from "./MediaUpload";
 import { SellerStoreTools } from "./SellerStoreTools";
 import { SellerDeliverySettings } from "./SellerDeliverySettings";
 import { SellerCouriers } from "./SellerCouriers";
 import { AccessDeniedScreen } from "./AccessDeniedScreen";
+import { SellerPromoCodes } from "./SellerPromoCodes";
 import { miniAppFetch } from "@/lib/miniAppFetch";
 import { BottomSheetPicker } from "@/components/ui/BottomSheetPicker";
 import {
@@ -73,7 +75,14 @@ type ReceiptAnalysis = {
 };
 
 function receiptAnalysisFromOrder(order: any): ReceiptAnalysis | null {
-  const value = order?.paymentProofAiResult;
+  let value = order?.paymentProofAiResult;
+  if ((!value || typeof value !== "object") && typeof order?.paymentProofAiDetails === "string") {
+    try {
+      value = JSON.parse(order.paymentProofAiDetails);
+    } catch {
+      value = null;
+    }
+  }
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
 
   return {
@@ -112,7 +121,7 @@ const ACTIVE_ORDER_STATUSES = new Set([
 export function SellerHome({ session, businessId }: SellerHomeProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<
-    "DASHBOARD" | "ORDERS" | "BOOKINGS" | "ITEMS" | "DELIVERY" | "COURIERS" | "CLIENTS" | "MEDIA" | "SETTINGS"
+    "DASHBOARD" | "ORDERS" | "BOOKINGS" | "ITEMS" | "PROMOCODES" | "DELIVERY" | "COURIERS" | "CLIENTS" | "MEDIA" | "SETTINGS"
   >("DASHBOARD");
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
@@ -137,8 +146,9 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const [newItemDesc, setNewItemDesc] = useState("");
   const [newItemType, setNewItemType] = useState<"PRODUCT" | "SERVICE">("PRODUCT");
   const [newItemImage, setNewItemImage] = useState("");
-  const [newItemStockMode, setNewItemStockMode] = useState<"TRACKED" | "UNTRACKED">("UNTRACKED");
+  const [newItemStockMode, setNewItemStockMode] = useState<"SIMPLE_AVAILABILITY" | "TRACK_STOCK">("SIMPLE_AVAILABILITY");
   const [newItemStock, setNewItemStock] = useState("");
+  const [newItemAvailable, setNewItemAvailable] = useState(true);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [itemSearch, setItemSearch] = useState("");
   const [itemAvailabilityFilter, setItemAvailabilityFilter] = useState<"ACTIVE" | "AVAILABLE" | "OUT_OF_STOCK" | "HIDDEN" | "ARCHIVED">("ACTIVE");
@@ -173,6 +183,8 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const [assigningOrderId, setAssigningOrderId] = useState<string | null>(null);
   const [assigningCourierId, setAssigningCourierId] = useState<string | null>(null);
   const assigningCourierRef = useRef<string | null>(null);
+  const [ordersHasMore, setOrdersHasMore] = useState(true);
+  const [ordersLoadingMore, setOrdersLoadingMore] = useState(false);
 
   const syncBusinessState = (bData: any) => {
     if (!bData || typeof bData !== "object") return false;
@@ -226,8 +238,16 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const fetchSellerData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Business Profile
-      const bizRes = await miniAppFetch(`/api/admin/current-business?businessId=${encodeURIComponent(businessId)}`);
+      const [bizRes, catRes, itemRes, custRes, courierRes, ordRes, bookRes] = await Promise.all([
+        miniAppFetch(`/api/admin/current-business?businessId=${encodeURIComponent(businessId)}`),
+        miniAppFetch(`/api/businesses/${businessId}/catalog?limit=50`),
+        miniAppFetch(`/api/admin/items?businessId=${encodeURIComponent(businessId)}&filter=ALL&limit=100`),
+        miniAppFetch(`/api/admin/customers?businessId=${encodeURIComponent(businessId)}&limit=50`),
+        miniAppFetch(`/api/admin/couriers?businessId=${encodeURIComponent(businessId)}`),
+        miniAppFetch(`/api/orders?businessId=${encodeURIComponent(businessId)}&limit=20`),
+        miniAppFetch(`/api/bookings?businessId=${encodeURIComponent(businessId)}&limit=20`),
+      ]);
+
       const businessPayload = await bizRes.json().catch(() => ({}));
       if (!bizRes.ok || !syncBusinessState(businessPayload.data || businessPayload)) {
         setBusinessData(null);
@@ -236,9 +256,6 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       }
 
       let fetchedItemsCount = 0;
-
-      // 2. Fetch Catalog (Items & Categories)
-      const catRes = await miniAppFetch(`/api/businesses/${businessId}/catalog`);
       if (catRes.ok) {
         const cData = await catRes.json();
         setCategories(cData.categories || []);
@@ -246,35 +263,28 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
           setNewItemCategory(cData.categories[0].id);
         }
       }
-      const itemsRes = await miniAppFetch(`/api/admin/items?businessId=${encodeURIComponent(businessId)}`);
-      if (itemsRes.ok) {
-        const itemData = await itemsRes.json();
+      if (itemRes.ok) {
+        const itemData = await itemRes.json();
         const sellerItems = Array.isArray(itemData.data) ? itemData.data.filter(Boolean) : [];
         setItems(sellerItems);
         fetchedItemsCount = sellerItems.filter((item: any) => !item.archivedAt).length;
       }
 
-      // 3. Fetch CRM Customers
-      const custRes = await miniAppFetch(`/api/admin/customers?businessId=${businessId}`);
       if (custRes.ok) {
         const custData = await custRes.json();
         setCustomers(custData.data || []);
       }
 
-      const courierRes = await miniAppFetch(`/api/admin/couriers?businessId=${encodeURIComponent(businessId)}`);
       if (courierRes.ok) {
         const courierData = await courierRes.json();
         setCouriers((courierData.couriers || []).filter((courier: any) => courier.isActive));
       }
 
-      // 4. Fetch Orders and Bookings
-      const ordRes = await miniAppFetch(`/api/orders?businessId=${businessId}`);
-      const bookRes = await miniAppFetch(`/api/bookings?businessId=${businessId}`);
-      
       let ords = [] as any[];
       let bks = [] as any[];
 
       if (ordRes.ok) ords = await ordRes.json();
+      setOrdersHasMore(ords.length === 20);
       if (bookRes.ok) bks = await bookRes.json();
 
       // Calculate today's stats
@@ -364,8 +374,9 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     setNewItemDesc("");
     setNewItemType("PRODUCT");
     setNewItemImage("");
-    setNewItemStockMode("UNTRACKED");
+    setNewItemStockMode("SIMPLE_AVAILABILITY");
     setNewItemStock("");
+    setNewItemAvailable(true);
   };
 
   const startEditItem = (item: any) => {
@@ -376,8 +387,9 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
     setNewItemDesc(item.description || "");
     setNewItemType(item.type === "SERVICE" ? "SERVICE" : "PRODUCT");
     setNewItemImage(item.imageUrl || "");
-    setNewItemStockMode(item.stock === null || item.stock === undefined ? "UNTRACKED" : "TRACKED");
+    setNewItemStockMode(item.stockMode === "TRACK_STOCK" ? "TRACK_STOCK" : "SIMPLE_AVAILABILITY");
     setNewItemStock(item.stock === null || item.stock === undefined ? "" : String(item.stock));
+    setNewItemAvailable(Boolean(item.isAvailable));
     setActiveTab("ITEMS");
   };
 
@@ -399,8 +411,9 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
           description: newItemDesc,
           type: newItemType,
           imageUrl: newItemImage || undefined,
-          stock: newItemType === "PRODUCT" && newItemStockMode === "TRACKED" ? newItemStock : null,
-          isAvailable: true,
+          stockMode: newItemType === "PRODUCT" ? newItemStockMode : "SIMPLE_AVAILABILITY",
+          stock: newItemType === "PRODUCT" && newItemStockMode === "TRACK_STOCK" ? newItemStock : null,
+          isAvailable: newItemAvailable,
         }),
       });
 
@@ -433,6 +446,49 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       }
     } catch (err) {
       showError("Не удалось архивировать товар. Проверьте соединение и попробуйте снова.");
+    }
+  };
+
+  const handleQuickItemUpdate = async (itemId: string, patch: Record<string, unknown>) => {
+    const previous = items;
+    setItems((current) => current.map((item) => item.id === itemId ? { ...item, ...patch } : item));
+    try {
+      const response = await miniAppFetch(`/api/admin/items/${itemId}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Не удалось обновить товар.");
+      if (data.data) {
+        setItems((current) => current.map((item) => item.id === itemId ? data.data : item));
+      }
+    } catch (updateError) {
+      setItems(previous);
+      showError(updateError instanceof Error ? updateError.message : "Не удалось обновить товар.");
+    }
+  };
+
+  const loadMoreOrders = async () => {
+    if (ordersLoadingMore || !ordersHasMore) return;
+    setOrdersLoadingMore(true);
+    try {
+      const response = await miniAppFetch(
+        `/api/orders?businessId=${encodeURIComponent(businessId)}&limit=20&offset=${stats.orders.length}`
+      );
+      const nextOrders = await response.json().catch(() => []);
+      if (!response.ok || !Array.isArray(nextOrders)) throw new Error("Не удалось загрузить следующие заказы.");
+      setStats((current) => ({
+        ...current,
+        orders: [
+          ...current.orders,
+          ...nextOrders.filter((nextOrder: any) => !current.orders.some((order: any) => order.id === nextOrder.id)),
+        ],
+      }));
+      setOrdersHasMore(nextOrders.length === 20);
+    } catch (loadError) {
+      showError(loadError instanceof Error ? loadError.message : "Не удалось загрузить следующие заказы.");
+    } finally {
+      setOrdersLoadingMore(false);
     }
   };
 
@@ -760,6 +816,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
             { id: "ORDERS", label: "Заказы", icon: <ClipboardList size={11} /> },
             { id: "BOOKINGS", label: "Записи", icon: <Calendar size={11} /> },
             { id: "ITEMS", label: "Товары", icon: <ShoppingBag size={11} /> },
+            { id: "PROMOCODES", label: "Промокоды", icon: <Tag size={11} /> },
             { id: "DELIVERY", label: "Доставка", icon: <Truck size={11} /> },
             { id: "COURIERS", label: "Курьеры", icon: <Bike size={11} /> },
             { id: "CLIENTS", label: "Клиенты", icon: <Users size={11} /> },
@@ -847,7 +904,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
               </div>
             </div>
 
-            <SellerStoreTools businessSlug={businessData?.slug || ""} />
+            <SellerStoreTools businessSlug={businessData?.slug || ""} businessId={businessId} />
 
             {/* Active/Today Orders */}
             <div className="bg-white rounded-3xl p-4 shadow-sm ring-1 ring-slate-100/80">
@@ -1095,6 +1152,12 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                             <span className="shrink-0 whitespace-nowrap">{order.deliveryFee || 0} ₽</span>
                           </div>
                         )}
+                        {order.discountAmount > 0 && (
+                          <div className="flex justify-between font-bold text-emerald-700">
+                            <span>Скидка {order.promoCode ? `(${order.promoCode})` : ""}:</span>
+                            <span>−{order.discountAmount} ₽</span>
+                          </div>
+                        )}
                         <div className="flex justify-between font-black text-slate-900">
                           <span>Итого:</span>
                           <span className="shrink-0 whitespace-nowrap text-indigo-600">{order.totalPrice} ₽</span>
@@ -1238,6 +1301,16 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                   ))
                 )}
               </div>
+              {ordersHasMore && (
+                <button
+                  type="button"
+                  onClick={loadMoreOrders}
+                  disabled={ordersLoadingMore}
+                  className="mt-3 w-full rounded-xl bg-slate-100 px-4 py-2.5 text-xs font-black text-slate-700 disabled:opacity-50"
+                >
+                  {ordersLoadingMore ? "Загружаем..." : "Загрузить ещё"}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -1480,27 +1553,27 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                       title="Учёт остатков"
                       value={newItemStockMode}
                       onChange={(value) => {
-                        const mode = value as "TRACKED" | "UNTRACKED";
+                        const mode = value as "SIMPLE_AVAILABILITY" | "TRACK_STOCK";
                         setNewItemStockMode(mode);
-                        setNewItemStock(mode === "TRACKED" ? (newItemStock || "0") : "");
+                        setNewItemStock(mode === "TRACK_STOCK" ? (newItemStock || "0") : "");
                       }}
                       buttonClassName="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold outline-none"
                       options={[
                         {
-                          value: "UNTRACKED",
+                          value: "SIMPLE_AVAILABILITY",
                           label: "Просто в наличии / нет",
                           description: "Без точного количества",
                           icon: <CheckCircle size={16} />,
                         },
                         {
-                          value: "TRACKED",
+                          value: "TRACK_STOCK",
                           label: "Считать остатки",
                           description: "Указывать точное количество",
                           icon: <Layers size={16} />,
                         },
                       ]}
                     />
-                    {newItemStockMode === "TRACKED" && (
+                    {newItemStockMode === "TRACK_STOCK" ? (
                       <input
                         required
                         type="number"
@@ -1511,6 +1584,11 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                         placeholder="Количество"
                         className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold outline-none"
                       />
+                    ) : (
+                      <label className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold">
+                        <span>В наличии</span>
+                        <input type="checkbox" checked={newItemAvailable} onChange={(e) => setNewItemAvailable(e.target.checked)} />
+                      </label>
                     )}
                   </div>
                 )}
@@ -1576,6 +1654,13 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                       </div>
                         <div className="flex shrink-0 items-center gap-1">
                         <button
+                          type="button"
+                          onClick={() => void handleQuickItemUpdate(it.id, { isAvailable: !it.isAvailable })}
+                          className={`rounded-lg px-2 py-1 text-[9px] font-black ${it.isAvailable ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}
+                        >
+                          {it.isAvailable ? "В наличии" : "Нет"}
+                        </button>
+                        <button
                           onClick={() => startEditItem(it)}
                           className="p-2 rounded-xl text-indigo-600 hover:bg-indigo-50 active:scale-95 transition"
                           title="Изменить"
@@ -1616,6 +1701,13 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
 
         {activeTab === "DELIVERY" && (
           <SellerDeliverySettings
+            businessId={businessId}
+            onMessage={(message, isError) => isError ? showError(message) : showSuccess(message)}
+          />
+        )}
+
+        {activeTab === "PROMOCODES" && (
+          <SellerPromoCodes
             businessId={businessId}
             onMessage={(message, isError) => isError ? showError(message) : showSuccess(message)}
           />

@@ -100,6 +100,7 @@ export async function analyzePaymentProof(input: {
   paymentPhone?: string | null;
   bankName?: string | null;
   orderCreatedAt: Date;
+  mimeType?: string | null;
 }): Promise<PaymentProofAnalysisResult> {
   const apiKey = process.env.POLZA_AI_API_KEY;
   if (!apiKey || process.env.AI_PROVIDER !== "polza") {
@@ -129,6 +130,7 @@ export async function analyzePaymentProof(input: {
     `Получатель продавца: ${input.recipientName || "не указан"}.`,
     `Телефон/SBP продавца: ${input.paymentPhone || "не указан"}.`,
     `Банк продавца: ${input.bankName || "не указан"}.`,
+    `Формат файла: ${input.mimeType || "не указан"}.`,
     `Заказ создан: ${input.orderCreatedAt.toISOString()}.`,
     "Правила:",
     "1. Определи, похоже ли изображение на банковский чек.",

@@ -7,6 +7,7 @@ export type StorefrontItem = {
   type: "PRODUCT" | "SERVICE";
   durationMinutes?: number | null;
   stock?: number | null;
+  stockMode?: "SIMPLE_AVAILABILITY" | "TRACK_STOCK";
   isAvailable?: boolean;
   isPopular: boolean;
   category?: { id: string; name: string } | null;

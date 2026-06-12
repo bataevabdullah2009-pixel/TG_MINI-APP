@@ -49,8 +49,11 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       return jsonError("Укажите корректную цену.", 400);
     }
 
-    const nextStock = body.stock !== undefined ? parseOptionalStock(body.stock) : undefined;
-    if (body.stock !== undefined && nextStock === undefined) {
+    const nextType = body.type !== undefined
+      ? body.type === "SERVICE" ? "SERVICE" : "PRODUCT"
+      : loaded.item.type;
+    const parsedStock = body.stock !== undefined ? parseOptionalStock(body.stock) : loaded.item.stock;
+    if (body.stock !== undefined && parsedStock === undefined) {
       return jsonError("Количество должно быть целым числом не меньше нуля.", 400);
     }
 
@@ -60,21 +63,40 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         : body.status !== undefined
           ? body.status !== "HIDDEN" && body.status !== "INACTIVE"
           : undefined;
+    const requestedStockMode = body.stockMode !== undefined
+      ? body.stockMode === "TRACK_STOCK" ? "TRACK_STOCK" : "SIMPLE_AVAILABILITY"
+      : loaded.item.stockMode;
+    const nextStockMode = nextType === "SERVICE" ? "SIMPLE_AVAILABILITY" : requestedStockMode;
+    const nextStock = nextStockMode === "TRACK_STOCK" ? parsedStock : null;
+    if (nextStockMode === "TRACK_STOCK" && nextStock === null) {
+      return jsonError("Для учёта остатков укажите целое количество от 0.", 400);
+    }
 
     const item = await prisma.item.update({
       where: { id },
       data: {
-        ...(body.type !== undefined ? { type: body.type === "SERVICE" ? "SERVICE" : "PRODUCT" } : {}),
+        ...(body.type !== undefined ? { type: nextType } : {}),
         ...(nextName !== undefined ? { name: nextName } : {}),
         ...(body.description !== undefined ? { description: body.description || "" } : {}),
         ...(nextPrice !== undefined ? { price: nextPrice } : {}),
         ...(categoryId !== undefined ? { categoryId } : {}),
         ...(body.imageUrl !== undefined ? { imageUrl: body.imageUrl || null } : {}),
         ...(body.durationMinutes !== undefined ? { durationMinutes: body.durationMinutes ? Number(body.durationMinutes) : null } : {}),
-        ...(body.stock !== undefined ? { stock: nextStock } : {}),
-        ...(nextAvailability !== undefined ? { isAvailable: nextAvailability } : {}),
+        ...(body.stockMode !== undefined || body.type !== undefined ? { stockMode: nextStockMode } : {}),
+        ...(body.stock !== undefined || body.stockMode !== undefined || body.type !== undefined
+          ? { stock: nextStock }
+          : {}),
+        ...(nextAvailability !== undefined
+          ? { isAvailable: nextStockMode === "TRACK_STOCK" && nextStock === 0 ? false : nextAvailability }
+          : nextStockMode === "TRACK_STOCK" && nextStock === 0
+            ? { isAvailable: false }
+            : {}),
         ...(body.isPopular !== undefined ? { isPopular: Boolean(body.isPopular) } : {}),
-        ...(body.archived === false ? { archivedAt: null } : {}),
+        ...(body.archivedAt !== undefined
+          ? { archivedAt: body.archivedAt ? new Date(body.archivedAt) : null }
+          : body.archived === false
+            ? { archivedAt: null }
+          : {}),
       },
       include: { category: true, business: { select: { id: true, name: true, slug: true } } },
     });

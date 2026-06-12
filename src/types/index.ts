@@ -212,6 +212,7 @@ export interface Order {
     status: "LIKELY_VALID" | "MANUAL_REVIEW" | "LIKELY_INVALID";
     reasonRu: string;
   } | null;
+  paymentProofAiDetails?: string | null;
   paymentReviewedAt?: Date | null;
   paymentReviewedBy?: string | null;
   paymentRejectReason?: string | null;
