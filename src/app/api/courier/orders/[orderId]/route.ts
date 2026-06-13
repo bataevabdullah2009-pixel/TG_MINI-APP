@@ -5,15 +5,38 @@ import { NotificationService } from "@/lib/notifications/notification-service";
 import { prisma } from "@/lib/prisma";
 import { toJsonSafe } from "@/lib/prisma-schema-guard";
 
+const courierOrderSelect = {
+  id: true,
+  status: true,
+  deliveryStatus: true,
+  paymentMethod: true,
+  paymentStatus: true,
+  customerName: true,
+  customerPhone: true,
+  customerAddress: true,
+  deliveryCityArea: true,
+  deliveryZoneName: true,
+  itemsSubtotal: true,
+  deliveryFee: true,
+  totalPrice: true,
+  comment: true,
+  createdAt: true,
+  updatedAt: true,
+  business: { select: { id: true, slug: true, name: true, address: true, phone: true } },
+  items: { select: { id: true, name: true, quantity: true, price: true } },
+  deliveryAssignment: {
+    select: {
+      status: true,
+      deliveredAt: true,
+      courier: { select: { id: true, name: true, phone: true, cityArea: true } },
+    },
+  },
+} as const;
+
 async function loadCourierOrder(orderId: string) {
   return prisma.order.findUnique({
     where: { id: orderId },
-    include: {
-      business: { select: { id: true, slug: true, name: true, address: true, phone: true } },
-      items: true,
-      deliveryZone: true,
-      deliveryAssignment: { include: { courier: true } },
-    },
+    select: courierOrderSelect,
   });
 }
 
@@ -103,20 +126,50 @@ export async function POST(request: NextRequest, context: { params: Promise<{ or
     return NextResponse.json(toJsonSafe({ ok: true, order: await loadCourierOrder(orderId) }));
   }
 
+  if (action === "DELIVERING") {
+    const changed = await prisma.$transaction(async (tx) => {
+      const assignment = await tx.deliveryAssignment.findFirst({
+        where: { orderId, courierId: access.courier!.id, status: "PICKED_UP" },
+        select: { id: true },
+      });
+      if (!assignment) return false;
+
+      const order = await tx.order.updateMany({
+        where: { id: orderId, status: "PICKED_UP" },
+        data: { status: "DELIVERING" },
+      });
+      return order.count === 1;
+    });
+    if (!changed) {
+      return NextResponse.json(
+        { ok: false, error: "Сначала отметьте, что забрали заказ." },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json(toJsonSafe({ ok: true, order: await loadCourierOrder(orderId) }));
+  }
+
   if (action === "DELIVERED") {
     const changed = await prisma.$transaction(async (tx) => {
-      const assignment = await tx.deliveryAssignment.updateMany({
+      const assignment = await tx.deliveryAssignment.findFirst({
         where: { orderId, courierId: access.courier!.id, status: "PICKED_UP" },
-        data: { status: "DELIVERED", deliveredAt: new Date() },
+        select: { id: true },
       });
-      if (assignment.count !== 1) return false;
-      await tx.order.update({
-        where: { id: orderId },
+      if (!assignment) return false;
+
+      const order = await tx.order.updateMany({
+        where: { id: orderId, status: "DELIVERING" },
         data: { status: "DELIVERED", deliveryStatus: "DELIVERED", courierPickupDeadline: null },
+      });
+      if (order.count !== 1) return false;
+
+      await tx.deliveryAssignment.update({
+        where: { id: assignment.id },
+        data: { status: "DELIVERED", deliveredAt: new Date() },
       });
       return true;
     });
-    if (!changed) return NextResponse.json({ ok: false, error: "Сначала отметьте, что забрали заказ." }, { status: 409 });
+    if (!changed) return NextResponse.json({ ok: false, error: "Сначала отметьте доставку как «В пути»." }, { status: 409 });
 
     await NotificationService.notifyCourierDelivered(orderId, access.courier.id).catch((error) =>
       console.warn(`[COURIER] Delivery notification failed for ${orderId}:`, error)

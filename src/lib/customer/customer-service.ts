@@ -91,6 +91,25 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
       },
       select: customerSessionSelect,
     });
+    const nextPhone = verifiedUserPhone ?? normalizedPhone ?? existing?.phone ?? null;
+    const nextUsername = input.username || existing?.username || null;
+    const nextName = [input.firstName, input.lastName].filter(Boolean).join(" ") || existing?.name;
+    const nextPhoneVerified = verifiedUserPhone ? true : existing?.phoneVerified ?? false;
+    const nextVerificationMethod = verifiedUserPhone
+      ? "global_user_phone"
+      : existing?.verificationMethod ?? "none";
+
+    if (
+      existing &&
+      existing.userId === user.id &&
+      existing.phone === nextPhone &&
+      existing.phoneVerified === nextPhoneVerified &&
+      existing.verificationMethod === nextVerificationMethod &&
+      existing.username === nextUsername &&
+      existing.name === nextName
+    ) {
+      return existing;
+    }
 
     return prisma.customer.upsert({
       where: {
@@ -100,11 +119,12 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
         },
       },
       update: {
-          userId: user.id,
-          phone: verifiedUserPhone ?? normalizedPhone ?? existing?.phone,
-          ...(verifiedUserPhone ? { phoneVerified: true, verificationMethod: "global_user_phone" } : {}),
-          username: input.username || existing?.username,
-          name: [input.firstName, input.lastName].filter(Boolean).join(" ") || existing?.name,
+        userId: user.id,
+        phone: nextPhone,
+        phoneVerified: nextPhoneVerified,
+        verificationMethod: nextVerificationMethod,
+        username: nextUsername,
+        name: nextName,
       },
       create: {
         businessId,
@@ -129,14 +149,34 @@ export async function ensureCustomerForTelegramUser(input: EnsureCustomerForTele
     });
 
     if (existing) {
+      const nextPhone = verifiedUserPhone ?? normalizedPhone ?? existing.phone;
+      const nextUsername = input.username || existing.username;
+      const nextName = [input.firstName, input.lastName].filter(Boolean).join(" ") || existing.name;
+      const nextPhoneVerified = verifiedUserPhone ? true : existing.phoneVerified;
+      const nextVerificationMethod = verifiedUserPhone
+        ? "global_user_phone"
+        : existing.verificationMethod;
+
+      if (
+        existing.userId === user.id &&
+        existing.phone === nextPhone &&
+        existing.phoneVerified === nextPhoneVerified &&
+        existing.verificationMethod === nextVerificationMethod &&
+        existing.username === nextUsername &&
+        existing.name === nextName
+      ) {
+        return existing;
+      }
+
       return await prisma.customer.update({
         where: { id: existing.id },
         data: {
           userId: user.id,
-          phone: verifiedUserPhone ?? normalizedPhone ?? existing.phone,
-          ...(verifiedUserPhone ? { phoneVerified: true, verificationMethod: "global_user_phone" } : {}),
-          username: input.username || existing.username,
-          name: [input.firstName, input.lastName].filter(Boolean).join(" ") || existing.name,
+          phone: nextPhone,
+          phoneVerified: nextPhoneVerified,
+          verificationMethod: nextVerificationMethod,
+          username: nextUsername,
+          name: nextName,
         },
         select: customerSessionSelect,
       });

@@ -5,13 +5,14 @@ import { RefreshCw, ShieldCheck, ShieldAlert, Phone, Shield } from "lucide-react
 import { PhoneVerificationScreen } from "./PhoneVerificationScreen";
 
 interface ClientProfileProps {
+  loading?: boolean;
   session: any;
   onRefreshSession: () => void | Promise<void>;
   onSwitchMode?: (mode: "CUSTOMER" | "SELLER" | "MANAGER" | "SUPER_ADMIN") => void;
   unavailableReason?: string | null;
 }
 
-export function ClientProfile({ session, onRefreshSession, onSwitchMode, unavailableReason }: ClientProfileProps) {
+export function ClientProfile({ loading = false, session, onRefreshSession, onSwitchMode, unavailableReason }: ClientProfileProps) {
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [pollingUntil, setPollingUntil] = useState<number | null>(null);
 
@@ -32,6 +33,16 @@ export function ClientProfile({ session, onRefreshSession, onSwitchMode, unavail
 
     return () => window.clearInterval(interval);
   }, [pollingUntil, isVerified, onRefreshSession]);
+
+  if (loading) {
+    return (
+      <div className="animate-pulse px-4 py-5 pb-24">
+        <div className="h-7 w-32 rounded bg-slate-200" />
+        <div className="mt-5 h-32 rounded-3xl bg-slate-200" />
+        <div className="mt-5 h-44 rounded-3xl bg-white ring-1 ring-slate-100" />
+      </div>
+    );
+  }
 
   if (!session) {
     return (

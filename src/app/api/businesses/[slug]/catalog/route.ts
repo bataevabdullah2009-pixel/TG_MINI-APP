@@ -57,7 +57,12 @@ function normalizeLookup(value: string) {
   }
 }
 
-function catalogRelations(search: string | undefined, includeDeliveryConfig: boolean, limit: number) {
+function catalogRelations(
+  search: string | undefined,
+  includeDeliveryConfig: boolean,
+  limit: number,
+  offset: number
+) {
   return {
     settings: includeDeliveryConfig
       ? {
@@ -89,6 +94,16 @@ function catalogRelations(search: string | undefined, includeDeliveryConfig: boo
           deliveryZones: {
             where: { isActive: true, archivedAt: null },
             orderBy: [{ sortOrder: "asc" as const }, { name: "asc" as const }],
+            select: {
+              id: true,
+              name: true,
+              cityArea: true,
+              fee: true,
+              minOrderAmount: true,
+              estimatedMinutes: true,
+              isActive: true,
+              sortOrder: true,
+            },
           },
         }
       : {}),
@@ -118,7 +133,8 @@ function catalogRelations(search: string | undefined, includeDeliveryConfig: boo
         category: { select: { id: true, name: true } },
       },
       orderBy: [{ isPopular: "desc" as const }, { sortOrder: "asc" as const }],
-      take: limit,
+      skip: offset,
+      take: limit + 1,
     },
     staff: {
       where: { isActive: true },
@@ -128,7 +144,14 @@ function catalogRelations(search: string | undefined, includeDeliveryConfig: boo
   };
 }
 
-async function findCatalogBusiness(slug: string, search: string | undefined, limit: number, includeCurrentFields: boolean, includeDeliveryConfig: boolean) {
+async function findCatalogBusiness(
+  slug: string,
+  search: string | undefined,
+  limit: number,
+  offset: number,
+  includeCurrentFields: boolean,
+  includeDeliveryConfig: boolean
+) {
   const lookup = normalizeLookup(slug);
   return prisma.business.findFirst({
     where: {
@@ -150,7 +173,7 @@ async function findCatalogBusiness(slug: string, search: string | undefined, lim
     select: {
       ...catalogBusinessBaseSelect,
       ...(includeCurrentFields ? currentBusinessFieldsSelect : {}),
-      ...catalogRelations(search, includeDeliveryConfig, limit),
+      ...catalogRelations(search, includeDeliveryConfig, limit, offset),
     },
   });
 }
@@ -165,18 +188,20 @@ export async function GET(
   const search = searchParams.get("search")?.trim();
   const requestedLimit = Number(searchParams.get("limit") || 50);
   const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.floor(requestedLimit), 1), 100) : 50;
+  const requestedOffset = Number(searchParams.get("offset") || 0);
+  const offset = Number.isFinite(requestedOffset) ? Math.max(Math.floor(requestedOffset), 0) : 0;
   let usedSchemaFallback = false;
 
   try {
     let business;
     try {
-      business = await findCatalogBusiness(slug, search, limit, true, true);
+      business = await findCatalogBusiness(slug, search, limit, offset, true, true);
     } catch (error) {
       const classification = classifyDatabaseError(error);
       if (classification.type !== "missing_table" && classification.type !== "missing_column") throw error;
       usedSchemaFallback = true;
       warnPrismaSchemaDrift(`Catalog ${slug} retried without optional payment/delivery schema`, error);
-      business = await findCatalogBusiness(slug, search, limit, false, false);
+      business = await findCatalogBusiness(slug, search, limit, offset, false, false);
     }
 
     if (!business) {
@@ -211,8 +236,15 @@ export async function GET(
       }
     }
 
+    const {
+      categories,
+      items: loadedItems,
+      staff,
+      ...businessFields
+    } = business;
+    const catalogItems = loadedItems.slice(0, limit);
     const normalizedBusiness = {
-      ...business,
+      ...businessFields,
       isOpen: "isOpen" in business ? business.isOpen : true,
       transferPaymentEnabled: "transferPaymentEnabled" in business ? business.transferPaymentEnabled : false,
       transferBankName: "transferBankName" in business ? business.transferBankName : null,
@@ -225,12 +257,18 @@ export async function GET(
     const response = NextResponse.json({
       ok: true,
       business: normalizedBusiness,
-      categories: business.categories,
-      items: business.items,
-      staff: business.staff,
+      categories,
+      items: catalogItems,
+      staff,
+      pagination: {
+        limit,
+        offset,
+        hasMore: loadedItems.length > limit,
+        nextOffset: loadedItems.length > limit ? offset + limit : null,
+      },
       schemaFallback: usedSchemaFallback,
     });
-    response.headers.set("Cache-Control", "public, s-maxage=30, stale-while-revalidate=60");
+    response.headers.set("Cache-Control", "public, s-maxage=45, stale-while-revalidate=60");
     return finishTiming(response);
   } catch (error) {
     const classification = classifyDatabaseError(error);
@@ -239,7 +277,7 @@ export async function GET(
       {
         ok: false,
         code: classification.code,
-        error: "Каталог временно недоступен из-за ошибки базы данных. Повторите попытку после проверки подключения и применения SQL-патча.",
+        error: "Каталог временно недоступен. Повторите попытку позже.",
       },
       { status: 503 }
     ));

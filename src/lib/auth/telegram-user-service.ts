@@ -217,10 +217,12 @@ export async function ensureTelegramUser(input: EnsureTelegramUserInput): Promis
   const existing = await findTelegramUser(telegramId);
 
   const user = existing
-    ? await updateTelegramUser(telegramId, {
-        username: input.username || existing.username,
-        name: name || existing.name,
-      })
+    ? (input.username || existing.username) !== existing.username || (name || existing.name) !== existing.name
+      ? await updateTelegramUser(telegramId, {
+          username: input.username || existing.username,
+          name: name || existing.name,
+        })
+      : existing
     : await createTelegramUser(telegramId, name, input.username);
 
   if (input.phone) {

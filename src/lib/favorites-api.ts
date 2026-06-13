@@ -1,4 +1,4 @@
-import { getTelegramSessionUser } from "@/lib/auth-telegram";
+import { parseTelegramInitData, verifyTelegramInitData } from "@/lib/auth-telegram";
 
 export const favoriteBusinessSelect = {
   id: true,
@@ -58,8 +58,16 @@ function toBigInt(value: unknown) {
 export async function resolveFavoriteTelegramUserId(request: Request, values: FavoriteIdentityValues = {}) {
   const initData = request.headers.get("x-telegram-init-data");
   if (initData) {
-    const session = await getTelegramSessionUser(initData);
-    return toBigInt(session?.telegramUserId);
+    const user = parseTelegramInitData(initData);
+    if (!user) return null;
+
+    const shouldValidate = process.env.NODE_ENV === "production" || process.env.VALIDATE_TELEGRAM_DATA === "true";
+    if (shouldValidate) {
+      const botToken = process.env.TELEGRAM_BOT_TOKEN || "";
+      if (!botToken || !verifyTelegramInitData(initData, botToken)) return null;
+    }
+
+    return toBigInt(user.id);
   }
 
   if (process.env.NODE_ENV === "production") return null;

@@ -87,7 +87,9 @@ export function CourierOrderCard({
             </h2>
           </div>
           <span className="max-w-[145px] shrink-0 rounded-full bg-white/10 px-2.5 py-1 text-right text-[9px] font-black leading-tight text-white ring-1 ring-white/15">
-            {formatDeliveryStatusRu(order.deliveryStatus)}
+            {order.status === "DELIVERING"
+              ? "В пути"
+              : formatDeliveryStatusRu(order.deliveryStatus)}
           </span>
         </div>
       </header>
@@ -238,7 +240,18 @@ export function CourierOrderCard({
                 Забрал у продавца
               </button>
             )}
-            {assignmentStatus === "PICKED_UP" && (
+            {assignmentStatus === "PICKED_UP" && order.status !== "DELIVERING" && (
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => onAction(order.id, "DELIVERING")}
+                className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 text-xs font-black text-white disabled:opacity-50"
+              >
+                <Navigation size={17} />
+                В пути
+              </button>
+            )}
+            {assignmentStatus === "PICKED_UP" && order.status === "DELIVERING" && (
               <button
                 type="button"
                 disabled={loading}

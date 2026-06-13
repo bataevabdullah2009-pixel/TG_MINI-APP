@@ -585,7 +585,8 @@ async function saveLastProductQuery(input: {
 
 export async function setSelectedBusinessContext(
   telegramUserId: string,
-  businessId: string
+  businessId: string,
+  options: { ensureCustomer?: boolean } = {}
 ) {
   const numericTelegramUserId = BigInt(telegramUserId);
   const business = await prisma.business.findFirst({
@@ -610,20 +611,22 @@ export async function setSelectedBusinessContext(
     console.warn("[TELEGRAM AI CONTEXT] context table unavailable for selection:", error);
   }
 
-  await prisma.customer.upsert({
-    where: {
-      businessId_telegramUserId: {
+  if (options.ensureCustomer !== false) {
+    await prisma.customer.upsert({
+      where: {
+        businessId_telegramUserId: {
+          businessId: business.id,
+          telegramUserId: numericTelegramUserId,
+        },
+      },
+      update: { updatedAt: new Date() },
+      create: {
         businessId: business.id,
         telegramUserId: numericTelegramUserId,
       },
-    },
-    update: { updatedAt: new Date() },
-    create: {
-      businessId: business.id,
-      telegramUserId: numericTelegramUserId,
-    },
-    select: { id: true },
-  });
+      select: { id: true },
+    });
+  }
 
   return true;
 }

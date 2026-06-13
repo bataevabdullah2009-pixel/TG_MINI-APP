@@ -103,7 +103,7 @@ export default function MarketplacePage() {
     const storeSlug = getStoreSlugFromStartParam(tg?.initDataUnsafe?.start_param || initDataStartParam);
     if (storeSlug) {
       router.replace(`/app/${encodeURIComponent(storeSlug)}`);
-      return;
+      return undefined;
     }
 
     // Load favorites from localstorage
@@ -129,7 +129,8 @@ export default function MarketplacePage() {
     }
 
     // Load global catalog businesses
-    miniAppFetch(`/api/marketplace/businesses`)
+    const catalogController = new AbortController();
+    miniAppFetch(`/api/marketplace/businesses`, { signal: catalogController.signal })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Не удалось загрузить каталог.");
@@ -140,30 +141,39 @@ export default function MarketplacePage() {
         setBusinesses(data.businesses || []);
       })
       .catch((err) => {
+        if (catalogController.signal.aborted) return;
         console.error("Error loading businesses:", err);
         setCatalogError(err instanceof Error ? err.message : "Не удалось загрузить каталог.");
       })
-      .finally(() => setCatalogLoading(false));
+      .finally(() => {
+        if (!catalogController.signal.aborted) setCatalogLoading(false);
+      });
+
+    return () => catalogController.abort();
   }, [allowMockLogin, router]);
 
   useEffect(() => {
     if (!session?.telegramUserId) return undefined;
 
-    let cancelled = false;
-    miniAppFetch(`/api/favorites/business?telegramUserId=${encodeURIComponent(session.telegramUserId.toString())}`)
+    const controller = new AbortController();
+    miniAppFetch(`/api/favorites/business?telegramUserId=${encodeURIComponent(session.telegramUserId.toString())}`, {
+      signal: controller.signal,
+    })
       .then((res) => res.json())
       .then((resData) => {
-        if (cancelled || !resData.ok) return;
+        if (controller.signal.aborted || !resData.ok) return;
 
         const slugs = resData.data?.businessSlugs || [];
         setFavorites(slugs);
         localStorage.setItem("favoriteBusinesses", JSON.stringify(slugs));
       })
-      .catch((err) => console.warn("[Favorites] Could not load business favorites:", err));
+      .catch((err) => {
+        if (!controller.signal.aborted) {
+          console.warn("[Favorites] Could not load business favorites:", err);
+        }
+      });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [session?.telegramUserId]);
 
   const resolveUserSession = async (initData: string, modeOverride?: string) => {
@@ -460,15 +470,25 @@ export default function MarketplacePage() {
             )}
 
             {activeClientTab === "FAVORITES" && (
-              <ClientFavorites telegramUserId={session?.telegramUserId?.toString()} />
+              <ClientFavorites
+                key={`favorites:global:${session?.telegramUserId || "anonymous"}`}
+                businessId="global"
+                telegramUserId={session?.telegramUserId?.toString()}
+              />
             )}
 
             {activeClientTab === "ORDERS" && (
-              <ClientOrders telegramUserId={session?.telegramUserId?.toString()} />
+              <ClientOrders
+                key={`orders:global:${session?.telegramUserId || "anonymous"}`}
+                businessId="global"
+                telegramUserId={session?.telegramUserId?.toString()}
+              />
             )}
 
             {activeClientTab === "PROFILE" && (
               <ClientProfile
+                key={`profile:global:${session?.telegramUserId || "anonymous"}`}
+                loading={loading}
                 session={session}
                 onRefreshSession={() => resolveUserSession(mockInitData || (window as any).Telegram?.WebApp?.initData || "")}
                 onSwitchMode={setActiveWorkspaceMode}

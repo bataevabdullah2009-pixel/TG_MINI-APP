@@ -20,7 +20,7 @@ export function isBusinessIsDemoMissingColumnError(error: unknown) {
 }
 
 export type DatabaseErrorClassification = {
-  type: "connection_error" | "missing_table" | "missing_column" | "enum_value_missing" | "wrong_database" | "database_error";
+  type: "connection_error" | "missing_table" | "missing_column" | "enum_value_missing" | "wrong_database" | "query_validation_error" | "database_error";
   code: string;
   message: string;
   patch?: string;
@@ -62,12 +62,24 @@ export function classifyDatabaseError(error: unknown): DatabaseErrorClassificati
     return { type: "enum_value_missing", code: "DB_ENUM_VALUE_MISSING", message, patch: patchForMessage(combined) };
   }
 
-  if (err?.code === "P1001" || err?.code === "P1000" || lower.includes("can't reach database server")) {
+  if (
+    err?.code === "P1001" ||
+    err?.code === "P1000" ||
+    err?.code === "P2024" ||
+    lower.includes("can't reach database server") ||
+    lower.includes("timed out fetching a new connection from the connection pool") ||
+    (lower.includes("prepared statement") &&
+      (lower.includes("already exists") || lower.includes("does not exist")))
+  ) {
     return { type: "connection_error", code: "DB_CONNECTION_ERROR", message };
   }
 
   if (err?.code === "P1003" || (lower.includes("database") && lower.includes("does not exist"))) {
     return { type: "wrong_database", code: "DB_WRONG_DATABASE", message };
+  }
+
+  if (lower.includes("invalid `prisma.") && lower.includes("argument")) {
+    return { type: "query_validation_error", code: "DB_QUERY_VALIDATION_ERROR", message };
   }
 
   return { type: "database_error", code: "DB_ERROR", message, patch: patchForMessage(combined) };

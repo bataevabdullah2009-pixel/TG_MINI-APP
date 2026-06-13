@@ -3,50 +3,162 @@
 import React, { useState, useEffect } from "react";
 import { ClipboardList, Calendar, Check, X, Clock, HelpCircle } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
+import {
+  beginMiniAppQuery,
+  readMiniAppQueryCache,
+  writeMiniAppQueryCache,
+} from "@/lib/miniAppQuery";
 
 interface ClientOrdersProps {
+  businessId?: string;
   telegramUserId?: string;
 }
 
-export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
+type ClientOrderTab = "ORDERS" | "BOOKINGS";
+
+type HistoryPage = {
+  items: any[];
+  hasMore: boolean;
+  nextOffset: number | null;
+};
+
+const PAGE_SIZE = 10;
+const HISTORY_STATUS = "ALL";
+
+export function ClientOrders({ businessId = "global", telegramUserId }: ClientOrdersProps) {
   const [activeTab, setActiveTab] = useState<"ORDERS" | "BOOKINGS">("ORDERS");
   const [data, setData] = useState<{ orders: any[]; bookings: any[] }>({ orders: [], bookings: [] });
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  const [offsets, setOffsets] = useState<Record<ClientOrderTab, number>>({
+    ORDERS: 0,
+    BOOKINGS: 0,
+  });
+  const [hasMore, setHasMore] = useState<Record<ClientOrderTab, boolean>>({
+    ORDERS: false,
+    BOOKINGS: false,
+  });
 
   useEffect(() => {
     if (!telegramUserId) {
+      setData({ orders: [], bookings: [] });
       setLoading(false);
       setError("История заказов доступна после загрузки Telegram-профиля.");
       return undefined;
     }
 
-    setLoading(true);
+    const offset = offsets[activeTab];
+    const queryKey = [
+      "client-orders",
+      businessId,
+      telegramUserId,
+      activeTab,
+      HISTORY_STATUS,
+      offset,
+      retryKey,
+    ] as const;
+    const request = beginMiniAppQuery(
+      `client-orders:${businessId}:${telegramUserId}`,
+      queryKey
+    );
+    const cached = readMiniAppQueryCache<HistoryPage>(queryKey);
+
+    const applyPage = (page: HistoryPage) => {
+      if (!request.isCurrent()) return;
+      setData((current) => {
+        const field = activeTab === "ORDERS" ? "orders" : "bookings";
+        const currentItems = offset === 0 ? [] : current[field];
+        const itemMap = new Map(currentItems.map((item) => [item.id, item]));
+        for (const item of page.items) itemMap.set(item.id, item);
+        return { ...current, [field]: Array.from(itemMap.values()) };
+      });
+      setHasMore((current) => ({ ...current, [activeTab]: page.hasMore }));
+    };
+
+    if (cached) {
+      applyPage(cached);
+      setError(null);
+      setLoading(false);
+      setLoadingMore(false);
+      request.finish();
+      return () => request.cancel();
+    }
+
+    if (offset === 0) {
+      setLoading(true);
+      setData((current) => ({
+        ...current,
+        [activeTab === "ORDERS" ? "orders" : "bookings"]: [],
+      }));
+    } else {
+      setLoadingMore(true);
+    }
     setError(null);
-    const controller = new AbortController();
-    miniAppFetch("/api/customer/orders?limit=10", { signal: controller.signal })
+    setExpandedId(null);
+
+    const query = new URLSearchParams({
+      tab: activeTab.toLowerCase(),
+      status: HISTORY_STATUS,
+      limit: String(PAGE_SIZE),
+      offset: String(offset),
+    });
+    if (businessId && businessId !== "global") {
+      query.set("businessSlug", businessId);
+    }
+
+    miniAppFetch(`/api/customer/orders?${query.toString()}`, { signal: request.signal })
       .then(async (res) => {
         const resData = await res.json().catch(() => ({}));
         if (!res.ok || !resData.ok) {
           throw new Error(resData.error || "Не удалось загрузить историю заказов.");
         }
-        setData({ orders: resData.orders || [], bookings: resData.bookings || [] });
+
+        const field = activeTab === "ORDERS" ? "orders" : "bookings";
+        const pagination = resData.pagination?.[field] || {};
+        const page: HistoryPage = {
+          items: Array.isArray(resData[field]) ? resData[field].filter(Boolean) : [],
+          hasMore: Boolean(pagination.hasMore),
+          nextOffset: typeof pagination.nextOffset === "number" ? pagination.nextOffset : null,
+        };
+        applyPage(page);
+        writeMiniAppQueryCache(queryKey, page, 15_000);
       })
       .catch((e) => {
-        if (controller.signal.aborted) return;
+        if (request.signal.aborted) return;
         console.error(e);
-        setError(e instanceof Error && e.name === "AbortError"
-          ? "История не ответила за 15 секунд."
-          : e instanceof Error ? e.message : "Ошибка загрузки данных.");
+        if (request.isCurrent()) {
+          setError(e instanceof Error && e.name === "AbortError"
+            ? "История не ответила за 15 секунд."
+            : e instanceof Error ? e.message : "Ошибка загрузки данных.");
+        }
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (request.isCurrent()) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
+        request.finish();
       });
 
-    return () => controller.abort();
-  }, [telegramUserId, retryKey]);
+    return () => request.cancel();
+  }, [activeTab, businessId, offsets, retryKey, telegramUserId]);
+
+  const selectTab = (tab: ClientOrderTab) => {
+    if (tab === activeTab) return;
+    setActiveTab(tab);
+    setOffsets((current) => ({ ...current, [tab]: 0 }));
+  };
+
+  const loadMore = () => {
+    if (loadingMore || !hasMore[activeTab]) return;
+    setOffsets((current) => ({
+      ...current,
+      [activeTab]: current[activeTab] + PAGE_SIZE,
+    }));
+  };
 
   const getOrderStatus = (status: string) => {
     switch (status) {
@@ -121,7 +233,8 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
       {/* Selector */}
       <div className="grid grid-cols-2 gap-1 rounded-2xl bg-slate-100 p-1 mb-5">
         <button
-          onClick={() => setActiveTab("ORDERS")}
+          type="button"
+          onClick={() => selectTab("ORDERS")}
           className={`rounded-xl py-2 text-xs font-black transition-all ${
             activeTab === "ORDERS" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"
           }`}
@@ -129,7 +242,8 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
           Заказы ({data.orders.length})
         </button>
         <button
-          onClick={() => setActiveTab("BOOKINGS")}
+          type="button"
+          onClick={() => selectTab("BOOKINGS")}
           className={`rounded-xl py-2 text-xs font-black transition-all ${
             activeTab === "BOOKINGS" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"
           }`}
@@ -139,9 +253,10 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
       </div>
 
       {loading && (
-        <div className="py-12 text-center">
-          <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-slate-900 mx-auto mb-2" />
-          <p className="text-xs font-bold text-slate-400">Загрузка истории...</p>
+        <div className="grid animate-pulse gap-3">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="h-28 rounded-3xl bg-white ring-1 ring-slate-100" />
+          ))}
         </div>
       )}
 
@@ -345,6 +460,17 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
                 })
               )}
             </div>
+          )}
+
+          {hasMore[activeTab] && (
+            <button
+              type="button"
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="mt-4 w-full rounded-2xl bg-slate-900 px-4 py-3 text-xs font-black text-white disabled:opacity-50"
+            >
+              {loadingMore ? "Загрузка..." : "Показать ещё"}
+            </button>
           )}
         </div>
       )}

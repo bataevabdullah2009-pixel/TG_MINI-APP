@@ -13,10 +13,16 @@ import { CategoryTabs } from "@/components/storefront/CategoryTabs";
 import { ProductGrid } from "@/components/storefront/ProductGrid";
 import type { StorefrontBusiness as Business, StorefrontCartLine as CartItem, StorefrontItem as Item } from "@/components/storefront/types";
 import { miniAppFetch } from "@/lib/miniAppFetch";
+import {
+  beginMiniAppQuery,
+  readMiniAppQueryCache,
+  writeMiniAppQueryCache,
+} from "@/lib/miniAppQuery";
 import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 import { DateBottomSheetPicker } from "@/components/ui/DateBottomSheetPicker";
 
 type Staff = { id: string; name: string; role?: string | null };
+const CATALOG_PAGE_SIZE = 50;
 
 const templateUi: Record<string, { title: string; accent: string; mode: "cart" | "booking"; cta: string }> = {
   cafe: { title: "Меню и доставка", accent: "from-orange-500 to-amber-400", mode: "cart", cta: "Добавить" },
@@ -63,6 +69,9 @@ export default function BusinessMiniAppPage() {
   const [business, setBusiness] = useState<Business | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
+  const [catalogHasMore, setCatalogHasMore] = useState(false);
+  const [catalogLoadingMore, setCatalogLoadingMore] = useState(false);
+  const [catalogMoreError, setCatalogMoreError] = useState("");
   const [category, setCategory] = useState("Все");
   const [query, setQuery] = useState("");
   const [viewMode, setViewMode] = useState<"feed" | "grid">("feed");
@@ -118,34 +127,115 @@ export default function BusinessMiniAppPage() {
     setNotFound(false);
     setUnavailable(false);
     setLoadError("");
-    fetch(`/api/businesses/${encodeURIComponent(slug)}/catalog`)
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        if (res.status === 404) {
-          setNotFound(true);
-          return null;
-        }
-        if (res.status === 410 || data.code === "BUSINESS_ARCHIVED") {
-          setUnavailable(true);
-          return null;
-        }
-        if (!res.ok) {
-          throw new Error(data.error || "Не удалось загрузить каталог.");
-        }
-        return data;
-      })
-      .then((data) => {
-        if (!data) return;
-        setBusiness(data.business);
-        setItems(data.items || []);
-        setStaff(data.staff || []);
+    setBusiness(null);
+    setItems([]);
+    setStaff([]);
+    setCatalogHasMore(false);
+    setCatalogMoreError("");
+
+    const userId = String(telegramUser()?.id || "anonymous");
+    const queryKey = [
+      "storefront-catalog",
+      slug,
+      userId,
+      "CATALOG",
+      "ACTIVE",
+      0,
+    ] as const;
+    const request = beginMiniAppQuery(`storefront-catalog:${slug}`, queryKey);
+    const cached = readMiniAppQueryCache<any>(queryKey);
+    const loadCatalog = cached
+      ? Promise.resolve(cached)
+      : miniAppFetch(
+          `/api/businesses/${encodeURIComponent(slug)}/catalog?limit=${CATALOG_PAGE_SIZE}&offset=0`,
+          { signal: request.signal }
+        ).then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (res.status === 404) {
+            setNotFound(true);
+            return null;
+          }
+          if (res.status === 410 || data.code === "BUSINESS_ARCHIVED") {
+            setUnavailable(true);
+            return null;
+          }
+          if (!res.ok) {
+            throw new Error(data.error || "Не удалось загрузить каталог.");
+          }
+          writeMiniAppQueryCache(queryKey, data, 45_000);
+          return data;
+        });
+
+    loadCatalog
+      .then((res) => {
+        if (!res || !request.isCurrent()) return;
+        setBusiness(res.business);
+        setItems(Array.isArray(res.items) ? res.items.filter(Boolean) : []);
+        setStaff(Array.isArray(res.staff) ? res.staff.filter(Boolean) : []);
+        setCatalogHasMore(Boolean(res.pagination?.hasMore));
       })
       .catch((error) => {
+        if (request.signal.aborted) return;
         console.error("[Storefront catalog load error]", error);
-        setLoadError(error instanceof Error ? error.message : "Не удалось загрузить каталог.");
+        if (request.isCurrent()) {
+          setLoadError(error instanceof Error ? error.message : "Не удалось загрузить каталог.");
+        }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (request.isCurrent()) setLoading(false);
+        request.finish();
+      });
+
+    return () => request.cancel();
   }, [slug]);
+
+  async function loadMoreCatalog() {
+    if (!business || catalogLoadingMore || !catalogHasMore) return;
+
+    const offset = items.length;
+    const userId = String(telegramUser()?.id || "anonymous");
+    const queryKey = [
+      "storefront-catalog",
+      business.id,
+      userId,
+      "CATALOG",
+      "ACTIVE",
+      offset,
+    ] as const;
+    const request = beginMiniAppQuery(`storefront-catalog-more:${business.id}`, queryKey);
+    const cached = readMiniAppQueryCache<any>(queryKey);
+    setCatalogLoadingMore(true);
+    setCatalogMoreError("");
+
+    try {
+      const data = cached || await miniAppFetch(
+        `/api/businesses/${encodeURIComponent(slug)}/catalog?limit=${CATALOG_PAGE_SIZE}&offset=${offset}`,
+        { signal: request.signal }
+      ).then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || "Не удалось загрузить товары.");
+        writeMiniAppQueryCache(queryKey, payload, 45_000);
+        return payload;
+      });
+
+      if (!request.isCurrent()) return;
+      setItems((current) => {
+        const itemMap = new Map(current.map((item) => [item.id, item]));
+        for (const item of Array.isArray(data.items) ? data.items : []) {
+          if (item) itemMap.set(item.id, item);
+        }
+        return Array.from(itemMap.values());
+      });
+      setCatalogHasMore(Boolean(data.pagination?.hasMore));
+    } catch (error) {
+      if (!request.signal.aborted && request.isCurrent()) {
+        setCatalogMoreError(error instanceof Error ? error.message : "Не удалось загрузить товары.");
+      }
+    } finally {
+      if (request.isCurrent()) setCatalogLoadingMore(false);
+      request.finish();
+    }
+  }
 
   useEffect(() => {
     if (!targetProductId || items.length === 0) return;
@@ -165,15 +255,21 @@ export default function BusinessMiniAppPage() {
     const user = telegramUser();
     if (!user?.id) return undefined;
 
-    let cancelled = false;
+    const controller = new AbortController();
     const telegramUserId = String(user.id);
 
     Promise.all([
-      miniAppFetch(`/api/favorites/business?telegramUserId=${encodeURIComponent(telegramUserId)}&slug=${encodeURIComponent(slug)}`).then((res) => res.json()),
-      miniAppFetch(`/api/favorites/product?telegramUserId=${encodeURIComponent(telegramUserId)}`).then((res) => res.json()),
+      miniAppFetch(
+        `/api/favorites/business?telegramUserId=${encodeURIComponent(telegramUserId)}&slug=${encodeURIComponent(slug)}`,
+        { signal: controller.signal }
+      ).then((res) => res.json()),
+      miniAppFetch(
+        `/api/favorites/product?telegramUserId=${encodeURIComponent(telegramUserId)}`,
+        { signal: controller.signal }
+      ).then((res) => res.json()),
     ])
       .then(([businessRes, productRes]) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         if (businessRes.ok) {
           setBusinessFavorited(Boolean(businessRes.data?.favorited));
         }
@@ -181,30 +277,35 @@ export default function BusinessMiniAppPage() {
           setFavoriteProductIds(productRes.data?.productIds || []);
         }
       })
-      .catch((error) => console.warn("[Storefront favorites] Could not load favorites:", error));
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          console.warn("[Storefront favorites] Could not load favorites:", error);
+        }
+      });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [businessId, slug]);
 
   useEffect(() => {
-    if (!businessId) return undefined;
+    if (!businessId || (!checkoutOpen && !bookingOpen)) return undefined;
     const initData = (window as any).Telegram?.WebApp?.initData || sessionStorage.getItem("tgInitData") || "";
     if (!initData) {
       setNeedsPhoneVerification(true);
       return undefined;
     }
 
-    let cancelled = false;
-    miniAppFetch(`/api/customer/profile?businessSlug=${encodeURIComponent(slug)}`)
+    const controller = new AbortController();
+    miniAppFetch(
+      `/api/customer/profile?businessSlug=${encodeURIComponent(slug)}`,
+      { signal: controller.signal }
+    )
       .then(async (response) => {
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.ok) throw new Error(data.error || "Не удалось проверить телефон.");
         return data;
       })
       .then((data) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         const customer = data.customer || {};
         const normalizedPhone = normalizeRuPhone(customer.phone) || "";
         const nameParts = String(customer.name || data.telegramName || "").trim().split(/\s+/).filter(Boolean);
@@ -218,14 +319,14 @@ export default function BusinessMiniAppPage() {
         setNeedsPhoneVerification(!customer.phoneVerified || !normalizedPhone);
       })
       .catch((error) => {
-        console.warn("[Storefront profile] Phone verification state unavailable:", error);
-        if (!cancelled) setNeedsPhoneVerification(true);
+        if (!controller.signal.aborted) {
+          console.warn("[Storefront profile] Phone verification state unavailable:", error);
+          setNeedsPhoneVerification(true);
+        }
       });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [businessId, slug]);
+    return () => controller.abort();
+  }, [bookingOpen, businessId, checkoutOpen, slug]);
 
   useEffect(() => {
     const saved = localStorage.getItem(`vitrina:${slug}:catalog-view`);
@@ -683,6 +784,23 @@ export default function BusinessMiniAppPage() {
             }
           }}
         />
+
+        {catalogMoreError && (
+          <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-center text-xs font-bold text-rose-700 ring-1 ring-rose-100">
+            {catalogMoreError}
+          </p>
+        )}
+
+        {catalogHasMore && (
+          <button
+            type="button"
+            onClick={loadMoreCatalog}
+            disabled={catalogLoadingMore}
+            className="mt-4 w-full rounded-2xl bg-slate-950 px-4 py-3 text-xs font-black text-white disabled:opacity-50"
+          >
+            {catalogLoadingMore ? "Загрузка..." : "Показать ещё"}
+          </button>
+        )}
       </section>
 
       {mode === "cart" && (

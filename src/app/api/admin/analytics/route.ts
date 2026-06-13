@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
-import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
+import {
+  canUseBusiness,
+  getAdminSession,
+  getCurrentBusinessForSeller,
+  jsonError,
+} from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 import { createServerTiming } from "@/lib/server-timing";
 import { classifyDatabaseError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
@@ -78,155 +82,264 @@ function growth(current: number, previous: number) {
 
 type AnalyticsPeriod = NonNullable<ReturnType<typeof parsePeriod>>;
 
+type AnalyticsOrder = {
+  id: string;
+  customerId: string | null;
+  customerName: string;
+  totalPrice: number;
+  status: string;
+  paymentStatus: string | null;
+  promoCode: string | null;
+  promoDiscountPercent: number | null;
+  discountAmount: number;
+  createdAt: Date;
+  customer: { createdAt: Date } | null;
+  items: Array<{
+    itemId: string | null;
+    name: string;
+    quantity: number;
+  }>;
+};
+
+const analyticsLegacyOrderSelect = {
+  id: true,
+  customerId: true,
+  customerName: true,
+  totalPrice: true,
+  status: true,
+  createdAt: true,
+  customer: { select: { createdAt: true } },
+  items: { select: { itemId: true, name: true, quantity: true } },
+} as const;
+
+const analyticsOrderSelect = {
+  ...analyticsLegacyOrderSelect,
+  paymentStatus: true,
+  promoCode: true,
+  promoDiscountPercent: true,
+  discountAmount: true,
+} as const;
+
 async function loadAnalyticsData(businessId: string, period: AnalyticsPeriod, legacySchema: boolean) {
-  const currentWhere: Prisma.OrderWhereInput = { businessId, createdAt: { gte: period.from, lt: period.to } };
-  const previousWhere: Prisma.OrderWhereInput = { businessId, createdAt: { gte: period.previousFrom, lt: period.previousTo } };
-  const revenueFilter: Prisma.OrderWhereInput = legacySchema
-    ? { status: { in: [...COMPLETED_STATUSES] } }
-    : {
-        status: { notIn: ["CANCELLED", "EXPIRED"] },
-        AND: [
-          {
-            OR: [
-              { paymentStatus: null },
-              { paymentStatus: { notIn: [...INVALID_PAYMENT_STATUSES] } },
-            ],
-          },
-          {
-            OR: [
-              { paymentStatus: "PAID" },
-              { status: { in: [...COMPLETED_STATUSES] } },
-            ],
-          },
-        ],
-      };
-  const completedWhere: Prisma.OrderWhereInput = { AND: [currentWhere, revenueFilter] };
-  const previousCompletedWhere: Prisma.OrderWhereInput = { AND: [previousWhere, revenueFilter] };
-
-  const dailySourcePromise: Promise<Array<{
-    createdAt: Date;
-    totalPrice: number;
-    status: string;
-    paymentStatus: string | null;
-  }>> = legacySchema
+  const ordersPromise: Promise<AnalyticsOrder[]> = legacySchema
     ? prisma.order.findMany({
-        where: currentWhere,
-        select: { createdAt: true, totalPrice: true, status: true },
+        where: {
+          businessId,
+          createdAt: { gte: period.previousFrom, lt: period.to },
+        },
+        select: analyticsLegacyOrderSelect,
         orderBy: { createdAt: "asc" },
-      }).then((orders) => orders.map((order) => ({ ...order, paymentStatus: null })))
+      }).then((orders) => orders.map((order) => ({
+        ...order,
+        paymentStatus: null,
+        promoCode: null,
+        promoDiscountPercent: null,
+        discountAmount: 0,
+      })))
     : prisma.order.findMany({
-        where: currentWhere,
-        select: { createdAt: true, totalPrice: true, status: true, paymentStatus: true },
+        where: {
+          businessId,
+          createdAt: { gte: period.previousFrom, lt: period.to },
+        },
+        select: analyticsOrderSelect,
         orderBy: { createdAt: "asc" },
       });
 
-  const promoUsagePromise = legacySchema
-    ? Promise.resolve([])
-    : prisma.order.groupBy({
-        by: ["promoCode", "promoDiscountPercent"],
-        where: { ...completedWhere, promoCode: { not: null } },
-        _count: { id: true },
-        _sum: { discountAmount: true, totalPrice: true },
-        orderBy: { _count: { id: "desc" } },
-        take: 10,
-      });
-  const discountAggregatePromise: Promise<{ _sum: { discountAmount: number | null } }> = legacySchema
-    ? Promise.resolve({ _sum: { discountAmount: 0 } })
-    : prisma.order.aggregate({
-        where: completedWhere,
-        _sum: { discountAmount: true },
-      });
-
-  const [
-    business,
-    totalOrders,
-    completed,
-    cancelledOrders,
-    newCustomers,
-    statusGroups,
-    dailySource,
-    soldItems,
-    topProducts,
-    topCustomers,
-    repeatCustomerGroups,
-    promoUsage,
-    discountAggregate,
-    previousTotalOrders,
-    previousCompleted,
-    previousNewCustomers,
-  ] = await Promise.all([
+  const [business, orders] = await Promise.all([
     prisma.business.findUnique({ where: { id: businessId }, select: { id: true, name: true, slug: true } }),
-    prisma.order.count({ where: currentWhere }),
-    prisma.order.aggregate({
-      where: completedWhere,
-      _count: { id: true },
-      _sum: { totalPrice: true },
-      _avg: { totalPrice: true },
-    }),
-    prisma.order.count({ where: { ...currentWhere, status: "CANCELLED" } }),
-    prisma.customer.count({ where: { businessId, createdAt: { gte: period.from, lt: period.to } } }),
-    prisma.order.groupBy({
-      by: ["status"],
-      where: currentWhere,
-      _count: { id: true },
-      _sum: { totalPrice: true },
-      orderBy: { _count: { id: "desc" } },
-    }),
-    dailySourcePromise,
-    prisma.orderItem.aggregate({
-      where: { order: completedWhere },
-      _sum: { quantity: true },
-    }),
-    prisma.orderItem.groupBy({
-      by: ["itemId", "name"],
-      where: { order: completedWhere },
-      _sum: { quantity: true },
-      _count: { id: true },
-      orderBy: { _sum: { quantity: "desc" } },
-      take: 10,
-    }),
-    prisma.order.groupBy({
-      by: ["customerId", "customerName"],
-      where: { ...completedWhere, customerId: { not: null } },
-      _sum: { totalPrice: true },
-      _count: { id: true },
-      orderBy: { _sum: { totalPrice: "desc" } },
-      take: 10,
-    }),
-    prisma.order.groupBy({
-      by: ["customerId"],
-      where: { ...completedWhere, customerId: { not: null } },
-      _count: { id: true },
-    }),
-    promoUsagePromise,
-    discountAggregatePromise,
-    prisma.order.count({ where: previousWhere }),
-    prisma.order.aggregate({
-      where: previousCompletedWhere,
-      _count: { id: true },
-      _sum: { totalPrice: true },
-      _avg: { totalPrice: true },
-    }),
-    prisma.customer.count({ where: { businessId, createdAt: { gte: period.previousFrom, lt: period.previousTo } } }),
+    ordersPromise,
   ]);
+
+  const inPeriod = (date: Date, from: Date, to: Date) => date >= from && date < to;
+  const countsAsRevenue = (order: AnalyticsOrder) => {
+    if (legacySchema) {
+      return COMPLETED_STATUSES.includes(order.status as (typeof COMPLETED_STATUSES)[number]);
+    }
+    return (
+      order.status !== "CANCELLED" &&
+      order.status !== "EXPIRED" &&
+      !INVALID_PAYMENT_STATUSES.includes(
+        order.paymentStatus as (typeof INVALID_PAYMENT_STATUSES)[number]
+      ) &&
+      (order.paymentStatus === "PAID" ||
+        COMPLETED_STATUSES.includes(order.status as (typeof COMPLETED_STATUSES)[number]))
+    );
+  };
+
+  const currentOrders = orders.filter((order) => inPeriod(order.createdAt, period.from, period.to));
+  const previousOrders = orders.filter((order) =>
+    inPeriod(order.createdAt, period.previousFrom, period.previousTo)
+  );
+  const currentRevenueOrders = currentOrders.filter(countsAsRevenue);
+  const previousRevenueOrders = previousOrders.filter(countsAsRevenue);
+  const revenue = currentRevenueOrders.reduce((sum, order) => sum + order.totalPrice, 0);
+  const previousRevenue = previousRevenueOrders.reduce((sum, order) => sum + order.totalPrice, 0);
+
+  const customerCount = (source: AnalyticsOrder[], from: Date, to: Date) =>
+    new Set(
+      source
+        .filter((order) =>
+          Boolean(order.customerId && order.customer && inPeriod(order.customer.createdAt, from, to))
+        )
+        .map((order) => order.customerId as string)
+    ).size;
+
+  const statusMap = new Map<string, { count: number; amount: number }>();
+  for (const order of currentOrders) {
+    const entry = statusMap.get(order.status) || { count: 0, amount: 0 };
+    entry.count += 1;
+    entry.amount += order.totalPrice;
+    statusMap.set(order.status, entry);
+  }
+  const statusGroups = Array.from(statusMap, ([status, value]) => ({
+    status,
+    _count: { id: value.count },
+    _sum: { totalPrice: value.amount },
+  })).sort((left, right) => right._count.id - left._count.id);
+
+  const productMap = new Map<string, {
+    itemId: string | null;
+    name: string;
+    quantity: number;
+    count: number;
+  }>();
+  let soldUnits = 0;
+  for (const order of currentRevenueOrders) {
+    for (const item of order.items) {
+      soldUnits += item.quantity;
+      const key = `${item.itemId || ""}\u0000${item.name}`;
+      const entry = productMap.get(key) || {
+        itemId: item.itemId,
+        name: item.name,
+        quantity: 0,
+        count: 0,
+      };
+      entry.quantity += item.quantity;
+      entry.count += 1;
+      productMap.set(key, entry);
+    }
+  }
+  const topProducts = Array.from(productMap.values())
+    .sort((left, right) => right.quantity - left.quantity)
+    .slice(0, 10)
+    .map((item) => ({
+      itemId: item.itemId,
+      name: item.name,
+      _sum: { quantity: item.quantity },
+      _count: { id: item.count },
+    }));
+
+  const customerMap = new Map<string, {
+    customerId: string;
+    customerName: string;
+    revenue: number;
+    orders: number;
+  }>();
+  for (const order of currentRevenueOrders) {
+    if (!order.customerId) continue;
+    const entry = customerMap.get(order.customerId) || {
+      customerId: order.customerId,
+      customerName: order.customerName,
+      revenue: 0,
+      orders: 0,
+    };
+    entry.revenue += order.totalPrice;
+    entry.orders += 1;
+    customerMap.set(order.customerId, entry);
+  }
+  const topCustomers = Array.from(customerMap.values())
+    .sort((left, right) => right.revenue - left.revenue)
+    .slice(0, 10)
+    .map((item) => ({
+      customerId: item.customerId,
+      customerName: item.customerName,
+      _sum: { totalPrice: item.revenue },
+      _count: { id: item.orders },
+    }));
+  const repeatCustomerGroups = Array.from(customerMap.values()).map((item) => ({
+    customerId: item.customerId,
+    _count: { id: item.orders },
+  }));
+
+  const promoMap = new Map<string, {
+    promoCode: string;
+    promoDiscountPercent: number | null;
+    orders: number;
+    discountAmount: number;
+    revenue: number;
+  }>();
+  for (const order of currentRevenueOrders) {
+    if (!order.promoCode) continue;
+    const key = `${order.promoCode}\u0000${order.promoDiscountPercent ?? ""}`;
+    const entry = promoMap.get(key) || {
+      promoCode: order.promoCode,
+      promoDiscountPercent: order.promoDiscountPercent,
+      orders: 0,
+      discountAmount: 0,
+      revenue: 0,
+    };
+    entry.orders += 1;
+    entry.discountAmount += order.discountAmount;
+    entry.revenue += order.totalPrice;
+    promoMap.set(key, entry);
+  }
+  const promoUsage = Array.from(promoMap.values())
+    .sort((left, right) => right.orders - left.orders)
+    .slice(0, 10)
+    .map((item) => ({
+      promoCode: item.promoCode,
+      promoDiscountPercent: item.promoDiscountPercent,
+      _count: { id: item.orders },
+      _sum: { discountAmount: item.discountAmount, totalPrice: item.revenue },
+    }));
 
   return {
     business,
-    totalOrders,
-    completed,
-    cancelledOrders,
-    newCustomers,
+    totalOrders: currentOrders.length,
+    completed: {
+      _count: { id: currentRevenueOrders.length },
+      _sum: { totalPrice: revenue },
+      _avg: {
+        totalPrice: currentRevenueOrders.length ? revenue / currentRevenueOrders.length : 0,
+      },
+    },
+    cancelledOrders: currentOrders.filter((order) => order.status === "CANCELLED").length,
+    newCustomers: customerCount(currentOrders, period.from, period.to),
     statusGroups,
-    dailySource,
-    soldItems,
+    dailySource: currentOrders.map((order) => ({
+      createdAt: order.createdAt,
+      totalPrice: order.totalPrice,
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+    })),
+    soldItems: { _sum: { quantity: soldUnits } },
     topProducts,
     topCustomers,
     repeatCustomerGroups,
     promoUsage,
-    discountAggregate,
-    previousTotalOrders,
-    previousCompleted,
-    previousNewCustomers,
+    discountAggregate: {
+      _sum: {
+        discountAmount: currentRevenueOrders.reduce(
+          (sum, order) => sum + order.discountAmount,
+          0
+        ),
+      },
+    },
+    previousTotalOrders: previousOrders.length,
+    previousCompleted: {
+      _count: { id: previousRevenueOrders.length },
+      _sum: { totalPrice: previousRevenue },
+      _avg: {
+        totalPrice: previousRevenueOrders.length
+          ? previousRevenue / previousRevenueOrders.length
+          : 0,
+      },
+    },
+    previousNewCustomers: customerCount(
+      previousOrders,
+      period.previousFrom,
+      period.previousTo
+    ),
     schemaFallback: legacySchema,
   };
 }
@@ -239,7 +352,10 @@ export async function GET(request: NextRequest) {
     if (session.role === "MANAGER") return finishTiming(jsonError("У менеджера нет доступа к аналитике.", 403));
 
     const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get("businessId") || session.businessId;
+    const businessId =
+      searchParams.get("businessId") ||
+      session.businessId ||
+      await getCurrentBusinessForSeller(session);
     if (!businessId || !canUseBusiness(session, businessId)) {
       return finishTiming(jsonError("Нет доступа к аналитике этого бизнеса.", 403));
     }

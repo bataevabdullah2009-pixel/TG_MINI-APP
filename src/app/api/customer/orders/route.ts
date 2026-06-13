@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { BookingStatus, OrderStatus } from "@prisma/client";
 import { getTelegramSessionUser } from "@/lib/auth-telegram";
 import { prisma } from "@/lib/prisma";
 import { classifyDatabaseError, toJsonSafe, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
@@ -89,23 +90,81 @@ async function resolveBusinessId(value: string) {
   return business?.id;
 }
 
-async function loadHistory(customerIds: string[], useLegacySelect: boolean, limit: number) {
+type HistoryTab = "all" | "orders" | "bookings";
+
+type HistoryOptions = {
+  limit: number;
+  offset: number;
+  tab: HistoryTab;
+  status: string;
+};
+
+function parseOrderStatus(status: string) {
+  return Object.values(OrderStatus).includes(status as OrderStatus)
+    ? status as OrderStatus
+    : undefined;
+}
+
+function parseBookingStatus(status: string) {
+  return Object.values(BookingStatus).includes(status as BookingStatus)
+    ? status as BookingStatus
+    : undefined;
+}
+
+async function loadHistory(
+  customerIds: string[],
+  useLegacySelect: boolean,
+  options: HistoryOptions
+) {
+  const orderStatus = options.status === "ALL" ? undefined : parseOrderStatus(options.status);
+  const bookingStatus = options.status === "ALL" ? undefined : parseBookingStatus(options.status);
+  const take = options.limit + 1;
+
   const [orders, bookings] = await Promise.all([
-    prisma.order.findMany({
-      where: { customerId: { in: customerIds } },
-      select: useLegacySelect ? orderHistoryLegacySelect : orderHistorySelect,
-      orderBy: { createdAt: "desc" },
-      take: limit,
-    }),
-    prisma.booking.findMany({
-      where: { customerId: { in: customerIds } },
-      select: useLegacySelect ? bookingHistoryLegacySelect : bookingHistorySelect,
-      orderBy: { startTime: "desc" },
-      take: limit,
-    }),
+    options.tab === "bookings"
+      ? Promise.resolve([])
+      : prisma.order.findMany({
+          where: {
+            customerId: { in: customerIds },
+            ...(orderStatus ? { status: orderStatus } : {}),
+          },
+          select: useLegacySelect ? orderHistoryLegacySelect : orderHistorySelect,
+          orderBy: { createdAt: "desc" },
+          skip: options.offset,
+          take,
+        }),
+    options.tab === "orders"
+      ? Promise.resolve([])
+      : prisma.booking.findMany({
+          where: {
+            customerId: { in: customerIds },
+            ...(bookingStatus ? { status: bookingStatus } : {}),
+          },
+          select: useLegacySelect ? bookingHistoryLegacySelect : bookingHistorySelect,
+          orderBy: { startTime: "desc" },
+          skip: options.offset,
+          take,
+        }),
   ]);
 
-  return { orders, bookings };
+  return {
+    orders: orders.slice(0, options.limit),
+    bookings: bookings.slice(0, options.limit),
+    pagination: {
+      orders: {
+        offset: options.offset,
+        limit: options.limit,
+        hasMore: orders.length > options.limit,
+        nextOffset: orders.length > options.limit ? options.offset + options.limit : null,
+      },
+      bookings: {
+        offset: options.offset,
+        limit: options.limit,
+        hasMore: bookings.length > options.limit,
+        nextOffset: bookings.length > options.limit ? options.offset + options.limit : null,
+      },
+    },
+  };
 }
 
 export async function GET(request: NextRequest) {
@@ -119,7 +178,19 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const businessSlug = searchParams.get("businessSlug") || "";
     const limit = Math.min(20, Math.max(1, Number(searchParams.get("limit")) || 10));
+    const offset = Math.max(0, Number(searchParams.get("offset")) || 0);
+    const requestedTab = String(searchParams.get("tab") || "all").toLowerCase();
+    const tab: HistoryTab = requestedTab === "orders" || requestedTab === "bookings"
+      ? requestedTab
+      : "all";
+    const status = String(searchParams.get("status") || "ALL").toUpperCase();
     const businessId = await resolveBusinessId(businessSlug);
+    if (businessSlug && !businessId) {
+      return finishTiming(NextResponse.json(
+        { ok: false, code: "BUSINESS_NOT_FOUND", error: "Бизнес не найден." },
+        { status: 404 }
+      ));
+    }
     const session = await getTelegramSessionUser(initData, businessId);
 
     if (!session) {
@@ -135,7 +206,15 @@ export async function GET(request: NextRequest) {
     });
 
     if (customers.length === 0) {
-      return finishTiming(NextResponse.json({ ok: true, orders: [], bookings: [] }));
+      return finishTiming(NextResponse.json({
+        ok: true,
+        orders: [],
+        bookings: [],
+        pagination: {
+          orders: { offset, limit, hasMore: false, nextOffset: null },
+          bookings: { offset, limit, hasMore: false, nextOffset: null },
+        },
+      }));
     }
 
     const customerIds = customers.map((customer) => customer.id);
@@ -143,19 +222,20 @@ export async function GET(request: NextRequest) {
     let history;
 
     try {
-      history = await loadHistory(customerIds, false, limit);
+      history = await loadHistory(customerIds, false, { limit, offset, tab, status });
     } catch (error) {
       const classification = classifyDatabaseError(error);
       if (classification.type !== "missing_table" && classification.type !== "missing_column") throw error;
       schemaFallback = true;
       warnPrismaSchemaDrift("Customer order history retried without optional payment/delivery schema", error);
-      history = await loadHistory(customerIds, true, limit);
+      history = await loadHistory(customerIds, true, { limit, offset, tab, status });
     }
 
     return finishTiming(NextResponse.json(toJsonSafe({
       ok: true,
       orders: history.orders,
       bookings: history.bookings,
+      pagination: history.pagination,
       schemaFallback,
     })));
   } catch (error) {

@@ -52,4 +52,4 @@ export type CourierDashboardData = {
   completed: CourierOrder[];
 };
 
-export type CourierAction = "TAKE" | "ACCEPT" | "PICKED_UP" | "DELIVERED";
+export type CourierAction = "TAKE" | "ACCEPT" | "PICKED_UP" | "DELIVERING" | "DELIVERED";

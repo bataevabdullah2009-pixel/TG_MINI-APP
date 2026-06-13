@@ -143,6 +143,8 @@ export function CourierDashboard() {
       const message =
         action === "DELIVERED"
           ? "Доставка завершена"
+          : action === "DELIVERING"
+            ? "Курьер в пути"
           : action === "PICKED_UP"
             ? "Заказ отмечен как забранный"
             : "Доставка принята";

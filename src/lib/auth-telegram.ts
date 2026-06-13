@@ -166,7 +166,11 @@ export async function getTelegramSessionUser(initData: string, businessId?: stri
       existingUser: user,
     });
     if (customer?.businessId) {
-      await setSelectedBusinessContext(String(tgUser.id), customer.businessId);
+      await setSelectedBusinessContext(
+        String(tgUser.id),
+        customer.businessId,
+        { ensureCustomer: false }
+      );
     }
   } catch (error) {
     if (

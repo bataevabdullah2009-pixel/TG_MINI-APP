@@ -5,15 +5,27 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Store, Heart, ShoppingBag, Eye } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
+import {
+  beginMiniAppQuery,
+  invalidateMiniAppQueryCache,
+  readMiniAppQueryCache,
+  writeMiniAppQueryCache,
+} from "@/lib/miniAppQuery";
 
 interface ClientFavoritesProps {
+  businessId?: string;
   telegramUserId?: string;
 }
 
-export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
+type FavoriteData = {
+  favoriteBusinesses: any[];
+  favoriteItems: any[];
+};
+
+export function ClientFavorites({ businessId = "global", telegramUserId }: ClientFavoritesProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"SHOPS" | "ITEMS">("SHOPS");
-  const [data, setData] = useState<{ favoriteBusinesses: any[]; favoriteItems: any[] }>({
+  const [data, setData] = useState<FavoriteData>({
     favoriteBusinesses: [],
     favoriteItems: [],
   });
@@ -22,43 +34,82 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
 
   useEffect(() => {
     if (!telegramUserId) {
+      setData({ favoriteBusinesses: [], favoriteItems: [] });
       setLoading(false);
-      return;
+      return undefined;
+    }
+
+    const queryKey = [
+      "client-favorites",
+      businessId,
+      telegramUserId,
+      activeTab,
+      "ACTIVE",
+    ] as const;
+    const cached = readMiniAppQueryCache<Partial<FavoriteData>>(queryKey);
+    const request = beginMiniAppQuery(
+      `client-favorites:${businessId}:${telegramUserId}`,
+      queryKey
+    );
+
+    if (cached) {
+      setData((current) => ({ ...current, ...cached }));
+      setError(null);
+      setLoading(false);
+      request.finish();
+      return () => request.cancel();
     }
 
     setLoading(true);
     setError(null);
-    Promise.all([
-      miniAppFetch(`/api/favorites/business?telegramUserId=${encodeURIComponent(telegramUserId)}`).then((res) => res.json()),
-      miniAppFetch(`/api/favorites/product?telegramUserId=${encodeURIComponent(telegramUserId)}`).then((res) => res.json()),
-    ])
-      .then(([businessRes, productRes]) => {
-        if (!businessRes.ok) {
-          setError(businessRes.error || "Не удалось загрузить избранные заведения");
-          return;
-        }
-        if (!productRes.ok) {
-          setError(productRes.error || "Не удалось загрузить избранные товары");
-          return;
+    const endpoint = activeTab === "SHOPS"
+      ? `/api/favorites/business?telegramUserId=${encodeURIComponent(telegramUserId)}`
+      : `/api/favorites/product?telegramUserId=${encodeURIComponent(telegramUserId)}`;
+
+    miniAppFetch(endpoint, { signal: request.signal })
+      .then(async (response) => {
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.ok) {
+          throw new Error(
+            result.error ||
+              (activeTab === "SHOPS"
+                ? "Не удалось загрузить избранные заведения"
+                : "Не удалось загрузить избранные товары")
+          );
         }
 
-        setData({
-          favoriteBusinesses: Array.isArray(businessRes.data?.favoriteBusinesses)
-            ? businessRes.data.favoriteBusinesses.filter(Boolean)
-            : [],
-          favoriteItems: Array.isArray(productRes.data?.favoriteProducts || productRes.data?.favoriteItems)
-            ? (productRes.data.favoriteProducts || productRes.data.favoriteItems).filter(Boolean)
-            : [],
-        });
+        const partial: Partial<FavoriteData> = activeTab === "SHOPS"
+          ? {
+              favoriteBusinesses: Array.isArray(result.data?.favoriteBusinesses)
+                ? result.data.favoriteBusinesses.filter(Boolean)
+                : [],
+            }
+          : {
+              favoriteItems: Array.isArray(result.data?.favoriteProducts || result.data?.favoriteItems)
+                ? (result.data.favoriteProducts || result.data.favoriteItems).filter(Boolean)
+                : [],
+            };
+
+        if (!request.isCurrent()) return;
+        setData((current) => ({ ...current, ...partial }));
+        writeMiniAppQueryCache(queryKey, partial, 30_000);
       })
       .catch((e) => {
+        if (request.signal.aborted) return;
         console.error(e);
-        setError("Ошибка связи с сервером");
+        if (request.isCurrent()) {
+          setError(e instanceof Error ? e.message : "Ошибка связи с сервером");
+        }
       })
-      .finally(() => setLoading(false));
-  }, [telegramUserId]);
+      .finally(() => {
+        if (request.isCurrent()) setLoading(false);
+        request.finish();
+      });
 
-  const removeFavorite = async (businessId: string, itemId?: string) => {
+    return () => request.cancel();
+  }, [activeTab, businessId, telegramUserId]);
+
+  const removeFavorite = async (favoriteBusinessId: string, itemId?: string) => {
     if (!telegramUserId) return;
 
     const previous = data;
@@ -70,7 +121,7 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
     } else {
       setData((d) => ({
         ...d,
-        favoriteBusinesses: d.favoriteBusinesses.filter((b) => b.businessId !== businessId),
+        favoriteBusinesses: d.favoriteBusinesses.filter((b) => b.businessId !== favoriteBusinessId),
       }));
     }
 
@@ -80,7 +131,7 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           telegramUserId,
-          ...(itemId ? { productId: itemId } : { businessId }),
+          ...(itemId ? { productId: itemId } : { businessId: favoriteBusinessId }),
         }),
       });
       const resData = await res.json().catch(() => ({}));
@@ -88,6 +139,11 @@ export function ClientFavorites({ telegramUserId }: ClientFavoritesProps) {
       if (!res.ok || resData.ok === false) {
         throw new Error(resData.error || "Не удалось обновить избранное");
       }
+      invalidateMiniAppQueryCache([
+        "client-favorites",
+        businessId,
+        telegramUserId,
+      ]);
     } catch (e) {
       console.error(e);
       setData(previous);

@@ -4,11 +4,32 @@ import { releaseExpiredCourierAssignments } from "@/lib/delivery/delivery-servic
 import { prisma } from "@/lib/prisma";
 import { toJsonSafe } from "@/lib/prisma-schema-guard";
 
-const courierOrderInclude = {
+const courierOrderSelect = {
+  id: true,
+  status: true,
+  deliveryStatus: true,
+  paymentMethod: true,
+  paymentStatus: true,
+  customerName: true,
+  customerPhone: true,
+  customerAddress: true,
+  deliveryCityArea: true,
+  deliveryZoneName: true,
+  itemsSubtotal: true,
+  deliveryFee: true,
+  totalPrice: true,
+  comment: true,
+  createdAt: true,
+  updatedAt: true,
   business: { select: { id: true, slug: true, name: true, address: true, phone: true } },
-  items: true,
-  deliveryZone: true,
-  deliveryAssignment: { include: { courier: true } },
+  items: { select: { id: true, name: true, quantity: true, price: true } },
+  deliveryAssignment: {
+    select: {
+      status: true,
+      deliveredAt: true,
+      courier: { select: { id: true, name: true, phone: true, cityArea: true } },
+    },
+  },
 } as const;
 
 export async function GET(request: NextRequest) {
@@ -32,7 +53,7 @@ export async function GET(request: NextRequest) {
         deliveryStatus: { in: ["NEW", "WAITING_COURIER"] },
         deliveryType: "DELIVERY",
       },
-      include: courierOrderInclude,
+      select: courierOrderSelect,
       orderBy: { createdAt: "asc" },
       take: 20,
     }),
@@ -45,7 +66,7 @@ export async function GET(request: NextRequest) {
           },
         },
       },
-      include: courierOrderInclude,
+      select: courierOrderSelect,
       orderBy: { updatedAt: "desc" },
       take: 20,
     }),
@@ -58,7 +79,7 @@ export async function GET(request: NextRequest) {
           },
         },
       },
-      include: courierOrderInclude,
+      select: courierOrderSelect,
       orderBy: { updatedAt: "desc" },
       take: 20,
     }),
