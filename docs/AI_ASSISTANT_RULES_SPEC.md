@@ -48,7 +48,3 @@
 - status/error без секретов.
 
 Не логируются bot token, service role key, полные платёжные реквизиты и Telegram initData.
-
-## 5. Проверка чека
-
-AI возвращает структурированную подсказку из `PAYMENT_FLOW_SPEC.md`. Любой parse/provider/file error даёт `manual_review`. Статус `PAID` AI не устанавливает.

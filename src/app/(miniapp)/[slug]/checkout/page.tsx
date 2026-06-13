@@ -357,7 +357,13 @@ export default function CheckoutPage() {
       }
     };
 
-    tg.MainButton.setText(phoneVerified ? `Подтвердить заказ на ${formatPrice(total)}` : "🔗 Подтвердить номер для заказа");
+    tg.MainButton.setText(
+      submitting
+        ? "Отправляем заказ…"
+        : phoneVerified
+          ? `Подтвердить заказ на ${formatPrice(total)}`
+          : "🔗 Подтвердить номер для заказа"
+    );
     tg.MainButton.setParams({
       color: business?.primaryColor || "#3B82F6",
       text_color: "#FFFFFF",
@@ -824,7 +830,7 @@ export default function CheckoutPage() {
               className="w-full py-6 text-sm font-black rounded-2xl text-white shadow-md hover:brightness-110 transition active:scale-[0.98] disabled:opacity-50"
               style={{ backgroundColor: business.primaryColor }}
             >
-              {submitting ? "⏳ Оформляем..." : `Подтвердить заказ на ${formatPrice(total)}`}
+              {submitting ? "Отправляем заказ…" : `Подтвердить заказ на ${formatPrice(total)}`}
             </Button>
           ) : (
             <Button

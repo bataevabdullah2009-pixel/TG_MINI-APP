@@ -6,22 +6,25 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 const requirements = {
-  tables: ["User", "Business", "Category", "Item", "Customer", "Order", "OrderAttempt", "OrderItem", "Booking", "Payment", "AIUsageLog", "AICache"],
+  tables: ["User", "Business", "Category", "Item", "Customer", "Order", "OrderAttempt", "OrderItem", "Booking", "Payment", "AIUsageLog", "AICache", "TelegramChatContext"],
   columns: {
-    User: ["phone", "phoneVerified", "phoneVerifiedAt", "telegramId", "username", "telegramLinkCode", "telegramLinkExpiresAt", "businessId", "isActive"],
+    User: ["phone", "phoneVerified", "phoneVerifiedAt", "telegramId", "username", "telegramLinkCode", "telegramLinkExpiresAt", "businessId", "lastBusinessId", "isActive"],
     Business: ["isOpen", "isDemo", "transferPaymentEnabled", "transferBankName", "transferPaymentPhone", "transferRecipientName", "transferPaymentCommentRequired", "transferPaymentInstructions"],
     Customer: ["userId", "phone", "address", "phoneVerified", "verificationMethod", "totalOrders", "totalSpent", "bonusBalance", "isBlocked", "blockReason"],
-    Order: ["paymentMethod", "paymentStatus", "paymentProofUrl", "paymentProofAiStatus", "paymentProofAiSummary", "paymentProofAiConfidence", "paymentReviewedAt", "paymentReviewedBy", "paymentRejectReason", "expiredAt", "expireReason"],
+    Order: ["idempotencyKey", "paymentMethod", "paymentStatus", "paymentProofUrl", "paymentProofFileName", "paymentProofMimeType", "paymentReviewedAt", "paymentReviewedBy", "paymentRejectReason", "itemsSubtotal", "discountAmount", "deliveryFee", "stockRestoredAt", "expiredAt", "expireReason"],
     Booking: ["expiredAt", "expireReason"],
   },
   enums: {
     OrderStatus: ["EXPIRED"],
     BookingStatus: ["PENDING", "EXPIRED"],
-    PaymentStatus: ["AWAITING_REVIEW", "REJECTED"],
+    PaymentStatus: ["AWAITING_REVIEW", "PAYMENT_REJECTED", "REJECTED"],
   },
 };
 
 function patchFor(target) {
+  if (target === "TelegramChatContext" || target === "User.lastBusinessId" || target === "Order.idempotencyKey" || target === "Order.stockRestoredAt") {
+    return "docs/manual-stabilize-checkout-analytics-agent.sql";
+  }
   if (target === "Business.isOpen") return "docs/manual-add-business-is-open.sql";
   if (target === "Business.isDemo") return "docs/manual-add-business-is-demo.sql";
   if (target === "OrderAttempt" || /^(Business\.transfer|Customer\.(isBlocked|blockReason)|Order\.payment)/.test(target)) {

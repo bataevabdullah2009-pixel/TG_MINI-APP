@@ -19,6 +19,7 @@ const CHECKOUT_PATCH = "docs/manual-hotfix-polza-checkout-payment-flow.sql";
 const EXPIRATION_PATCH = "docs/manual-expire-bookings-orders.sql";
 const DELIVERY_PATCH = "docs/manual-courier-direct-links.sql";
 const PRODUCTION_STABILITY_PATCH = "docs/production-stability.sql";
+const MVP_STABILIZATION_PATCH = "docs/manual-stabilize-checkout-analytics-agent.sql";
 
 const REQUIRED_TABLES = [
   "User",
@@ -50,6 +51,7 @@ const REQUIRED_TABLES = [
   "Courier",
   "DeliveryZone",
   "DeliveryAssignment",
+  "TelegramChatContext",
 ] as const;
 
 const REQUIRED_COLUMNS = [
@@ -63,6 +65,7 @@ const REQUIRED_COLUMNS = [
     patch: BASE_SCHEMA_PATCH,
     columns: ["telegramId", "username", "telegramLinkCode", "telegramLinkExpiresAt", "businessId", "isActive"],
   },
+  { table: "User", patch: MVP_STABILIZATION_PATCH, columns: ["lastBusinessId"] },
   {
     table: "Business",
     patch: BASE_SCHEMA_PATCH,
@@ -104,13 +107,15 @@ const REQUIRED_COLUMNS = [
       "paymentProofUrl",
       "paymentProofFileName",
       "paymentProofMimeType",
-      "paymentProofAiStatus",
-      "paymentProofAiSummary",
-      "paymentProofAiConfidence",
       "paymentReviewedAt",
       "paymentReviewedBy",
       "paymentRejectReason",
     ],
+  },
+  {
+    table: "Order",
+    patch: MVP_STABILIZATION_PATCH,
+    columns: ["idempotencyKey", "stockRestoredAt"],
   },
   { table: "Order", patch: EXPIRATION_PATCH, columns: ["expiredAt", "expireReason"] },
   {
@@ -149,7 +154,7 @@ const REQUIRED_ENUMS = [
     values: ["NONE", "NEW", "WAITING_COURIER", "ASSIGNED", "ACCEPTED_BY_COURIER", "PICKED_UP", "DELIVERED", "CANCELLED", "EXPIRED"],
   },
   { enum: "BookingStatus", patch: EXPIRATION_PATCH, values: ["PENDING", "EXPIRED"] },
-  { enum: "PaymentStatus", patch: PRODUCTION_STABILITY_PATCH, values: ["AWAITING_REVIEW", "PAYMENT_REJECTED"] },
+  { enum: "PaymentStatus", patch: MVP_STABILIZATION_PATCH, values: ["AWAITING_REVIEW", "PAYMENT_REJECTED", "REJECTED"] },
 ] as const;
 
 function configuredDatabaseName(value?: string) {
@@ -210,6 +215,8 @@ export async function runDatabaseDiagnostics() {
         table,
         patch: table === "OrderAttempt"
           ? CHECKOUT_PATCH
+          : table === "TelegramChatContext"
+            ? MVP_STABILIZATION_PATCH
           : ["Courier", "DeliveryZone", "DeliveryAssignment"].includes(table)
             ? DELIVERY_PATCH
             : BASE_SCHEMA_PATCH,

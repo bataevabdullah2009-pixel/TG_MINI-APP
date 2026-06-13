@@ -113,6 +113,10 @@ export default function MarketplacePage() {
     // Resolve URL query overrides (?mode=seller or ?mode=super)
     const searchParams = new URLSearchParams(window.location.search);
     const modeParam = searchParams.get("mode")?.toUpperCase();
+    const tabParam = searchParams.get("tab")?.toUpperCase();
+    if (tabParam === "ORDERS" || tabParam === "FAVORITES" || tabParam === "PROFILE") {
+      setActiveClientTab(tabParam);
+    }
 
     // Check Telegram initData
     const initData = tg?.initData || "";

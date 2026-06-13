@@ -62,7 +62,11 @@ function safeText(value: string | null | undefined) {
 }
 
 function normalizeText(text: string) {
-  return text.toLowerCase().replace(/[?!.,;:()[\]{}"«»]/g, " ").replace(/\s+/g, " ").trim();
+  return text.toLowerCase().replace(/ё/g, "е").replace(/[?!.,;:()[\]{}"«»]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function includesAny(text: string, terms: string[]) {
+  return terms.some((term) => text.includes(term));
 }
 
 function formatPrice(value: number) {
@@ -93,25 +97,28 @@ export const buildProductOpenButton = buildOpenProductButton;
 export function detectMarketplaceIntent(text: string): MarketplaceIntent {
   const normalized = normalizeText(text);
 
-  if (/\b(заказ|заказы)\b/.test(normalized) && /\b(статус|где|мой|мои|готов|достав)\w*/.test(normalized)) {
+  if (includesAny(normalized, ["заказ"]) && includesAny(normalized, ["статус", "где", "мой", "мои", "готов", "достав"])) {
     return "order_status";
   }
-  if (/\b(доставк|зона|район|привез)\w*/.test(normalized)) return "delivery_info";
-  if (/\b(оплат|перевод|наличн|карта|чек)\w*/.test(normalized)) return "payment_info";
-  if (/\b(работаете|работает|открыт|закрыт|график|часы)\w*/.test(normalized)) return "working_hours";
-  if (/\b(запис|брон|услуг|мастер)\w*/.test(normalized)) return "booking_info";
+  if (includesAny(normalized, ["достав", "зона", "район", "привез"])) return "delivery_info";
+  if (includesAny(normalized, ["оплат", "перевод", "наличн", "карта", "чек"])) return "payment_info";
+  if (includesAny(normalized, ["работаете", "работает", "открыт", "закрыт", "график", "часы"])) return "working_hours";
+  if (includesAny(normalized, ["запис", "брон", "услуг", "мастер"])) return "booking_info";
   if (
-    /\b(какие|список|покажи)\b.*\b(магазин|бизнес|заведен)\w*/.test(normalized) ||
+    (includesAny(normalized, ["какие", "список", "покажи"]) &&
+      includesAny(normalized, ["магазин", "бизнес", "заведен"])) ||
     normalized.includes("что есть в витрине")
   ) {
     return "marketplace_list_businesses";
   }
-  if (/\b(адрес|телефон|контакт|о магазине|о бизнесе)\b/.test(normalized)) return "business_info";
+  if (includesAny(normalized, ["адрес", "телефон", "контакт", "связаться", "продавец", "о магазине", "о бизнесе"])) {
+    return "business_info";
+  }
   if (
     normalized === "что есть" ||
     normalized.includes("что есть у вас") ||
     normalized.includes("что есть в магазине") ||
-    /\b(есть|найди|ищу|товар|цена|сколько стоит)\b/.test(normalized)
+    includesAny(normalized, ["есть", "найди", "ищу", "товар", "цена", "сколько стоит"])
   ) {
     return "product_search";
   }
@@ -119,9 +126,24 @@ export function detectMarketplaceIntent(text: string): MarketplaceIntent {
 }
 
 function extractProductQuery(text: string) {
-  return normalizeText(text)
-    .replace(/\b(есть ли у вас|у вас есть|есть ли|покажи|найди|ищу|нужен|нужна|нужно|товар|в наличии|сколько стоит)\b/g, " ")
-    .replace(/\b(пожалуйста|сейчас)\b/g, " ")
+  const phrases = [
+    "есть ли у вас",
+    "у вас есть",
+    "сколько стоит",
+    "есть ли",
+    "в наличии",
+    "пожалуйста",
+    "покажи",
+    "найди",
+    "ищу",
+    "нужен",
+    "нужна",
+    "нужно",
+    "товар",
+    "сейчас",
+  ];
+  return phrases
+    .reduce((query, phrase) => query.split(phrase).join(" "), normalizeText(text))
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -206,6 +228,7 @@ const productSelect = {
   id: true,
   businessId: true,
   name: true,
+  description: true,
   price: true,
   stockMode: true,
   stock: true,
@@ -217,43 +240,113 @@ const productSelect = {
 
 type AgentProduct = Prisma.ItemGetPayload<{ select: typeof productSelect }>;
 
-export async function searchProductsAcrossBusinesses(query: string): Promise<AgentProduct[]> {
-  return prisma.item.findMany({
-    where: {
-      type: "PRODUCT",
-      isAvailable: true,
-      archivedAt: null,
-      OR: [
-        { stockMode: "SIMPLE_AVAILABILITY" },
-        { stock: { gt: 0 } },
-      ],
-      name: { contains: query, mode: "insensitive" },
-      business: {
-        ...ACTIVE_BUSINESS_FILTER,
-      },
-    },
-    select: productSelect,
-    orderBy: [{ isPopular: "desc" }, { sortOrder: "asc" }],
-    take: 5,
-  });
+const PRODUCT_SEARCH_STOP_WORDS = new Set([
+  "а", "в", "вы", "для", "есть", "и", "ли", "мне", "на", "нужен", "нужна",
+  "нужно", "покажи", "товар", "у", "хочу", "цена", "сколько", "стоит",
+]);
+
+const RUSSIAN_ENDINGS = [
+  "иями", "ями", "ами", "ого", "ему", "ому", "ыми", "ими", "ий", "ый", "ая",
+  "яя", "ое", "ее", "ые", "ие", "ов", "ев", "ам", "ям", "ах", "ях", "ки",
+  "ка", "ку", "ок", "ек", "ы", "и", "а", "я", "у", "ю",
+];
+
+function productSearchTerms(query: string) {
+  const terms = new Set<string>();
+  for (const token of normalizeText(query).split(" ")) {
+    if (token.length < 2 || PRODUCT_SEARCH_STOP_WORDS.has(token)) continue;
+    terms.add(token);
+    const ending = RUSSIAN_ENDINGS.find((candidate) => token.endsWith(candidate) && token.length - candidate.length >= 4);
+    if (ending) terms.add(token.slice(0, -ending.length));
+  }
+  return [...terms].slice(0, 6);
 }
 
 export async function searchProductsInBusiness(businessId: string, query: string): Promise<AgentProduct[]> {
-  return prisma.item.findMany({
+  const terms = productSearchTerms(query);
+  const products = await prisma.item.findMany({
     where: {
       businessId,
       type: "PRODUCT",
       isAvailable: true,
       archivedAt: null,
-      OR: [
-        { stockMode: "SIMPLE_AVAILABILITY" },
-        { stock: { gt: 0 } },
+      AND: [
+        {
+          OR: [
+            { stockMode: "SIMPLE_AVAILABILITY" },
+            { stockMode: "TRACK_STOCK", stock: { gt: 0 } },
+          ],
+        },
+        ...(terms.length
+          ? [{
+              OR: terms.flatMap((term) => [
+                { name: { contains: term, mode: "insensitive" as const } },
+                { description: { contains: term, mode: "insensitive" as const } },
+                {
+                  category: {
+                    is: {
+                      isActive: true,
+                      name: { contains: term, mode: "insensitive" as const },
+                    },
+                  },
+                },
+              ]),
+            }]
+          : []),
       ],
-      ...(query ? { name: { contains: query, mode: "insensitive" } } : {}),
     },
     select: productSelect,
     orderBy: [{ isPopular: "desc" }, { sortOrder: "asc" }],
-    take: 5,
+    take: terms.length ? 30 : 5,
+  });
+
+  if (!terms.length) return products.slice(0, 5);
+
+  return products
+    .map((product) => {
+      const name = normalizeText(product.name);
+      const description = normalizeText(product.description || "");
+      const category = normalizeText(product.category?.name || "");
+      const score = terms.reduce((total, term) => {
+        if (name === term) return total + 12;
+        if (name.startsWith(term)) return total + 8;
+        if (name.includes(term)) return total + 6;
+        if (category.includes(term)) return total + 3;
+        if (description.includes(term)) return total + 1;
+        return total;
+      }, product.isPopular ? 1 : 0);
+      return { product, score };
+    })
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 5)
+    .map(({ product }) => product);
+}
+
+export const searchProducts = searchProductsInBusiness;
+
+export async function getBusinessContext(businessId: string) {
+  return prisma.business.findFirst({
+    where: { id: businessId, ...ACTIVE_BUSINESS_FILTER },
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      description: true,
+      address: true,
+      phone: true,
+      isOpen: true,
+      workingHours: {
+        select: { dayOfWeek: true, openTime: true, closeTime: true, isClosed: true },
+        orderBy: { dayOfWeek: "asc" },
+      },
+    },
+  });
+}
+
+export async function getBusinessContact(businessId: string) {
+  return prisma.business.findFirst({
+    where: { id: businessId, ...ACTIVE_BUSINESS_FILTER },
+    select: { id: true, slug: true, name: true, description: true, address: true, phone: true },
   });
 }
 
@@ -265,7 +358,7 @@ export async function getBusinessDeliveryInfo(businessId: string) {
       phone: true,
       settings: { select: { deliveryEnabled: true, deliveryFee: true, deliveryTime: true } },
       deliveryZones: {
-        where: { isActive: true },
+        where: { isActive: true, archivedAt: null },
         select: { name: true, cityArea: true, fee: true, estimatedMinutes: true },
         orderBy: { fee: "asc" },
         take: 20,
@@ -273,6 +366,8 @@ export async function getBusinessDeliveryInfo(businessId: string) {
     },
   });
 }
+
+export const getDeliveryInfo = getBusinessDeliveryInfo;
 
 export async function getBusinessPaymentInfo(businessId: string) {
   return prisma.business.findUnique({
@@ -318,6 +413,8 @@ export async function getCustomerOrders(telegramUserId: string) {
     take: 5,
   });
 }
+
+export const getUserOrders = getCustomerOrders;
 
 export async function getOrderStatus(orderCode: string, telegramUserId: string) {
   const normalizedCode = orderCode.replace(/^#/, "").trim();
@@ -571,38 +668,32 @@ export async function runTelegramMarketplaceAgent(input: {
     }
     const isBroadQuestion = !query || ["что есть", "что есть в магазине", "что есть у вас в магазине"].includes(normalizeText(input.text));
 
-    if (!business && isBroadQuestion) {
+    if (!business) {
       return businessesResponse(await listActiveBusinesses());
     }
 
-    const products = business
-      ? await searchProductsInBusiness(business.id, isBroadQuestion ? "" : query)
-      : await searchProductsAcrossBusinesses(query);
-    const toolName = business ? "searchProductsInBusiness" : "searchProductsAcrossBusinesses";
+    const products = await searchProducts(business.id, isBroadQuestion ? "" : query);
+    const toolName = "searchProducts";
 
     if (query) {
       await saveLastProductQuery({
         telegramUserId: input.telegramUserId,
-        businessId: business?.id,
+        businessId: business.id,
         lastProductQuery: query,
       });
     }
 
     if (products.length === 0) {
       return {
-        text: business
-          ? `В магазине ${safeText(business.name)} не нашёл товар «${safeText(query)}».`
-          : `Во всех активных магазинах не нашёл товар «${safeText(query)}».`,
+        text: `В магазине ${safeText(business.name)} не нашёл товар «${safeText(query)}». Откройте каталог или свяжитесь с продавцом.`,
         detectedIntent,
         toolsCalled: [toolName],
         responseSource: "database",
         button: {
           text: "Открыть каталог",
-          url: business ? businessUrl(business.slug) : buildMiniAppUrl(),
+          url: businessUrl(business.slug),
         },
-        buttons: business
-          ? [{ ...buildBusinessOpenButton(business.slug), text: `Открыть ${business.name}` }]
-          : [{ text: "Открыть Vitrina AI", url: buildMiniAppUrl() }],
+        buttons: [{ ...buildBusinessOpenButton(business.slug), text: `Открыть ${business.name}` }],
       };
     }
 
@@ -639,11 +730,11 @@ export async function runTelegramMarketplaceAgent(input: {
         detectedIntent,
         toolsCalled: ["getOrderStatus"],
         responseSource: "database",
-        button: { text: "Открыть мои заказы", url: buildMiniAppUrl("/app/profile") },
+        button: { text: "Открыть мои заказы", url: buildMiniAppUrl("/app?tab=orders") },
       };
     }
 
-    const orders = await getCustomerOrders(input.telegramUserId);
+    const orders = await getUserOrders(input.telegramUserId);
     return {
       text: orders.length
         ? ["Ваши последние заказы:", ...orders.map((order) =>
@@ -651,9 +742,9 @@ export async function runTelegramMarketplaceAgent(input: {
           )].join("\n")
         : "У вас пока нет заказов.",
       detectedIntent,
-      toolsCalled: ["getCustomerOrders"],
+      toolsCalled: ["getUserOrders"],
       responseSource: "database",
-      button: { text: "Открыть мои заказы", url: buildMiniAppUrl("/app/profile") },
+      button: { text: "Открыть мои заказы", url: buildMiniAppUrl("/app?tab=orders") },
     };
   }
 
@@ -667,7 +758,7 @@ export async function runTelegramMarketplaceAgent(input: {
   }
 
   if (detectedIntent === "delivery_info") {
-    const delivery = await getBusinessDeliveryInfo(business.id);
+    const delivery = await getDeliveryInfo(business.id);
     const zones = delivery?.deliveryZones || [];
     return {
       text: delivery?.settings?.deliveryEnabled && zones.length
@@ -679,7 +770,7 @@ export async function runTelegramMarketplaceAgent(input: {
           ].join("\n")
         : `У этого магазина доставка пока не настроена.${delivery?.phone ? ` Можно связаться с продавцом: ${safeText(delivery.phone)}.` : ""}`,
       detectedIntent,
-      toolsCalled: ["getBusinessDeliveryInfo"],
+      toolsCalled: ["getDeliveryInfo"],
       responseSource: "database",
       button: { text: "Открыть магазин", url: businessUrl(business.slug) },
     };
@@ -735,7 +826,7 @@ export async function runTelegramMarketplaceAgent(input: {
   }
 
   if (detectedIntent === "business_info") {
-    const freshBusiness = await getBusinessBySlug(business.slug);
+    const freshBusiness = await getBusinessContact(business.id);
     return {
       text: [
         safeText(freshBusiness?.name || business.name),
@@ -744,17 +835,21 @@ export async function runTelegramMarketplaceAgent(input: {
         freshBusiness?.phone ? `Телефон: ${safeText(freshBusiness.phone)}` : null,
       ].filter(Boolean).join("\n"),
       detectedIntent,
-      toolsCalled: ["getBusinessBySlug"],
+      toolsCalled: ["getBusinessContact"],
       responseSource: "database",
       button: { text: "Открыть магазин", url: businessUrl(business.slug) },
     };
   }
 
+  const contact = await getBusinessContact(business.id);
   return {
-    text: `Я помощник Vitrina AI по магазину ${safeText(business.name)}. Могу найти товар, показать доставку, оплату, график или статус вашего заказа.`,
+    text: [
+      `Не нашёл точных данных по вопросу в магазине ${safeText(business.name)}.`,
+      contact?.phone ? `Телефон продавца: ${safeText(contact.phone)}.` : "Откройте магазин, чтобы посмотреть актуальную информацию.",
+    ].join(" "),
     detectedIntent,
-    toolsCalled: [],
-    responseSource: "rules",
+    toolsCalled: ["getBusinessContact"],
+    responseSource: "database",
     button: { text: "Открыть магазин", url: businessUrl(business.slug) },
   };
 }

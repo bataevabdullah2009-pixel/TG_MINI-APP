@@ -222,14 +222,16 @@ export async function GET(
       transferPaymentInstructions: "transferPaymentInstructions" in business ? business.transferPaymentInstructions : null,
     };
 
-    return finishTiming(NextResponse.json({
+    const response = NextResponse.json({
       ok: true,
       business: normalizedBusiness,
       categories: business.categories,
       items: business.items,
       staff: business.staff,
       schemaFallback: usedSchemaFallback,
-    }));
+    });
+    response.headers.set("Cache-Control", "public, s-maxage=30, stale-while-revalidate=60");
+    return finishTiming(response);
   } catch (error) {
     const classification = classifyDatabaseError(error);
     warnPrismaSchemaDrift(`Catalog ${slug} failed`, error);

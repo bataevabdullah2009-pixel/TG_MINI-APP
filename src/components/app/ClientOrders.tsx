@@ -105,6 +105,12 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
     }
   };
 
+  const getTransferPaymentStatus = (status: string) => {
+    if (status === "PAID") return "Оплата подтверждена";
+    if (status === "PAYMENT_REJECTED" || status === "REJECTED") return "Оплата отклонена";
+    return "Ожидает проверки продавцом";
+  };
+
   return (
     <div className="px-4 py-5 text-slate-900 pb-24">
       <div className="mb-5">
@@ -233,9 +239,25 @@ export function ClientOrders({ telegramUserId }: ClientOrdersProps) {
                               {order.deliveryAssignment?.courier && <div className="font-bold text-indigo-700">Курьер: {order.deliveryAssignment.courier.name}</div>}
                             </div>
                           )}
-                          {(order.paymentStatus === "PAYMENT_REJECTED" || order.paymentStatus === "REJECTED") && (
-                            <div className="mt-2 rounded-xl bg-rose-50 p-2 font-bold text-rose-700 ring-1 ring-rose-100">
-                              Оплата отклонена продавцом. {order.paymentRejectReason || "Свяжитесь с продавцом или загрузите корректный чек."}
+                          {order.paymentMethod === "TRANSFER" && (
+                            <div className="mt-2 space-y-1 rounded-xl bg-amber-50 p-2 font-bold text-amber-900 ring-1 ring-amber-100">
+                              <div>Оплата переводом</div>
+                              <div>Ожидаемая сумма: {order.totalPrice} ₽</div>
+                              <div>{getTransferPaymentStatus(order.paymentStatus)}</div>
+                              {order.paymentProofUrl && (
+                                <a
+                                  href={order.paymentProofUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="inline-flex text-indigo-600 underline"
+                                >
+                                  Открыть чек
+                                </a>
+                              )}
+                              {(order.paymentStatus === "PAYMENT_REJECTED" || order.paymentStatus === "REJECTED") && order.paymentRejectReason && (
+                                <div className="text-rose-700">{order.paymentRejectReason}</div>
+                              )}
                             </div>
                           )}
                           {order.comment && (

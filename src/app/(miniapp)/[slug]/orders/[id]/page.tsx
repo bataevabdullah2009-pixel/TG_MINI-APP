@@ -27,6 +27,10 @@ interface Order {
   deliveryZoneName?: string;
   deliveryCityArea?: string;
   deliveryAssignment?: { courier?: { name: string; phone: string } };
+  paymentMethod?: string;
+  paymentStatus?: string;
+  paymentProofUrl?: string;
+  paymentRejectReason?: string;
   status: string;
   deliveryType: string;
   comment?: string;
@@ -119,6 +123,12 @@ export default function OrderStatusPage() {
   const currentStepIdx = STATUS_ORDER.indexOf(order.status);
 
   const shortId = order.id.slice(-6).toUpperCase();
+  const transferPaymentStatus =
+    order.paymentStatus === "PAID"
+      ? "Оплата подтверждена"
+      : order.paymentStatus === "PAYMENT_REJECTED" || order.paymentStatus === "REJECTED"
+        ? "Оплата отклонена"
+        : "Ожидает проверки продавцом";
 
   return (
     <div className="pb-24">
@@ -239,6 +249,28 @@ export default function OrderStatusPage() {
         </div>
 
         {/* Delivery Info */}
+        {order.paymentMethod === "TRANSFER" && (
+          <div className="rounded-2xl bg-amber-50 p-4 shadow-sm ring-1 ring-amber-100">
+            <h2 className="font-bold">Оплата переводом</h2>
+            <p className="mt-2 text-sm">Ожидаемая сумма: {formatPrice(order.totalPrice)}</p>
+            <p className="mt-1 text-sm font-medium">{transferPaymentStatus}</p>
+            {order.paymentProofUrl && (
+              <a
+                href={order.paymentProofUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex text-sm font-semibold underline"
+                style={{ color: business.primaryColor }}
+              >
+                Открыть чек
+              </a>
+            )}
+            {order.paymentRejectReason && (
+              <p className="mt-2 text-sm text-red-700">{order.paymentRejectReason}</p>
+            )}
+          </div>
+        )}
+
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <h2 className="font-bold mb-3">📦 Информация</h2>
           <div className="space-y-2 text-sm">

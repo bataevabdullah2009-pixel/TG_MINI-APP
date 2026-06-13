@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { telegramBot } from "@/lib/telegram-bot-service";
 import {
   buildCourierPanelUrl,
+  buildMiniAppUrl,
   buildSellerPanelUrl,
   buildTelegramBotStartUrl,
 } from "@/lib/production-url";
@@ -191,7 +192,15 @@ export class NotificationService {
 
     await telegramBot.sendNotification(
       order.customer.telegramUserId.toString(),
-      `${order.business.name}: статус вашего заказа #${order.id.slice(-6).toUpperCase()} изменён на: ${orderStatusRu[order.status] || order.status}`
+      `${order.business.name}: статус вашего заказа #${order.id.slice(-6).toUpperCase()} изменён на: ${orderStatusRu[order.status] || order.status}`,
+      {
+        reply_markup: {
+          inline_keyboard: [[{
+            text: "Открыть мои заказы",
+            web_app: { url: buildMiniAppUrl("/app?tab=orders") },
+          }]],
+        },
+      }
     );
   }
 

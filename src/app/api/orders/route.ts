@@ -4,14 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { getAdminSession } from "@/lib/admin-auth";
 import { NotificationService } from "@/lib/notifications/notification-service";
 import { ensureTelegramUser } from "@/lib/auth/telegram-user-service";
-import {
-  processPaymentProofAnalysis,
-  recoverStalePaymentProofChecks,
-} from "@/lib/ai/payment-proof-service";
-import {
-  isPaymentProofAiConfigured,
-  PAYMENT_PROOF_CONFIG_SUMMARY,
-} from "@/lib/ai/payment-proof-analyzer";
 import { getTelegramSessionUser, parseTelegramInitData } from "@/lib/auth-telegram";
 import { classifyDatabaseError, isBusinessIsDemoMissingColumnError, isPrismaMissingColumnError, warnPrismaSchemaDrift, toJsonSafe } from "@/lib/prisma-schema-guard";
 import { isStrictRuPhoneInput, normalizeRuPhone, validateCustomerName } from "@/lib/phone/phone-utils";
@@ -22,6 +14,7 @@ const ORDER_ERROR = "Не удалось оформить заказ. Прове
 const PHONE_VERIFICATION_ERROR = "Для оформления заказа подтвердите номер телефона.";
 const PHONE_MISMATCH_ERROR = "Номер телефона не совпадает с подтверждённым Telegram-номером.";
 const RATE_LIMIT_ERROR = "Слишком много попыток. Попробуйте позже.";
+const CHECKOUT_SCHEMA_ERROR = "Оформление заказа временно недоступно: база данных требует обновления.";
 
 const checkoutBusinessLegacySelect = {
   id: true,
@@ -42,11 +35,6 @@ const checkoutBusinessSelect = {
 } as const;
 
 type CheckoutBusiness = Prisma.BusinessGetPayload<{ select: typeof checkoutBusinessSelect }>;
-
-const checkoutOrderInclude = {
-  items: true,
-  business: { select: { name: true, slug: true } },
-} as const;
 
 const legacyCheckoutOrderSelect = {
   id: true,
@@ -76,9 +64,6 @@ const paymentCheckoutLegacySelect = {
   paymentMethod: true,
   paymentStatus: true,
   paymentProofUrl: true,
-  paymentProofAiStatus: true,
-  paymentProofAiSummary: true,
-  paymentProofAiConfidence: true,
   paymentReviewedAt: true,
   paymentReviewedBy: true,
   paymentRejectReason: true,
@@ -98,7 +83,6 @@ const paymentCheckoutOrderSelect = {
   deliveryCityArea: true,
   paymentProofFileName: true,
   paymentProofMimeType: true,
-  paymentProofAiDetails: true,
   stockRestoredAt: true,
 } as const;
 
@@ -138,7 +122,7 @@ const adminOrdersSelect = {
   },
 } as const;
 
-type CurrentCheckoutOrder = Prisma.OrderGetPayload<{ include: typeof checkoutOrderInclude }>;
+type CurrentCheckoutOrder = Prisma.OrderGetPayload<{ select: typeof paymentCheckoutOrderSelect }>;
 type LegacyCheckoutOrder = Prisma.OrderGetPayload<{ select: typeof legacyCheckoutOrderSelect }>;
 type LegacyPaymentCheckoutOrder = Prisma.OrderGetPayload<{ select: typeof paymentCheckoutLegacySelect }>;
 type CheckoutOrderResult = CurrentCheckoutOrder | LegacyPaymentCheckoutOrder | LegacyCheckoutOrder;
@@ -192,19 +176,21 @@ class CheckoutConflictError extends Error {
 }
 
 function normalizeCheckoutOrder(orderResult: CheckoutOrderResult) {
+  const publicOrder = { ...(orderResult as unknown as Record<string, unknown>) };
+  delete publicOrder.paymentProofAiStatus;
+  delete publicOrder.paymentProofAiSummary;
+  delete publicOrder.paymentProofAiConfidence;
+  delete publicOrder.paymentProofAiResult;
+  delete publicOrder.paymentProofAiDetails;
+
   return {
-    ...orderResult,
+    ...publicOrder,
     idempotencyKey: "idempotencyKey" in orderResult ? orderResult.idempotencyKey : null,
     paymentMethod: "paymentMethod" in orderResult ? orderResult.paymentMethod : "CASH",
     paymentStatus: "paymentStatus" in orderResult ? orderResult.paymentStatus : "PENDING",
     paymentProofUrl: "paymentProofUrl" in orderResult ? orderResult.paymentProofUrl : null,
     paymentProofFileName: "paymentProofFileName" in orderResult ? orderResult.paymentProofFileName : null,
     paymentProofMimeType: "paymentProofMimeType" in orderResult ? orderResult.paymentProofMimeType : null,
-    paymentProofAiStatus: "paymentProofAiStatus" in orderResult ? orderResult.paymentProofAiStatus : null,
-    paymentProofAiSummary: "paymentProofAiSummary" in orderResult ? orderResult.paymentProofAiSummary : null,
-    paymentProofAiConfidence: "paymentProofAiConfidence" in orderResult ? orderResult.paymentProofAiConfidence : null,
-    paymentProofAiResult: "paymentProofAiResult" in orderResult ? orderResult.paymentProofAiResult : null,
-    paymentProofAiDetails: "paymentProofAiDetails" in orderResult ? orderResult.paymentProofAiDetails : null,
     paymentReviewedAt: "paymentReviewedAt" in orderResult ? orderResult.paymentReviewedAt : null,
     paymentReviewedBy: "paymentReviewedBy" in orderResult ? orderResult.paymentReviewedBy : null,
     paymentRejectReason: "paymentRejectReason" in orderResult ? orderResult.paymentRejectReason : null,
@@ -340,7 +326,7 @@ export async function POST(request: NextRequest) {
       promoCode,
     } = body;
     const cleanIdempotencyKey = cleanString(idempotencyKey);
-    if (cleanIdempotencyKey && (cleanIdempotencyKey.length < 8 || cleanIdempotencyKey.length > 128)) {
+    if (!cleanIdempotencyKey || cleanIdempotencyKey.length < 8 || cleanIdempotencyKey.length > 128) {
       return orderError("INVALID_IDEMPOTENCY_KEY", "Не удалось подтвердить уникальность заказа. Обновите checkout и попробуйте снова.");
     }
 
@@ -495,7 +481,6 @@ export async function POST(request: NextRequest) {
     }
 
     const requestedPaymentMethod = paymentMethod === "TRANSFER" || paymentMethod === "transfer" ? "TRANSFER" : "CASH";
-    const paymentProofAiConfigured = isPaymentProofAiConfigured();
     if (requestedPaymentMethod === "TRANSFER") {
       if (!business.transferPaymentEnabled) {
         return orderError("TRANSFER_DISABLED", "Оплата переводом сейчас недоступна.");
@@ -703,30 +688,28 @@ export async function POST(request: NextRequest) {
       return orderError("PHONE_MISMATCH", PHONE_MISMATCH_ERROR, 403);
     }
 
-    if (cleanIdempotencyKey) {
-      try {
-        const existingOrder = await prisma.order.findFirst({
-          where: {
-            businessId: business.id,
-            customerId: customer.id,
-            idempotencyKey: cleanIdempotencyKey,
-          },
-          include: checkoutOrderInclude,
-        });
-        if (existingOrder) {
-          const replayedOrder = normalizeCheckoutOrder(existingOrder);
-          return NextResponse.json(toJsonSafe({
-            ...replayedOrder,
-            ok: true,
-            alreadyCreated: true,
-            message: "Заказ уже создан.",
-          }));
-        }
-      } catch (error) {
-        if (!isPrismaMissingColumnError(error, "Order", "idempotencyKey")) throw error;
-        usedCheckoutSchemaFallback = true;
-        warnPrismaSchemaDrift("Checkout idempotency is unavailable until the commercial readiness patch is applied", error);
+    try {
+      const existingOrder = await prisma.order.findFirst({
+        where: {
+          businessId: business.id,
+          customerId: customer.id,
+          idempotencyKey: cleanIdempotencyKey,
+        },
+        select: paymentCheckoutOrderSelect,
+      });
+      if (existingOrder) {
+        const replayedOrder = normalizeCheckoutOrder(existingOrder);
+        return NextResponse.json(toJsonSafe({
+          ...replayedOrder,
+          ok: true,
+          alreadyCreated: true,
+          message: "Заказ уже создан.",
+        }));
       }
+    } catch (error) {
+      if (!isPrismaMissingColumnError(error, "Order", "idempotencyKey")) throw error;
+      warnPrismaSchemaDrift("Checkout idempotency schema is missing", error);
+      return orderError("CHECKOUT_SCHEMA_OUTDATED", CHECKOUT_SCHEMA_ERROR, 503);
     }
 
     const requestedPromoCode = normalizePromoCode(promoCode);
@@ -800,7 +783,7 @@ export async function POST(request: NextRequest) {
     };
     let orderResult: CheckoutOrderResult;
 
-    const createOrderTransaction = (useCurrentSchema: boolean) =>
+    const createOrderTransaction = () =>
       prisma.$transaction(async (tx) => {
         for (const trackedItem of trackedStockItems) {
           const reservation = await tx.item.updateMany({
@@ -809,7 +792,8 @@ export async function POST(request: NextRequest) {
               businessId: business.id,
               isAvailable: true,
               stock: { gte: trackedItem.quantity },
-              ...(useCurrentSchema ? { stockMode: "TRACK_STOCK" as const, archivedAt: null } : {}),
+              stockMode: "TRACK_STOCK" as const,
+              archivedAt: null,
             },
             data: { stock: { decrement: trackedItem.quantity } },
           });
@@ -820,7 +804,7 @@ export async function POST(request: NextRequest) {
             where: {
               id: trackedItem.id,
               stock: { lte: 0 },
-              ...(useCurrentSchema ? { stockMode: "TRACK_STOCK" as const } : {}),
+              stockMode: "TRACK_STOCK" as const,
             },
             data: { isAvailable: false },
           });
@@ -849,48 +833,21 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        if (useCurrentSchema) {
-          return tx.order.create({
-            data: {
-              ...baseOrderData,
-              paymentMethod: requestedPaymentMethod,
-              paymentStatus: requestedPaymentMethod === "TRANSFER" ? "AWAITING_REVIEW" : "PENDING",
-              paymentProofUrl: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofUrl) : null,
-              paymentProofFileName: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofFileName) || null : null,
-              paymentProofMimeType: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofMimeType) || null : null,
-              paymentProofAiStatus: requestedPaymentMethod === "TRANSFER"
-                ? cleanString(paymentProofMimeType).startsWith("image/") && paymentProofAiConfigured
-                  ? "AI_CHECKING"
-                  : "MANUAL_REVIEW"
-                : null,
-              paymentProofAiSummary: requestedPaymentMethod === "TRANSFER" && !paymentProofAiConfigured
-                ? PAYMENT_PROOF_CONFIG_SUMMARY
-                : null,
-            },
-            include: checkoutOrderInclude,
-          });
-        }
-
-        return requestedPaymentMethod === "TRANSFER"
-          ? tx.order.create({
-              data: {
-                ...legacyBaseOrderData,
-                paymentMethod: "TRANSFER",
-                paymentStatus: "AWAITING_REVIEW",
-                paymentProofUrl: cleanString(paymentProofUrl),
-                paymentProofAiStatus: "MANUAL_REVIEW",
-                paymentProofAiSummary: paymentProofAiConfigured ? null : PAYMENT_PROOF_CONFIG_SUMMARY,
-              },
-              select: paymentCheckoutLegacySelect,
-            })
-          : tx.order.create({
-              data: legacyBaseOrderData,
-              select: legacyCheckoutOrderSelect,
-            });
+        return tx.order.create({
+          data: {
+            ...baseOrderData,
+            paymentMethod: requestedPaymentMethod,
+            paymentStatus: requestedPaymentMethod === "TRANSFER" ? "AWAITING_REVIEW" : "PENDING",
+            paymentProofUrl: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofUrl) : null,
+            paymentProofFileName: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofFileName) || null : null,
+            paymentProofMimeType: requestedPaymentMethod === "TRANSFER" ? cleanString(paymentProofMimeType) || null : null,
+          },
+          select: paymentCheckoutOrderSelect,
+        });
       });
 
     try {
-      orderResult = await createOrderTransaction(true);
+      orderResult = await createOrderTransaction();
     } catch (error) {
       if (error instanceof CheckoutConflictError) {
         if (error.code === "OUT_OF_STOCK") {
@@ -898,10 +855,10 @@ export async function POST(request: NextRequest) {
         }
         return orderError("PROMO_CODE_INVALID", "Лимит использований промокода исчерпан.", 409);
       }
-      if (isUniqueConstraintError(error) && cleanIdempotencyKey) {
+      if (isUniqueConstraintError(error)) {
         const existingOrder = await prisma.order.findFirst({
           where: { businessId: business.id, customerId: customer.id, idempotencyKey: cleanIdempotencyKey },
-          include: checkoutOrderInclude,
+          select: paymentCheckoutOrderSelect,
         });
         if (existingOrder) {
           const replayedOrder = normalizeCheckoutOrder(existingOrder);
@@ -914,12 +871,8 @@ export async function POST(request: NextRequest) {
         }
       }
       if (!isPrismaMissingColumnError(error)) throw error;
-      if (appliedPromo) {
-        return orderError("PROMO_CODE_UNAVAILABLE", "Промокоды станут доступны после обновления базы данных.", 503);
-      }
-      usedCheckoutSchemaFallback = true;
-      warnPrismaSchemaDrift("Checkout retried without courier/delivery columns", error);
-      orderResult = await createOrderTransaction(false);
+      warnPrismaSchemaDrift("Checkout schema is missing required production columns", error);
+      return orderError("CHECKOUT_SCHEMA_OUTDATED", CHECKOUT_SCHEMA_ERROR, 503);
     }
 
     const order = normalizeCheckoutOrder(orderResult);
@@ -944,41 +897,13 @@ export async function POST(request: NextRequest) {
       warnPrismaSchemaDrift("Order created, but customer counters could not be updated", error);
     }
 
-    if (
-      requestedPaymentMethod === "TRANSFER" &&
-      order.paymentProofUrl &&
-      order.paymentProofAiStatus === "AI_CHECKING"
-    ) {
-      after(async () => {
-        try {
-          await processPaymentProofAnalysis(order.id);
-        } catch (error) {
-          console.error("[PAYMENT PROOF AI] background processing failed:", error);
-          await prisma.order.updateMany({
-            where: {
-              id: order.id,
-              paymentProofAiStatus: { in: ["PENDING", "AI_CHECKING"] },
-              paymentReviewedAt: null,
-            },
-            data: {
-              paymentProofAiStatus: "MANUAL_REVIEW",
-              paymentProofAiSummary: "ИИ не смог проверить чек. Проверьте оплату вручную.",
-              paymentProofAiConfidence: 0,
-              paymentProofAiResult: null,
-              paymentProofAiDetails: null,
-            },
-          }).catch((updateError) => {
-            console.error("[PAYMENT PROOF AI] failed to persist AI_FAILED status:", updateError);
-          });
-        }
-      });
-    }
-
-    try {
-      await NotificationService.notifyBusinessOwnerNewOrder(order.id);
-    } catch (error) {
-      console.error("[ORDER NOTIFICATION] Order created, but seller notification failed:", error);
-    }
+    after(async () => {
+      try {
+        await NotificationService.notifyBusinessOwnerNewOrder(orderResult.id);
+      } catch (error) {
+        console.error("[ORDER NOTIFICATION] Order created, but seller notification failed:", error);
+      }
+    });
 
     return NextResponse.json(toJsonSafe({ ...order, ok: true, schemaFallback: usedCheckoutSchemaFallback }), { status: 201 });
   } catch (error) {
@@ -1045,14 +970,6 @@ export async function GET(request: NextRequest) {
 
     const take = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 20;
     const skip = Number.isFinite(requestedOffset) ? Math.max(Math.floor(requestedOffset), 0) : 0;
-    if (typeof where.businessId === "string") {
-      await recoverStalePaymentProofChecks({
-        businessId: where.businessId,
-      }).catch((error) => {
-        console.warn("[PAYMENT PROOF AI] stale status recovery skipped:", error);
-      });
-    }
-
     let orders;
     try {
       orders = await prisma.order.findMany({

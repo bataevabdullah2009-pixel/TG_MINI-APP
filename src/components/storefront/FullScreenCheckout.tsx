@@ -396,7 +396,7 @@ export function FullScreenCheckout({
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-4 text-sm font-black text-white shadow-xl shadow-slate-900/15 disabled:opacity-50"
             >
               <CheckCircle2 size={18} />
-              {submitting ? "Создаём заказ..." : `Подтвердить заказ на ${formatPrice(orderTotal)}`}
+              {submitting ? "Отправляем заказ…" : `Подтвердить заказ на ${formatPrice(orderTotal)}`}
             </button>
           </div>
         </div>

@@ -7,14 +7,19 @@ Run `npm run env:diagnose` before deploy. It reports missing variables and unsaf
 ## Required for production
 
 `DATABASE_URL`
-- Pooled Supabase Postgres connection string.
+- Supabase transaction pooler connection string for Prisma Client in Vercel runtime.
+- Expected host: `*.pooler.supabase.com`, normally port `6543`.
+- Recommended query: `?pgbouncer=true&connection_limit=1`.
 - Used by Prisma Client at runtime.
-- Source: Supabase Project Settings -> Database -> Connection string.
+- Source: Supabase Project Settings -> Database -> Transaction pooler.
 
 `DIRECT_URL`
 - Direct Supabase Postgres connection string.
+- Expected host: `db.<project-ref>.supabase.co`, port `5432`.
 - Used by Prisma for validation, migrations and direct schema operations.
-- Source: Supabase Project Settings -> Database -> Connection string.
+- Source: Supabase Project Settings -> Database -> Direct connection.
+
+Do not swap these values. A direct IPv6-only URL in `DATABASE_URL` can cause intermittent Vercel API failures; a pooler URL in `DIRECT_URL` can make schema diagnostics unreliable.
 
 `NEXT_PUBLIC_APP_URL`
 - Public production origin.

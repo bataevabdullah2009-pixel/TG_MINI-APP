@@ -76,43 +76,66 @@ function growth(current: number, previous: number) {
   return Math.round(((current - previous) / previous) * 1000) / 10;
 }
 
-export async function GET(request: NextRequest) {
-  const finishTiming = createServerTiming("seller_analytics");
-  try {
-  const session = await getAdminSession(request);
-  if (!session) return finishTiming(jsonError("Нужен вход в панель продавца.", 401));
-  if (session.role === "MANAGER") return finishTiming(jsonError("У менеджера нет доступа к аналитике.", 403));
+type AnalyticsPeriod = NonNullable<ReturnType<typeof parsePeriod>>;
 
-  const { searchParams } = new URL(request.url);
-  const businessId = searchParams.get("businessId") || session.businessId;
-  if (!businessId || !canUseBusiness(session, businessId)) {
-    return finishTiming(jsonError("Нет доступа к аналитике этого бизнеса.", 403));
-  }
-
-  const period = parsePeriod(searchParams);
-  if (!period) return finishTiming(jsonError("Проверьте выбранный период.", 400));
-
+async function loadAnalyticsData(businessId: string, period: AnalyticsPeriod, legacySchema: boolean) {
   const currentWhere: Prisma.OrderWhereInput = { businessId, createdAt: { gte: period.from, lt: period.to } };
   const previousWhere: Prisma.OrderWhereInput = { businessId, createdAt: { gte: period.previousFrom, lt: period.previousTo } };
-  const validRevenueFilter: Prisma.OrderWhereInput = {
-    status: { notIn: ["CANCELLED", "EXPIRED"] },
-    AND: [
-      {
-        OR: [
-          { paymentStatus: null },
-          { paymentStatus: { notIn: [...INVALID_PAYMENT_STATUSES] } },
+  const revenueFilter: Prisma.OrderWhereInput = legacySchema
+    ? { status: { in: [...COMPLETED_STATUSES] } }
+    : {
+        status: { notIn: ["CANCELLED", "EXPIRED"] },
+        AND: [
+          {
+            OR: [
+              { paymentStatus: null },
+              { paymentStatus: { notIn: [...INVALID_PAYMENT_STATUSES] } },
+            ],
+          },
+          {
+            OR: [
+              { paymentStatus: "PAID" },
+              { status: { in: [...COMPLETED_STATUSES] } },
+            ],
+          },
         ],
-      },
-      {
-        OR: [
-          { paymentStatus: "PAID" },
-          { status: { in: [...COMPLETED_STATUSES] } },
-        ],
-      },
-    ],
-  };
-  const completedWhere: Prisma.OrderWhereInput = { AND: [currentWhere, validRevenueFilter] };
-  const previousCompletedWhere: Prisma.OrderWhereInput = { AND: [previousWhere, validRevenueFilter] };
+      };
+  const completedWhere: Prisma.OrderWhereInput = { AND: [currentWhere, revenueFilter] };
+  const previousCompletedWhere: Prisma.OrderWhereInput = { AND: [previousWhere, revenueFilter] };
+
+  const dailySourcePromise: Promise<Array<{
+    createdAt: Date;
+    totalPrice: number;
+    status: string;
+    paymentStatus: string | null;
+  }>> = legacySchema
+    ? prisma.order.findMany({
+        where: currentWhere,
+        select: { createdAt: true, totalPrice: true, status: true },
+        orderBy: { createdAt: "asc" },
+      }).then((orders) => orders.map((order) => ({ ...order, paymentStatus: null })))
+    : prisma.order.findMany({
+        where: currentWhere,
+        select: { createdAt: true, totalPrice: true, status: true, paymentStatus: true },
+        orderBy: { createdAt: "asc" },
+      });
+
+  const promoUsagePromise = legacySchema
+    ? Promise.resolve([])
+    : prisma.order.groupBy({
+        by: ["promoCode", "promoDiscountPercent"],
+        where: { ...completedWhere, promoCode: { not: null } },
+        _count: { id: true },
+        _sum: { discountAmount: true, totalPrice: true },
+        orderBy: { _count: { id: "desc" } },
+        take: 10,
+      });
+  const discountAggregatePromise: Promise<{ _sum: { discountAmount: number | null } }> = legacySchema
+    ? Promise.resolve({ _sum: { discountAmount: 0 } })
+    : prisma.order.aggregate({
+        where: completedWhere,
+        _sum: { discountAmount: true },
+      });
 
   const [
     business,
@@ -149,11 +172,7 @@ export async function GET(request: NextRequest) {
       _sum: { totalPrice: true },
       orderBy: { _count: { id: "desc" } },
     }),
-    prisma.order.findMany({
-      where: currentWhere,
-      select: { createdAt: true, totalPrice: true, status: true, paymentStatus: true },
-      orderBy: { createdAt: "asc" },
-    }),
+    dailySourcePromise,
     prisma.orderItem.aggregate({
       where: { order: completedWhere },
       _sum: { quantity: true },
@@ -179,28 +198,8 @@ export async function GET(request: NextRequest) {
       where: { ...completedWhere, customerId: { not: null } },
       _count: { id: true },
     }),
-    prisma.order.groupBy({
-      by: ["promoCode", "promoDiscountPercent"],
-      where: { ...completedWhere, promoCode: { not: null } },
-      _count: { id: true },
-      _sum: { discountAmount: true, totalPrice: true },
-      orderBy: { _count: { id: "desc" } },
-      take: 10,
-    }).catch((error) => {
-      const classification = classifyDatabaseError(error);
-      if (!["missing_column", "missing_table"].includes(classification.type)) throw error;
-      warnPrismaSchemaDrift("Seller analytics loaded without promo usage", error);
-      return [];
-    }),
-    prisma.order.aggregate({
-      where: completedWhere,
-      _sum: { discountAmount: true },
-    }).catch((error) => {
-      const classification = classifyDatabaseError(error);
-      if (!["missing_column", "missing_table"].includes(classification.type)) throw error;
-      warnPrismaSchemaDrift("Seller analytics loaded without discount totals", error);
-      return { _sum: { discountAmount: 0 } };
-    }),
+    promoUsagePromise,
+    discountAggregatePromise,
     prisma.order.count({ where: previousWhere }),
     prisma.order.aggregate({
       where: previousCompletedWhere,
@@ -211,87 +210,159 @@ export async function GET(request: NextRequest) {
     prisma.customer.count({ where: { businessId, createdAt: { gte: period.previousFrom, lt: period.previousTo } } }),
   ]);
 
-  if (!business) return finishTiming(jsonError("Бизнес не найден.", 404));
-
-  const dailyMap = new Map<string, { date: string; revenue: number; orders: number }>();
-  for (const order of dailySource) {
-    const date = order.createdAt.toISOString().slice(0, 10);
-    const entry = dailyMap.get(date) || { date, revenue: 0, orders: 0 };
-    entry.orders += 1;
-    const hasValidPayment = !INVALID_PAYMENT_STATUSES.includes(
-      order.paymentStatus as (typeof INVALID_PAYMENT_STATUSES)[number]
-    );
-    const countsAsRevenue = hasValidPayment &&
-      order.status !== "CANCELLED" &&
-      order.status !== "EXPIRED" &&
-      (order.paymentStatus === "PAID" ||
-        COMPLETED_STATUSES.includes(order.status as (typeof COMPLETED_STATUSES)[number]));
-    if (countsAsRevenue) {
-      entry.revenue += order.totalPrice;
-    }
-    dailyMap.set(date, entry);
-  }
-
-  const revenue = completed._sum.totalPrice || 0;
-  const previousRevenue = previousCompleted._sum.totalPrice || 0;
-  const averageCheck = completed._avg.totalPrice || 0;
-  const previousAverageCheck = previousCompleted._avg.totalPrice || 0;
-
-  return finishTiming(NextResponse.json({
-    ok: true,
+  return {
     business,
-    period: { preset: period.preset, from: period.from.toISOString(), to: period.to.toISOString() },
-    metrics: {
-      revenue,
-      orders: totalOrders,
-      completedOrders: completed._count.id,
-      averageCheck,
-      newCustomers,
-      repeatCustomers: repeatCustomerGroups.filter((item) => item._count.id > 1).length,
+    totalOrders,
+    completed,
+    cancelledOrders,
+    newCustomers,
+    statusGroups,
+    dailySource,
+    soldItems,
+    topProducts,
+    topCustomers,
+    repeatCustomerGroups,
+    promoUsage,
+    discountAggregate,
+    previousTotalOrders,
+    previousCompleted,
+    previousNewCustomers,
+    schemaFallback: legacySchema,
+  };
+}
+
+export async function GET(request: NextRequest) {
+  const finishTiming = createServerTiming("seller_analytics");
+  try {
+    const session = await getAdminSession(request);
+    if (!session) return finishTiming(jsonError("Нужен вход в панель продавца.", 401));
+    if (session.role === "MANAGER") return finishTiming(jsonError("У менеджера нет доступа к аналитике.", 403));
+
+    const { searchParams } = new URL(request.url);
+    const businessId = searchParams.get("businessId") || session.businessId;
+    if (!businessId || !canUseBusiness(session, businessId)) {
+      return finishTiming(jsonError("Нет доступа к аналитике этого бизнеса.", 403));
+    }
+
+    const period = parsePeriod(searchParams);
+    if (!period) return finishTiming(jsonError("Проверьте выбранный период.", 400));
+
+    let analytics;
+    try {
+      analytics = await loadAnalyticsData(businessId, period, false);
+    } catch (error) {
+      const classification = classifyDatabaseError(error);
+      if (classification.type !== "missing_column" && classification.type !== "missing_table") throw error;
+      warnPrismaSchemaDrift("Seller analytics retried with legacy order schema", error);
+      analytics = await loadAnalyticsData(businessId, period, true);
+    }
+
+    const {
+      business,
+      totalOrders,
+      completed,
       cancelledOrders,
-      completionPercent: totalOrders ? Math.round((completed._count.id / totalOrders) * 1000) / 10 : 0,
-      soldUnits: soldItems._sum.quantity || 0,
-      discountAmount: discountAggregate._sum.discountAmount || 0,
-    },
-    explanations: {
-      revenue: "Только оплаченные, завершённые или доставленные заказы без отмены и отклонённой оплаты.",
-      averageCheck: "Среднее только по заказам, вошедшим в выручку.",
-      conversion: "Доля оплаченных, завершённых или доставленных заказов от всех заказов периода.",
-      topProducts: "По количеству проданных единиц из заказов, вошедших в выручку.",
-      cancelled: "Отменённые заказы показаны отдельно и не входят в выручку.",
-    },
-    growth: {
-      revenue: growth(revenue, previousRevenue),
-      orders: growth(totalOrders, previousTotalOrders),
-      averageCheck: growth(averageCheck, previousAverageCheck),
-      newCustomers: growth(newCustomers, previousNewCustomers),
-    },
-    daily: Array.from(dailyMap.values()),
-    statuses: statusGroups.map((item) => ({
-      status: item.status,
-      label: statusLabels[item.status] || item.status,
-      count: item._count.id,
-      amount: item._sum.totalPrice || 0,
-    })),
-    topProducts: topProducts.map((item) => ({
-      itemId: item.itemId,
-      name: item.name,
-      quantity: item._sum.quantity || 0,
-    })),
-    topCustomers: topCustomers.map((item) => ({
-      customerId: item.customerId,
-      name: item.customerName,
-      orders: item._count.id,
-      revenue: item._sum.totalPrice || 0,
-    })),
-    promoUsage: promoUsage.map((item) => ({
-      code: item.promoCode,
-      discountPercent: item.promoDiscountPercent,
-      orders: item._count.id,
-      discountAmount: item._sum.discountAmount || 0,
-      revenue: item._sum.totalPrice || 0,
-    })),
-  }));
+      newCustomers,
+      statusGroups,
+      dailySource,
+      soldItems,
+      topProducts,
+      topCustomers,
+      repeatCustomerGroups,
+      promoUsage,
+      discountAggregate,
+      previousTotalOrders,
+      previousCompleted,
+      previousNewCustomers,
+      schemaFallback,
+    } = analytics;
+
+    if (!business) return finishTiming(jsonError("Бизнес не найден.", 404));
+
+    const dailyMap = new Map<string, { date: string; revenue: number; orders: number }>();
+    for (const order of dailySource) {
+      const date = order.createdAt.toISOString().slice(0, 10);
+      const entry = dailyMap.get(date) || { date, revenue: 0, orders: 0 };
+      entry.orders += 1;
+      const hasValidPayment = !INVALID_PAYMENT_STATUSES.includes(
+        order.paymentStatus as (typeof INVALID_PAYMENT_STATUSES)[number]
+      );
+      const countsAsRevenue = schemaFallback
+        ? COMPLETED_STATUSES.includes(order.status as (typeof COMPLETED_STATUSES)[number])
+        : hasValidPayment &&
+          order.status !== "CANCELLED" &&
+          order.status !== "EXPIRED" &&
+          (order.paymentStatus === "PAID" ||
+            COMPLETED_STATUSES.includes(order.status as (typeof COMPLETED_STATUSES)[number]));
+      if (countsAsRevenue) {
+        entry.revenue += order.totalPrice;
+      }
+      dailyMap.set(date, entry);
+    }
+
+    const revenue = completed._sum.totalPrice || 0;
+    const previousRevenue = previousCompleted._sum.totalPrice || 0;
+    const averageCheck = completed._avg.totalPrice || 0;
+    const previousAverageCheck = previousCompleted._avg.totalPrice || 0;
+
+    return finishTiming(NextResponse.json({
+      ok: true,
+      business,
+      schemaFallback,
+      period: { preset: period.preset, from: period.from.toISOString(), to: period.to.toISOString() },
+      metrics: {
+        revenue,
+        orders: totalOrders,
+        completedOrders: completed._count.id,
+        averageCheck,
+        newCustomers,
+        repeatCustomers: repeatCustomerGroups.filter((item) => item._count.id > 1).length,
+        cancelledOrders,
+        completionPercent: totalOrders ? Math.round((completed._count.id / totalOrders) * 1000) / 10 : 0,
+        soldUnits: soldItems._sum.quantity || 0,
+        discountAmount: discountAggregate._sum.discountAmount || 0,
+      },
+      explanations: {
+        revenue: schemaFallback
+          ? "Выручка по завершённым и доставленным заказам. Обновите SQL-схему для учёта статуса оплаты."
+          : "Только оплаченные, завершённые или доставленные заказы без отмены и отклонённой оплаты.",
+        averageCheck: "Среднее только по заказам, вошедшим в выручку.",
+        conversion: "Доля оплаченных, завершённых или доставленных заказов от всех заказов периода.",
+        topProducts: "По количеству проданных единиц из заказов, вошедших в выручку.",
+        cancelled: "Отменённые заказы показаны отдельно и не входят в выручку.",
+      },
+      growth: {
+        revenue: growth(revenue, previousRevenue),
+        orders: growth(totalOrders, previousTotalOrders),
+        averageCheck: growth(averageCheck, previousAverageCheck),
+        newCustomers: growth(newCustomers, previousNewCustomers),
+      },
+      daily: Array.from(dailyMap.values()),
+      statuses: statusGroups.map((item) => ({
+        status: item.status,
+        label: statusLabels[item.status] || item.status,
+        count: item._count.id,
+        amount: item._sum.totalPrice || 0,
+      })),
+      topProducts: topProducts.map((item) => ({
+        itemId: item.itemId,
+        name: item.name,
+        quantity: item._sum.quantity || 0,
+      })),
+      topCustomers: topCustomers.map((item) => ({
+        customerId: item.customerId,
+        name: item.customerName,
+        orders: item._count.id,
+        revenue: item._sum.totalPrice || 0,
+      })),
+      promoUsage: promoUsage.map((item) => ({
+        code: item.promoCode,
+        discountPercent: item.promoDiscountPercent,
+        orders: item._count.id,
+        discountAmount: item._sum.discountAmount || 0,
+        revenue: item._sum.totalPrice || 0,
+      })),
+    }));
   } catch (error) {
     const classification = classifyDatabaseError(error);
     warnPrismaSchemaDrift("GET /api/admin/analytics failed", error);

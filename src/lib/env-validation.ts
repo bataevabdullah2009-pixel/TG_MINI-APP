@@ -54,6 +54,21 @@ export function validateEnv() {
     if (missingProductionVars.length > 0) {
       console.error(`[ENV CONFIG ERROR] Missing production variables: ${missingProductionVars.join(", ")}`);
     }
+
+    try {
+      const databaseUrl = new URL(process.env.DATABASE_URL || "");
+      const directUrl = new URL(process.env.DIRECT_URL || "");
+      const databaseUsesSupabaseDirect =
+        databaseUrl.hostname.startsWith("db.") && databaseUrl.hostname.endsWith(".supabase.co");
+      const directUsesSupabasePooler = directUrl.hostname.endsWith(".pooler.supabase.com");
+      if (databaseUsesSupabaseDirect && directUsesSupabasePooler) {
+        console.error(
+          "[ENV CONFIG ERROR] Supabase DATABASE_URL and DIRECT_URL are swapped. Runtime must use the transaction pooler; Prisma direct operations must use the direct database URL."
+        );
+      }
+    } catch {
+      console.error("[ENV CONFIG ERROR] DATABASE_URL or DIRECT_URL is not a valid URL.");
+    }
   }
 
   if (!process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_WEBAPP_URL) {

@@ -671,6 +671,7 @@ model Order {
   @@unique([businessId, customerId, idempotencyKey])
   @@index([businessId])
   @@index([customerId])
+  @@index([createdAt])
   @@index([businessId, createdAt])
   @@index([businessId, status, createdAt])
   @@index([customerId, createdAt])

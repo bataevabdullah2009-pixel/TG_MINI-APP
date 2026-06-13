@@ -43,7 +43,6 @@ import { miniAppFetch } from "@/lib/miniAppFetch";
 import { BottomSheetPicker } from "@/components/ui/BottomSheetPicker";
 import {
   formatOrderStatusRu,
-  formatPaymentStatusRu,
   getBookingStatusLabel,
 } from "@/lib/utils";
 
@@ -52,61 +51,10 @@ interface SellerHomeProps {
   businessId: string;
 }
 
-function paymentProofAiLabel(status: string) {
-  if (status === "PENDING" || status === "AI_CHECKING") return "ИИ проверяет чек";
-  if (status === "LIKELY_VALID" || status === "likely_valid") return "Вероятно корректный";
-  if (status === "LIKELY_INVALID" || status === "likely_invalid") return "Вероятно некорректный";
-  if (status === "MANUAL_REVIEW" || status === "manual_review") return "Нужна ручная проверка";
-  if (status === "AMOUNT_MATCHED") return "Сумма совпала";
-  if (status === "AMOUNT_MISMATCH") return "Сумма не совпала";
-  if (status === "AI_FAILED" || status === "AI_UNAVAILABLE") return "ИИ не смог проверить чек";
-  return "Нужна ручная проверка";
-}
-
-type ReceiptAnalysis = {
-  extractedAmount: number | null;
-  expectedAmount: number | null;
-  amountMatches: boolean | null;
-  extractedDate: string | null;
-  extractedRecipient: string | null;
-  expectedRecipient: string | null;
-  recipientMatches: boolean | null;
-  extractedBank: string | null;
-  confidencePercent: number | null;
-  status: string | null;
-  reasonRu: string | null;
-};
-
-function receiptAnalysisFromOrder(order: any): ReceiptAnalysis | null {
-  let value = order?.paymentProofAiResult;
-  if ((!value || typeof value !== "object") && typeof order?.paymentProofAiDetails === "string") {
-    try {
-      value = JSON.parse(order.paymentProofAiDetails);
-    } catch {
-      value = null;
-    }
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-
-  return {
-    extractedAmount: typeof value.extractedAmount === "number" ? value.extractedAmount : null,
-    expectedAmount: typeof value.expectedAmount === "number" ? value.expectedAmount : null,
-    amountMatches: typeof value.amountMatches === "boolean" ? value.amountMatches : null,
-    extractedDate: typeof value.extractedDate === "string" ? value.extractedDate : null,
-    extractedRecipient: typeof value.extractedRecipient === "string" ? value.extractedRecipient : null,
-    expectedRecipient: typeof value.expectedRecipient === "string" ? value.expectedRecipient : null,
-    recipientMatches: typeof value.recipientMatches === "boolean" ? value.recipientMatches : null,
-    extractedBank: typeof value.extractedBank === "string" ? value.extractedBank : null,
-    confidencePercent: typeof value.confidencePercent === "number" ? value.confidencePercent : null,
-    status: typeof value.status === "string" ? value.status : null,
-    reasonRu: typeof value.reasonRu === "string" ? value.reasonRu : null,
-  };
-}
-
-function receiptMatchLabel(value: boolean | null) {
-  if (value === true) return "Совпадает";
-  if (value === false) return "Не совпадает";
-  return "Не определено";
+function transferPaymentStatusLabel(status: string) {
+  if (status === "PAID") return "Оплата подтверждена";
+  if (status === "PAYMENT_REJECTED" || status === "REJECTED") return "Оплата отклонена";
+  return "Ожидает проверки продавцом";
 }
 
 const ACTIVE_ORDER_STATUSES = new Set([
@@ -239,28 +187,6 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       })
       .catch((loadError) => showError(loadError instanceof Error ? loadError.message : "Не удалось загрузить клиентов."));
   }, [activeTab, businessId, customersLoaded]);
-
-  useEffect(() => {
-    const hasCheckingReceipt = stats.orders.some((order) =>
-      order.paymentMethod === "TRANSFER" &&
-      ["PENDING", "AI_CHECKING"].includes(order.paymentProofAiStatus)
-    );
-    if (!hasCheckingReceipt || !["DASHBOARD", "ORDERS"].includes(activeTab)) return undefined;
-
-    const timer = window.setTimeout(() => {
-      miniAppFetch(`/api/orders?businessId=${encodeURIComponent(businessId)}&limit=20`)
-        .then(async (response) => {
-          const orders = await response.json().catch(() => []);
-          if (!response.ok || !Array.isArray(orders)) return;
-          setStats((current) => ({ ...current, orders }));
-          setOrdersHasMore(response.headers.get("X-Has-More") === "true");
-          setOrdersCursor(response.headers.get("X-Next-Cursor"));
-        })
-        .catch(() => undefined);
-    }, 5000);
-
-    return () => window.clearTimeout(timer);
-  }, [activeTab, businessId, stats.orders]);
 
   useEffect(() => {
     if (!["ORDERS", "COURIERS"].includes(activeTab) || couriersLoaded) return;
@@ -1137,64 +1063,15 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
                             <div className="flex items-center justify-between gap-2">
                               <span>Оплата переводом</span>
                               <span className="rounded-full bg-white px-2 py-0.5 text-[9px] font-black text-amber-700">
-                                {formatPaymentStatusRu(order.paymentStatus)}
+                                {transferPaymentStatusLabel(order.paymentStatus)}
                               </span>
                             </div>
+                            <div>Ожидаемая сумма: {order.totalPrice} ₽</div>
                             {order.paymentProofUrl && (
                               <a href={order.paymentProofUrl} target="_blank" rel="noreferrer" className="inline-flex text-indigo-600 underline">
                                 Открыть чек
                               </a>
                             )}
-                            {order.paymentProofAiStatus && (
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <span>ИИ:</span>
-                                <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${
-                                  ["LIKELY_VALID", "likely_valid", "AMOUNT_MATCHED"].includes(order.paymentProofAiStatus) ? "bg-emerald-100 text-emerald-700" :
-                                  ["MANUAL_REVIEW", "manual_review"].includes(order.paymentProofAiStatus) ? "bg-amber-100 text-amber-700" :
-                                  ["LIKELY_INVALID", "likely_invalid", "AMOUNT_MISMATCH"].includes(order.paymentProofAiStatus) ? "bg-rose-100 text-rose-700" :
-                                  order.paymentProofAiStatus === "AI_FAILED" ? "bg-slate-200 text-slate-700" :
-                                  "bg-slate-100 text-slate-600"
-                                }`}>
-                                  {paymentProofAiLabel(order.paymentProofAiStatus)}
-                                </span>
-                              </div>
-                            )}
-                            {order.paymentProofAiStatus && order.paymentProofAiStatus !== "PENDING" && (() => {
-                              const analysis = receiptAnalysisFromOrder(order);
-                              if (!analysis) {
-                                return (
-                                  <div className="rounded-lg bg-white/80 p-2 text-[10px] leading-relaxed text-slate-600">
-                                    ИИ не смог прочитать чек. Проверьте его вручную.
-                                  </div>
-                                );
-                              }
-
-                              return (
-                                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-x-2 gap-y-1 rounded-lg bg-white/80 p-2 text-[10px] font-semibold text-slate-600">
-                                  <span className="text-slate-400">Сумма на чеке</span>
-                                  <span>{analysis.extractedAmount === null ? "Не распознана" : `${analysis.extractedAmount} ₽`}</span>
-                                  <span className="text-slate-400">Ожидалось</span>
-                                  <span>{analysis.expectedAmount === null ? `${order.totalPrice} ₽` : `${analysis.expectedAmount} ₽`}</span>
-                                  <span className="text-slate-400">Дата</span>
-                                  <span>{analysis.extractedDate || "Не распознана"}</span>
-                                  <span className="text-slate-400">Получатель</span>
-                                  <span>
-                                    {analysis.extractedRecipient || "Не распознан"}
-                                    {analysis.expectedRecipient ? ` / ожидалось: ${analysis.expectedRecipient}` : ""}
-                                  </span>
-                                  <span className="text-slate-400">Банк</span>
-                                  <span>{analysis.extractedBank || "Не распознан"}</span>
-                                  <span className="text-slate-400">Совпадение</span>
-                                  <span>
-                                    Сумма: {receiptMatchLabel(analysis.amountMatches)}; получатель: {receiptMatchLabel(analysis.recipientMatches)}
-                                  </span>
-                                  <span className="text-slate-400">Уверенность</span>
-                                  <span>{analysis.confidencePercent === null ? "Не определена" : `${analysis.confidencePercent}%`}</span>
-                                  <span className="text-slate-400">Комментарий ИИ</span>
-                                  <span>{analysis.reasonRu || order.paymentProofAiSummary || "Проверьте чек вручную."}</span>
-                                </div>
-                              );
-                            })()}
                           </div>
                         )}
                         {order.deliveryCityArea && (

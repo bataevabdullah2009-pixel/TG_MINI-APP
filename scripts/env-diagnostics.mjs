@@ -43,6 +43,42 @@ for (const name of required) {
   }
 }
 
+function parsedEnvUrl(name) {
+  try {
+    return new URL(process.env[name]?.trim() || "");
+  } catch {
+    return null;
+  }
+}
+
+const databaseUrl = parsedEnvUrl("DATABASE_URL");
+const directUrl = parsedEnvUrl("DIRECT_URL");
+const databaseUsesSupabaseDirect = databaseUrl?.hostname.startsWith("db.") && databaseUrl.hostname.endsWith(".supabase.co");
+const directUsesSupabasePooler = directUrl?.hostname.endsWith(".pooler.supabase.com");
+
+if (databaseUsesSupabaseDirect && directUsesSupabasePooler) {
+  issues.push({
+    type: "supabase_database_urls_swapped",
+    variable: "DATABASE_URL,DIRECT_URL",
+    expected: "DATABASE_URL=transaction pooler; DIRECT_URL=direct database",
+  });
+} else {
+  if (databaseUsesSupabaseDirect) {
+    issues.push({
+      type: "supabase_runtime_not_pooled",
+      variable: "DATABASE_URL",
+      expected: "Supabase transaction pooler URL",
+    });
+  }
+  if (directUsesSupabasePooler) {
+    issues.push({
+      type: "supabase_direct_url_uses_pooler",
+      variable: "DIRECT_URL",
+      expected: "Supabase direct database URL",
+    });
+  }
+}
+
 if ((process.env.AI_PROVIDER || "").trim().toLowerCase() !== "polza") {
   issues.push({ type: "wrong_ai_provider", variable: "AI_PROVIDER", expected: "polza" });
 }
