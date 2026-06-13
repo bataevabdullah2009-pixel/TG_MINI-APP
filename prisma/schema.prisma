@@ -656,12 +656,11 @@ model Order {
   paymentReviewedAt        DateTime?
   paymentReviewedBy        String?
   paymentRejectReason      String?
-  stockRestoredAt          DateTime?
 
-  comment       String?
-  internalNotes String?
-  expiredAt     DateTime?
-  expireReason  String?
+  comment         String?
+  internalNotes   String?
+  expiredAt       DateTime?
+  expireReason    String?
   stockRestoredAt DateTime?
 
   payment Payment?
@@ -682,7 +681,6 @@ model Order {
   @@index([deliveryStatus, status, createdAt])
   @@index([deliveryZoneId])
   @@index([stockRestoredAt])
-  @@unique([businessId, customerId, idempotencyKey])
 }
 
 model DeliveryAssignment {

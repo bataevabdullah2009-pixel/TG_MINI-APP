@@ -63,7 +63,7 @@ export function ProductCard({
           </div>
           <p className={`${isGrid ? "text-xs leading-4" : "text-sm"} line-clamp-2 text-slate-500`}>{item.description}</p>
           {item.durationMinutes && <p className="mt-1 text-xs font-bold text-slate-400">{item.durationMinutes} мин.</p>}
-          {isOutOfStock && <p className="mt-2 text-xs font-black text-rose-600">Нет в наличии</p>}
+          {isUnavailable && <p className="mt-2 text-xs font-black text-rose-600">Нет в наличии</p>}
         </div>
         <div className={isGrid ? "mt-auto pt-2" : "text-right"}>
           <p className={`${isGrid ? "text-sm" : ""} whitespace-nowrap font-black`}>{formatPrice(item.price)}</p>

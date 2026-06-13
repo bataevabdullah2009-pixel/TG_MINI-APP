@@ -13,9 +13,12 @@ import { looksLikeSellerLinkAttempt, parseSellerLinkText } from "@/lib/seller-li
 import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 import { getTelegramWebhookSecret } from "@/lib/telegram-webhook-config";
 import {
+  getSelectedBusinessContext,
   runTelegramMarketplaceAgent,
+  searchProductsInBusiness,
   setSelectedBusinessContext,
 } from "@/lib/ai/telegram-marketplace-agent";
+import { AI_MANAGER_HANDOFF_MESSAGE, AIService, resolveAIProviderName } from "@/lib/ai/ai-service";
 import { isPrismaMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 
 type TelegramBusinessContext = {
@@ -26,6 +29,10 @@ type TelegramBusinessContext = {
   description: string | null;
   phone: string | null;
   address: string | null;
+  aiProvider: string | null;
+  aiModel: string | null;
+  telegramAdminChatId: bigint | null;
+  owner: { telegramId: bigint | null } | null;
 };
 
 const telegramBusinessContextSelect = {
@@ -36,6 +43,10 @@ const telegramBusinessContextSelect = {
   description: true,
   phone: true,
   address: true,
+  aiProvider: true,
+  aiModel: true,
+  telegramAdminChatId: true,
+  owner: { select: { telegramId: true } },
 } as const;
 
 function telegramWebhookAuth(request: NextRequest) {
@@ -99,6 +110,44 @@ function safeMiniAppUrl(path = "/app") {
 
 function logTelegramResponseSent(context: Record<string, unknown>) {
   console.info("[TELEGRAM_RESPONSE_SENT]", context);
+}
+
+function managerChatIdForBusiness(business: TelegramBusinessContext) {
+  return (
+    business.telegramAdminChatId?.toString() ||
+    business.owner?.telegramId?.toString() ||
+    process.env.TELEGRAM_ADMIN_CHAT_ID ||
+    null
+  );
+}
+
+function escapeTelegramHtml(message: string) {
+  return message.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+async function notifyManagerAboutAiFailure(
+  business: TelegramBusinessContext,
+  from: TelegramMessageFrom | null | undefined,
+  question: string
+) {
+  const chatId = managerChatIdForBusiness(business);
+  if (!chatId) {
+    console.warn("[TELEGRAM_AI_MANAGER_HANDOFF_SKIPPED]", {
+      businessId: business.id,
+      reason: "manager_chat_id_missing",
+    });
+    return;
+  }
+
+  await telegramBot.sendNotification(
+    chatId,
+    [
+      "<b>AI question requires manager attention</b>",
+      `Business: ${escapeTelegramHtml(business.name)}`,
+      `Customer: ${escapeTelegramHtml(from?.username ? `@${from.username}` : String(from?.id || "unknown"))}`,
+      `Question: ${escapeTelegramHtml(question.slice(0, 1000))}`,
+    ].join("\n")
+  );
 }
 
 async function loadActiveBusiness(value: string | null | undefined): Promise<TelegramBusinessContext | null> {
@@ -529,11 +578,80 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    const storedContext = business
+      ? null
+      : await getSelectedBusinessContext(String(from.id));
+    const activeBusiness = business || await loadActiveBusiness(storedContext?.business?.id);
     const agentResponse = await runTelegramMarketplaceAgent({
       text,
       telegramUserId: String(from.id),
-      business,
+      business: activeBusiness,
     });
+
+    if (agentResponse.detectedIntent === "fallback" && activeBusiness) {
+      const provider = resolveAIProviderName(activeBusiness.aiProvider);
+      const model = provider === "polza"
+        ? process.env.POLZA_TEXT_MODEL || activeBusiness.aiModel || "z-ai/glm-4.7-flash"
+        : activeBusiness.aiModel || "";
+
+      if (provider === "polza" && !process.env.POLZA_AI_API_KEY) {
+        await notifyManagerAboutAiFailure(activeBusiness, from, text).catch((error) =>
+          console.warn("[TELEGRAM_AI_MANAGER_HANDOFF_FAILED]", error)
+        );
+        await telegramBot.sendNotification(chatId, AI_MANAGER_HANDOFF_MESSAGE);
+        logTelegramResponseSent({ chatId, type: "ai_handoff", businessId: activeBusiness.id });
+        return NextResponse.json({ ok: true });
+      }
+
+      const products = await searchProductsInBusiness(activeBusiness.id, "");
+      const knowledgeBase = [
+        `Название: ${activeBusiness.name}.`,
+        `Описание: ${activeBusiness.description || "нет"}.`,
+        `Телефон: ${activeBusiness.phone || "нет"}.`,
+        `Адрес: ${activeBusiness.address || "нет"}.`,
+        `Каталог: ${products.map((item) => `${item.name} — ${item.price} ₽`).join("; ") || "товаров нет"}.`,
+        `Mini App: ${buildBusinessMiniAppUrl(activeBusiness.slug)}.`,
+        "Не выдумывай товары, цены, адреса или условия.",
+      ].join(" ");
+
+      await telegramBot.sendNotification(chatId, "⏳ Думаю...");
+      const answer = await AIService.generateFAQAnswer(
+        activeBusiness.id,
+        provider,
+        model,
+        {
+          businessName: activeBusiness.name,
+          businessType: activeBusiness.type,
+          knowledgeBase,
+          customerQuestion: text,
+        }
+      );
+
+      if (answer === AI_MANAGER_HANDOFF_MESSAGE) {
+        await notifyManagerAboutAiFailure(activeBusiness, from, text).catch((error) =>
+          console.warn("[TELEGRAM_AI_MANAGER_HANDOFF_FAILED]", error)
+        );
+      }
+
+      await telegramBot.sendNotification(chatId, answer, {
+        reply_markup: {
+          inline_keyboard: [[{
+            text: `Открыть ${activeBusiness.name}`,
+            web_app: { url: withTelegramWebAppCacheBust(buildBusinessMiniAppUrl(activeBusiness.slug)) },
+          }]],
+        },
+      });
+      logTelegramResponseSent({
+        chatId,
+        type: "ai_answer",
+        businessId: activeBusiness.id,
+        provider,
+        model,
+        handoff: answer === AI_MANAGER_HANDOFF_MESSAGE,
+      });
+      return NextResponse.json({ ok: true });
+    }
+
     const responseButtons = agentResponse.buttons?.length
       ? agentResponse.buttons.slice(0, 5)
       : agentResponse.button
@@ -555,15 +673,15 @@ export async function POST(request: NextRequest) {
       telegramUserId: String(from.id),
       text,
       detectedIntent: agentResponse.detectedIntent,
-      businessSlug: business?.slug || null,
-      businessId: business?.id || null,
+      businessSlug: activeBusiness?.slug || null,
+      businessId: activeBusiness?.id || null,
       toolsCalled: agentResponse.toolsCalled,
       responseSource: agentResponse.responseSource,
     });
     logTelegramResponseSent({
       chatId,
       type: "marketplace_agent",
-      businessId: business?.id || null,
+      businessId: activeBusiness?.id || null,
       detectedIntent: agentResponse.detectedIntent,
     });
 

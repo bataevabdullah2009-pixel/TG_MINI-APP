@@ -33,6 +33,9 @@ export type MarketplaceAgentResponse = {
 
 const ACTIVE_BUSINESS_FILTER: Prisma.BusinessWhereInput = {
   isActive: true,
+  accessStatus: "ACTIVE",
+  archivedAt: null,
+  isDemo: false,
   subscriptionStatus: { notIn: [SubscriptionStatus.BLOCKED, SubscriptionStatus.EXPIRED] },
 };
 
@@ -128,7 +131,6 @@ export async function listActiveBusinesses(query?: string) {
   return prisma.business.findMany({
     where: {
       ...ACTIVE_BUSINESS_FILTER,
-      isDemo: false,
       ...(normalizedQuery
         ? {
             OR: [
@@ -228,7 +230,6 @@ export async function searchProductsAcrossBusinesses(query: string): Promise<Age
       name: { contains: query, mode: "insensitive" },
       business: {
         ...ACTIVE_BUSINESS_FILTER,
-        isDemo: false,
       },
     },
     select: productSelect,
@@ -421,8 +422,12 @@ export async function getSelectedBusinessContext(
       },
     });
     if (context?.business) {
+      const activeBusiness = await getBusinessBySlug(context.business.id);
+      if (!activeBusiness) {
+        return { business: null, lastProductQuery: null };
+      }
       return {
-        business: context.business,
+        business: activeBusiness,
         lastProductQuery: context.lastProductQuery || null,
       };
     }
@@ -435,7 +440,6 @@ export async function getSelectedBusinessContext(
       telegramUserId: BigInt(telegramUserId),
       business: {
         ...ACTIVE_BUSINESS_FILTER,
-        isDemo: false,
       },
     },
     orderBy: { updatedAt: "desc" },
@@ -491,7 +495,6 @@ export async function setSelectedBusinessContext(
     where: {
       id: businessId,
       ...ACTIVE_BUSINESS_FILTER,
-      isDemo: false,
     },
     select: { id: true },
   });

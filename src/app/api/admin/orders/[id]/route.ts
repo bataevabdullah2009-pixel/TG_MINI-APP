@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { NotificationService } from "@/lib/notifications/notification-service";
 import { isPrismaMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { restoreTrackedStockForOrder } from "@/lib/orders/order-stock";
 
 // Strict Prisma OrderStatus values
 const ALLOWED_STATUSES = new Set([
@@ -117,19 +118,12 @@ export async function PATCH(
             data: {
               status: "CANCELLED",
               deliveryStatus: "CANCELLED",
-              stockRestoredAt: new Date(),
               ...(internalNotes !== undefined ? { internalNotes } : {}),
             },
           });
 
           if (claimed.count === 1) {
-            for (const item of order.items) {
-              if (!item.itemId || item.quantity <= 0) continue;
-              await tx.item.updateMany({
-                where: { id: item.itemId, stock: { not: null } },
-                data: { stock: { increment: item.quantity } },
-              });
-            }
+            await restoreTrackedStockForOrder(tx, id);
           }
 
           return tx.order.findUniqueOrThrow({
@@ -138,15 +132,21 @@ export async function PATCH(
           });
         });
       } catch (error) {
-        if (!isPrismaMissingColumnError(error, "Order", "stockRestoredAt")) throw error;
-        warnPrismaSchemaDrift("Order cancelled without automatic stock restore because stockRestoredAt is missing", error);
-        updatedOrder = await prisma.order.update({
-          where: { id },
+        if (!isPrismaMissingColumnError(error)) throw error;
+        warnPrismaSchemaDrift("Order cancelled without automatic stock restore because stock lifecycle columns are missing", error);
+        const claimed = await prisma.order.updateMany({
+          where: { id, status: { not: "CANCELLED" } },
           data: {
             status,
             ...(deliveryStatus ? { deliveryStatus } : {}),
             ...(internalNotes !== undefined ? { internalNotes } : {}),
           },
+        });
+        if (claimed.count !== 1) {
+          return jsonError("Заказ уже отменён.", 409);
+        }
+        updatedOrder = await prisma.order.findUniqueOrThrow({
+          where: { id },
           include: { items: true },
         });
       }

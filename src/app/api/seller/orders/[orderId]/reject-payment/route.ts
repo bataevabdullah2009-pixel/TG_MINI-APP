@@ -3,6 +3,7 @@ import { canUseBusiness, getAdminSession, jsonError } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 import { isPrismaMissingColumnError, toJsonSafe, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 import { telegramBot } from "@/lib/telegram-bot-service";
+import { restoreTrackedStockForOrder } from "@/lib/orders/order-stock";
 
 export async function POST(
   request: NextRequest,
@@ -44,6 +45,7 @@ export async function POST(
           where: {
             id: order.id,
             paymentStatus: "AWAITING_REVIEW",
+            paymentReviewedAt: null,
             stockRestoredAt: null,
           },
           data: {
@@ -52,20 +54,13 @@ export async function POST(
             paymentReviewedAt: new Date(),
             paymentReviewedBy: session.id,
             paymentRejectReason: reason,
-            stockRestoredAt: new Date(),
           },
         });
         if (claimed.count !== 1) {
           throw new Error("PAYMENT_ALREADY_REVIEWED");
         }
 
-        for (const item of order.items) {
-          if (!item.itemId || item.quantity <= 0) continue;
-          await tx.item.updateMany({
-            where: { id: item.itemId, stock: { not: null } },
-            data: { stock: { increment: item.quantity } },
-          });
-        }
+        await restoreTrackedStockForOrder(tx, order.id);
 
         return tx.order.findUniqueOrThrow({
           where: { id: order.id },
@@ -76,10 +71,14 @@ export async function POST(
       if (error instanceof Error && error.message === "PAYMENT_ALREADY_REVIEWED") {
         return jsonError("Оплата уже была обработана продавцом.", 409);
       }
-      if (!isPrismaMissingColumnError(error, "Order", "stockRestoredAt")) throw error;
-      warnPrismaSchemaDrift("Payment rejection could not restore stock because stockRestoredAt is missing", error);
-      updated = await prisma.order.update({
-        where: { id: order.id },
+      if (!isPrismaMissingColumnError(error)) throw error;
+      warnPrismaSchemaDrift("Payment rejection could not restore stock because stock lifecycle columns are missing", error);
+      const claimed = await prisma.order.updateMany({
+        where: {
+          id: order.id,
+          paymentStatus: "AWAITING_REVIEW",
+          paymentReviewedAt: null,
+        },
         data: {
           paymentStatus: "PAYMENT_REJECTED",
           status: "CANCELLED",
@@ -87,6 +86,12 @@ export async function POST(
           paymentReviewedBy: session.id,
           paymentRejectReason: reason,
         },
+      });
+      if (claimed.count !== 1) {
+        return jsonError("Оплата уже была обработана продавцом.", 409);
+      }
+      updated = await prisma.order.findUniqueOrThrow({
+        where: { id: order.id },
         include: { items: true, business: { select: { name: true, slug: true } }, customer: true },
       });
     }

@@ -819,8 +819,8 @@ export async function POST(request: NextRequest) {
           await tx.item.updateMany({
             where: {
               id: trackedItem.id,
-              stockMode: "TRACK_STOCK",
               stock: { lte: 0 },
+              ...(useCurrentSchema ? { stockMode: "TRACK_STOCK" as const } : {}),
             },
             data: { isAvailable: false },
           });
