@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { BUSINESS_TEMPLATES, templateKeyFromBusinessType } from "@/lib/business-templates";
 import { getAdminSession, jsonError, requireRole } from "@/lib/admin-auth";
+import { getBusinessColorDefaults } from "@/lib/business-colors";
 
 const PLAN_IDS: Record<string, string> = {
   START: "plan-start",
@@ -105,6 +106,7 @@ export async function POST(request: NextRequest) {
     }
     const selectedTemplateKey = resolveTemplateKey(type, templateKey);
     const template = BUSINESS_TEMPLATES[selectedTemplateKey as keyof typeof BUSINESS_TEMPLATES];
+    const colorDefaults = getBusinessColorDefaults(type);
 
     if (!template) {
       return NextResponse.json({ error: "Неизвестный шаблон бизнеса." }, { status: 400 });
@@ -135,8 +137,8 @@ export async function POST(request: NextRequest) {
           type: String(type).toUpperCase() === "CUSTOM" || String(type).toUpperCase() === "COURSES" ? "CUSTOM" : template.businessType,
           templateKey: template.key,
           description: template.description,
-          primaryColor: template.theme.primaryColor,
-          accentColor: template.theme.accentColor,
+          primaryColor: colorDefaults.primaryColor,
+          accentColor: colorDefaults.accentColor,
           backgroundColor: template.theme.backgroundColor,
           telegramUsername: telegramUsername || undefined,
           telegramAdminChatId: adminChatId,

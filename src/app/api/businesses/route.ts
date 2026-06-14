@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAdminSession, requireRole, canUseBusiness, jsonError } from "@/lib/admin-auth";
 import { classifyDatabaseError, isBusinessIsDemoMissingColumnError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
 import { normalizeBusinessSlug } from "@/lib/business-slug";
+import { getBusinessColorDefaults, getSafePrimaryColor } from "@/lib/business-colors";
 
 const businessListSelect = {
   id: true,
@@ -111,6 +112,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { slug, name, type, description, primaryColor, accentColor } = body;
+    const colorDefaults = getBusinessColorDefaults(type);
     if (!name) {
       return NextResponse.json({ error: "Укажите название бизнеса." }, { status: 400 });
     }
@@ -131,8 +133,8 @@ export async function POST(request: NextRequest) {
         name,
         type: type || "CUSTOM",
         description,
-        primaryColor: primaryColor || "#3B82F6",
-        accentColor: accentColor || "#FF6347",
+        primaryColor: getSafePrimaryColor(primaryColor || colorDefaults.primaryColor),
+        accentColor: accentColor || colorDefaults.accentColor,
       },
       select: businessListSelect,
     });

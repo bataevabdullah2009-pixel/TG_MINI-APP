@@ -1,6 +1,7 @@
 import { Package } from "lucide-react";
 import { ProductCard } from "./ProductCard";
 import type { StorefrontItem, StorefrontMode, StorefrontViewMode } from "./types";
+import { getSafePrimaryColor } from "@/lib/business-colors";
 
 type ProductGridProps = {
   items: StorefrontItem[];
@@ -27,6 +28,8 @@ export function ProductGrid({
   onAction,
   onFavoriteToggle,
 }: ProductGridProps) {
+  const safePrimaryColor = getSafePrimaryColor(primaryColor);
+
   if (items.length === 0) {
     return (
       <div className="rounded-3xl bg-white p-8 text-center shadow-sm ring-1 ring-slate-200/70">
@@ -46,7 +49,7 @@ export function ProductGrid({
           viewMode={viewMode}
           mode={mode}
           cta={cta}
-          primaryColor={primaryColor}
+          primaryColor={safePrimaryColor}
           isFavorite={favoriteProductIds.includes(item.id)}
           formatPrice={formatPrice}
           onPreview={onPreview}

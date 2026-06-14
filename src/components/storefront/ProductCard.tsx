@@ -75,7 +75,7 @@ export function ProductCard({
           type="button"
           onClick={() => !isUnavailable && onAction(item)}
           disabled={isUnavailable}
-          className={`${isGrid ? "px-2 text-[11px]" : "px-4 text-sm"} min-w-0 flex-1 truncate rounded-full py-2 font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300`}
+          className={`${isGrid ? "px-2 text-[11px]" : "px-4 text-sm"} min-w-0 flex-1 truncate rounded-full py-2 font-bold text-white shadow-sm ring-1 ring-black/5 disabled:cursor-not-allowed disabled:bg-slate-300`}
           style={isUnavailable ? undefined : { backgroundColor: primaryColor }}
         >
           {isUnavailable ? "Нет в наличии" : cta}

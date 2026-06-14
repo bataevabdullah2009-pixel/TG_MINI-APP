@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession, jsonError, requireRole } from "@/lib/admin-auth";
 import { BUSINESS_TEMPLATES, templateKeyFromBusinessType, type TemplateKey } from "@/lib/business-templates";
+import { getBusinessColorDefaults, getSafePrimaryColor } from "@/lib/business-colors";
 import { buildSellerDeepLink, generateSellerLinkCode } from "@/lib/seller-link";
 
 export { GET } from "@/app/api/businesses/route";
@@ -149,6 +150,7 @@ export async function POST(request: NextRequest) {
     const templateKey = resolveTemplateKey(requestedType, body.templateKey);
     const template = BUSINESS_TEMPLATES[templateKey];
     const businessType = resolveBusinessType(requestedType, template.businessType);
+    const colorDefaults = getBusinessColorDefaults(businessType);
 
     const [existingSlug, existingEmail] = await Promise.all([
       prisma.business.findUnique({ where: { slug }, select: { id: true } }),
@@ -189,8 +191,8 @@ export async function POST(request: NextRequest) {
           type: businessType,
           templateKey,
           description: body.description || template.description,
-          primaryColor: body.primaryColor || template.theme.primaryColor,
-          accentColor: body.accentColor || template.theme.accentColor,
+          primaryColor: getSafePrimaryColor(body.primaryColor || colorDefaults.primaryColor),
+          accentColor: body.accentColor || colorDefaults.accentColor,
           backgroundColor: body.backgroundColor || template.theme.backgroundColor,
           subscriptionStatus: "ACTIVE",
           isActive: true,
