@@ -32,6 +32,7 @@ import {
   Minus,
   RotateCcw,
   Tag,
+  Star,
 } from "lucide-react";
 import { MediaUpload } from "./MediaUpload";
 import { SellerStoreTools } from "./SellerStoreTools";
@@ -72,7 +73,7 @@ const ACTIVE_ORDER_STATUSES = new Set([
 export function SellerHome({ session, businessId }: SellerHomeProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<
-    "DASHBOARD" | "ORDERS" | "BOOKINGS" | "ITEMS" | "PROMOCODES" | "DELIVERY" | "COURIERS" | "CLIENTS" | "MEDIA" | "SETTINGS"
+    "DASHBOARD" | "ORDERS" | "BOOKINGS" | "ITEMS" | "PROMOCODES" | "DELIVERY" | "COURIERS" | "CLIENTS" | "REVIEWS" | "MEDIA" | "SETTINGS"
   >("DASHBOARD");
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
@@ -140,6 +141,10 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   const [paymentActionOrderId, setPaymentActionOrderId] = useState<string | null>(null);
   const [customersLoaded, setCustomersLoaded] = useState(false);
   const [couriersLoaded, setCouriersLoaded] = useState(false);
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [reviewRating, setReviewRating] = useState({ average: 0, count: 0 });
+  const [reviewsLoaded, setReviewsLoaded] = useState(false);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
 
   const syncBusinessState = (bData: any) => {
     if (!bData || typeof bData !== "object") return false;
@@ -164,6 +169,9 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
   useEffect(() => {
     setCustomersLoaded(false);
     setCouriersLoaded(false);
+    setReviewsLoaded(false);
+    setReviews([]);
+    setReviewRating({ average: 0, count: 0 });
     fetchSellerData();
   }, [businessId]);
 
@@ -199,6 +207,24 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
       })
       .catch((loadError) => showError(loadError instanceof Error ? loadError.message : "Не удалось загрузить курьеров."));
   }, [activeTab, businessId, couriersLoaded]);
+
+  useEffect(() => {
+    if (activeTab !== "REVIEWS" || reviewsLoaded || reviewsLoading) return;
+    setReviewsLoading(true);
+    miniAppFetch(`/api/admin/reviews?businessId=${encodeURIComponent(businessId)}&limit=100`)
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) throw new Error(data.error || "Не удалось загрузить отзывы.");
+        setReviews(Array.isArray(data.reviews) ? data.reviews : []);
+        setReviewRating(data.rating || { average: 0, count: 0 });
+        setReviewsLoaded(true);
+      })
+      .catch((loadError) => {
+        setReviewsLoaded(true);
+        showError(loadError instanceof Error ? loadError.message : "Не удалось загрузить отзывы.");
+      })
+      .finally(() => setReviewsLoading(false));
+  }, [activeTab, businessId, reviewsLoaded, reviewsLoading]);
 
   const updateOrderInStats = (updatedOrder: any) => {
     setStats((current) => {
@@ -824,6 +850,7 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
             { id: "DELIVERY", label: "Доставка", icon: <Truck size={11} /> },
             { id: "COURIERS", label: "Курьеры", icon: <Bike size={11} /> },
             { id: "CLIENTS", label: "Клиенты", icon: <Users size={11} /> },
+            { id: "REVIEWS", label: "Отзывы", icon: <Star size={11} /> },
             { id: "MEDIA", label: "Медиа", icon: <ImageIcon size={11} /> },
             { id: "SETTINGS", label: "Настройки", icon: <SettingsIcon size={11} /> },
           ].map((tab) => (
@@ -1676,6 +1703,55 @@ export function SellerHome({ session, businessId }: SellerHomeProps) {
             businessId={businessId}
             onMessage={(message, isError) => isError ? showError(message) : showSuccess(message)}
           />
+        )}
+
+        {activeTab === "REVIEWS" && (
+          <div className="space-y-4">
+            <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-100/80">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">Отзывы клиентов</h3>
+                  <p className="mt-1 text-[10px] font-bold text-slate-400">Удаление отзывов продавцом недоступно.</p>
+                </div>
+                <div className="rounded-2xl bg-amber-50 px-3 py-2 text-right ring-1 ring-amber-100">
+                  <p className="flex items-center justify-end gap-1 text-sm font-black text-amber-600">
+                    <Star size={14} fill="currentColor" />
+                    {reviewRating.count > 0 ? reviewRating.average.toFixed(1) : "—"}
+                  </p>
+                  <p className="text-[9px] font-bold text-slate-400">{reviewRating.count} отзывов</p>
+                </div>
+              </div>
+
+              {reviewsLoading && <p className="py-8 text-center text-xs font-bold text-slate-400">Загрузка отзывов...</p>}
+              {!reviewsLoading && reviews.length === 0 && (
+                <p className="py-10 text-center text-xs font-bold text-slate-400">Отзывов пока нет.</p>
+              )}
+              {!reviewsLoading && reviews.length > 0 && (
+                <div className="mt-4 max-h-[520px] space-y-3 overflow-y-auto pr-1">
+                  {reviews.map((review) => (
+                    <article key={review.id} className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <strong className="block text-xs text-slate-900">{review.authorName}</strong>
+                          <time className="text-[9px] font-bold text-slate-400">
+                            {new Date(review.createdAt).toLocaleDateString("ru-RU")}
+                          </time>
+                        </div>
+                        <span className="flex items-center gap-1 text-xs font-black text-amber-600">
+                          <Star size={13} fill="currentColor" />
+                          {review.rating}
+                        </span>
+                      </div>
+                      {review.comment && <p className="mt-2 whitespace-pre-wrap text-xs text-slate-600">{review.comment}</p>}
+                      {review.status === "HIDDEN" && (
+                        <p className="mt-2 text-[10px] font-black text-rose-600">Скрыт Super Admin и не участвует в рейтинге.</p>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Tab 6: Customers List CRM */}

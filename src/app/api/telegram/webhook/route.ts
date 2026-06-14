@@ -27,6 +27,7 @@ type TelegramBusinessContext = {
   description: string | null;
   phone: string | null;
   address: string | null;
+  isOpen: boolean;
 };
 
 const telegramBusinessContextSelect = {
@@ -37,6 +38,7 @@ const telegramBusinessContextSelect = {
   description: true,
   phone: true,
   address: true,
+  isOpen: true,
 } as const;
 
 function telegramWebhookAuth(request: NextRequest) {

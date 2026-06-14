@@ -55,6 +55,16 @@ const ORDER_STATUS_RU: Record<string, string> = {
   EXPIRED: "истёк",
 };
 
+const BOOKING_STATUS_RU: Record<string, string> = {
+  PENDING: "ожидает подтверждения",
+  NEW: "новая",
+  CONFIRMED: "подтверждена",
+  COMPLETED: "завершена",
+  CANCELLED: "отменена",
+  EXPIRED: "истекла",
+  NO_SHOW: "неявка",
+};
+
 const DAY_NAMES = ["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"];
 
 function safeText(value: string | null | undefined) {
@@ -73,8 +83,19 @@ function formatPrice(value: number) {
   return `${value.toLocaleString("ru-RU")} ₽`;
 }
 
+function isProductAvailable(product: Pick<AgentProduct, "isAvailable" | "stockMode" | "stock">) {
+  return product.isAvailable && (product.stockMode === "SIMPLE_AVAILABILITY" || (product.stock || 0) > 0);
+}
+
 function businessUrl(slug: string) {
   return buildBusinessMiniAppUrl(slug);
+}
+
+function ordersUrl(orderId?: string) {
+  const url = new URL(buildMiniAppUrl("/app"));
+  url.searchParams.set("tab", "orders");
+  if (orderId) url.searchParams.set("orderId", orderId);
+  return url.toString();
 }
 
 export function buildOpenBusinessButton(businessSlug: string): AgentButton {
@@ -140,12 +161,37 @@ function extractProductQuery(text: string) {
     "нужна",
     "нужно",
     "товар",
+    "товары",
+    "какие",
+    "что",
     "сейчас",
   ];
   return phrases
     .reduce((query, phrase) => query.split(phrase).join(" "), normalizeText(text))
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function extractMaxPrice(text: string) {
+  const normalized = normalizeText(text);
+  const match = normalized.match(/(?:до|не дороже)\s+(\d[\d\s]*)\s*(?:руб(?:лей|ля)?|₽)?/);
+  if (!match) return null;
+  const value = Number(match[1].replace(/\s+/g, ""));
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function stripPriceConstraint(query: string) {
+  return normalizeText(query)
+    .replace(/(?:до|не дороже)\s+\d[\d\s]*\s*(?:руб(?:лей|ля)?|₽)?/g, " ")
+    .replace(/\b(рублей|рубля|руб)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractDeliveryZoneQuery(text: string) {
+  const normalized = normalizeText(text);
+  const match = normalized.match(/(?:доставка|доставить|привезти)[^]*?\s(?:в|до)\s+([\p{L}\d -]{2,40})$/u);
+  return match?.[1]?.trim() || null;
 }
 
 export async function listActiveBusinesses(query?: string) {
@@ -235,14 +281,14 @@ const productSelect = {
   isAvailable: true,
   isPopular: true,
   category: { select: { name: true } },
-  business: { select: { slug: true, name: true } },
+  business: { select: { slug: true, name: true, isOpen: true } },
 } as const;
 
 type AgentProduct = Prisma.ItemGetPayload<{ select: typeof productSelect }>;
 
 const PRODUCT_SEARCH_STOP_WORDS = new Set([
-  "а", "в", "вы", "для", "есть", "и", "ли", "мне", "на", "нужен", "нужна",
-  "нужно", "покажи", "товар", "у", "хочу", "цена", "сколько", "стоит",
+  "а", "в", "вы", "для", "есть", "и", "какие", "ли", "мне", "на", "нужен", "нужна",
+  "нужно", "покажи", "товар", "товары", "у", "хочу", "цена", "сколько", "стоит", "что",
 ]);
 
 const RUSSIAN_ENDINGS = [
@@ -262,21 +308,30 @@ function productSearchTerms(query: string) {
   return [...terms].slice(0, 6);
 }
 
-export async function searchProductsInBusiness(businessId: string, query: string): Promise<AgentProduct[]> {
+export async function searchProductsInBusiness(
+  businessId: string,
+  query: string,
+  options: { maxPrice?: number | null } = {}
+): Promise<AgentProduct[]> {
   const terms = productSearchTerms(query);
   const products = await prisma.item.findMany({
     where: {
       businessId,
       type: "PRODUCT",
-      isAvailable: true,
       archivedAt: null,
       AND: [
-        {
-          OR: [
-            { stockMode: "SIMPLE_AVAILABILITY" },
-            { stockMode: "TRACK_STOCK", stock: { gt: 0 } },
-          ],
-        },
+        ...(terms.length === 0
+          ? [{
+              isAvailable: true,
+              OR: [
+                { stockMode: "SIMPLE_AVAILABILITY" as const },
+                { stockMode: "TRACK_STOCK" as const, stock: { gt: 0 } },
+              ],
+            }]
+          : []),
+        ...(options.maxPrice !== null && options.maxPrice !== undefined
+          ? [{ price: { lte: options.maxPrice } }]
+          : []),
         ...(terms.length
           ? [{
               OR: terms.flatMap((term) => [
@@ -324,6 +379,73 @@ export async function searchProductsInBusiness(businessId: string, query: string
 
 export const searchProducts = searchProductsInBusiness;
 
+export async function searchProductsAcrossMarketplace(
+  query: string,
+  options: { maxPrice?: number | null } = {}
+): Promise<AgentProduct[]> {
+  const terms = productSearchTerms(query);
+  if (terms.length === 0 && options.maxPrice === null) return [];
+
+  const products = await prisma.item.findMany({
+    where: {
+      type: "PRODUCT",
+      archivedAt: null,
+      business: ACTIVE_BUSINESS_FILTER,
+      AND: [
+        ...(options.maxPrice !== null && options.maxPrice !== undefined
+          ? [{ price: { lte: options.maxPrice } }]
+          : []),
+        ...(terms.length
+          ? [{
+              OR: terms.flatMap((term) => [
+                { name: { contains: term, mode: "insensitive" as const } },
+                { description: { contains: term, mode: "insensitive" as const } },
+                {
+                  category: {
+                    is: {
+                      isActive: true,
+                      name: { contains: term, mode: "insensitive" as const },
+                    },
+                  },
+                },
+              ]),
+            }]
+          : [{
+              isAvailable: true,
+              OR: [
+                { stockMode: "SIMPLE_AVAILABILITY" as const },
+                { stockMode: "TRACK_STOCK" as const, stock: { gt: 0 } },
+              ],
+            }]),
+      ],
+    },
+    select: productSelect,
+    orderBy: [{ isPopular: "desc" }, { price: "asc" }, { sortOrder: "asc" }],
+    take: 40,
+  });
+
+  if (!terms.length) return products.slice(0, 10);
+
+  return products
+    .map((product) => {
+      const name = normalizeText(product.name);
+      const description = normalizeText(product.description || "");
+      const category = normalizeText(product.category?.name || "");
+      const score = terms.reduce((total, term) => {
+        if (name === term) return total + 12;
+        if (name.startsWith(term)) return total + 8;
+        if (name.includes(term)) return total + 6;
+        if (category.includes(term)) return total + 3;
+        if (description.includes(term)) return total + 1;
+        return total;
+      }, product.isPopular ? 1 : 0);
+      return { product, score };
+    })
+    .sort((left, right) => right.score - left.score || left.product.price - right.product.price)
+    .slice(0, 10)
+    .map(({ product }) => product);
+}
+
 export async function getBusinessContext(businessId: string) {
   return prisma.business.findFirst({
     where: { id: businessId, ...ACTIVE_BUSINESS_FILTER },
@@ -356,7 +478,7 @@ export async function getBusinessDeliveryInfo(businessId: string) {
     select: {
       name: true,
       phone: true,
-      settings: { select: { deliveryEnabled: true, deliveryFee: true, deliveryTime: true } },
+      settings: { select: { deliveryEnabled: true, pickupEnabled: true, deliveryFee: true, deliveryTime: true } },
       deliveryZones: {
         where: { isActive: true, archivedAt: null },
         select: { name: true, cityArea: true, fee: true, estimatedMinutes: true },
@@ -415,6 +537,23 @@ export async function getCustomerOrders(telegramUserId: string) {
 }
 
 export const getUserOrders = getCustomerOrders;
+
+export async function getCustomerBookings(telegramUserId: string) {
+  return prisma.booking.findMany({
+    where: {
+      customer: { telegramUserId: BigInt(telegramUserId) },
+    },
+    select: {
+      id: true,
+      status: true,
+      startTime: true,
+      business: { select: { name: true, slug: true } },
+      service: { select: { name: true } },
+    },
+    orderBy: { startTime: "desc" },
+    take: 5,
+  });
+}
 
 export async function getOrderStatus(orderCode: string, telegramUserId: string) {
   const normalizedCode = orderCode.replace(/^#/, "").trim();
@@ -494,6 +633,7 @@ type StoredTelegramContext = {
     description: string | null;
     phone: string | null;
     address: string | null;
+    isOpen: boolean;
   } | null;
   lastProductQuery: string | null;
 };
@@ -514,6 +654,7 @@ export async function getSelectedBusinessContext(
             description: true,
             phone: true,
             address: true,
+            isOpen: true,
           },
         },
       },
@@ -549,6 +690,7 @@ export async function getSelectedBusinessContext(
           description: true,
           phone: true,
           address: true,
+          isOpen: true,
         },
       },
     },
@@ -634,7 +776,7 @@ export async function setSelectedBusinessContext(
 export async function runTelegramMarketplaceAgent(input: {
   text: string;
   telegramUserId: string;
-  business?: { id: string; slug: string; name: string; description?: string | null; phone?: string | null; address?: string | null } | null;
+  business?: { id: string; slug: string; name: string; description?: string | null; phone?: string | null; address?: string | null; isOpen: boolean } | null;
 }): Promise<MarketplaceAgentResponse> {
   let detectedIntent = detectMarketplaceIntent(input.text);
   const storedContext = input.business
@@ -661,7 +803,8 @@ export async function runTelegramMarketplaceAgent(input: {
   }
 
   if (detectedIntent === "product_search") {
-    let query = extractProductQuery(input.text);
+    const maxPrice = extractMaxPrice(input.text);
+    let query = stripPriceConstraint(extractProductQuery(input.text));
     if (mentionedBusiness) {
       const businessName = normalizeText(mentionedBusiness.name);
       query = normalizeText(query.replace(businessName, ""));
@@ -672,10 +815,41 @@ export async function runTelegramMarketplaceAgent(input: {
     const isBroadQuestion = !query || ["что есть", "что есть в магазине", "что есть у вас в магазине"].includes(normalizeText(input.text));
 
     if (!business) {
-      return businessesResponse(await listActiveBusinesses());
+      if (!query && maxPrice === null) {
+        return businessesResponse(await listActiveBusinesses());
+      }
+      const products = await searchProductsAcrossMarketplace(query, { maxPrice });
+      if (products.length === 0) {
+        return {
+          text: "Не нашёл это в каталоге.",
+          detectedIntent,
+          toolsCalled: ["searchProductsAcrossMarketplace"],
+          responseSource: "database",
+          button: { text: "Открыть магазин", url: buildMiniAppUrl() },
+        };
+      }
+      return {
+        text: [
+          maxPrice !== null
+            ? `Нашёл товары до ${formatPrice(maxPrice)}:`
+            : "Нашёл товары:",
+          ...products.map((item, index) =>
+            `${index + 1}. ${safeText(item.name)} — ${formatPrice(item.price)} — ${safeText(item.business.name)} — ${
+              isProductAvailable(item) ? "в наличии" : "товар есть в каталоге, но сейчас нет в наличии"
+            }${item.business.isOpen ? "" : " — магазин сейчас закрыт"}`
+          ),
+        ].join("\n"),
+        detectedIntent,
+        toolsCalled: ["searchProductsAcrossMarketplace"],
+        responseSource: "database",
+        buttons: products.slice(0, 5).map((product) => ({
+          ...buildProductOpenButton(product.id, product.business.slug),
+          text: `Открыть товар: ${product.name}`,
+        })),
+      };
     }
 
-    const products = await searchProducts(business.id, isBroadQuestion ? "" : query);
+    const products = await searchProducts(business.id, isBroadQuestion ? "" : query, { maxPrice });
     const toolName = "searchProducts";
 
     if (query) {
@@ -688,7 +862,7 @@ export async function runTelegramMarketplaceAgent(input: {
 
     if (products.length === 0) {
       return {
-        text: `В магазине ${safeText(business.name)} не нашёл товар «${safeText(query)}». Откройте каталог или свяжитесь с продавцом.`,
+        text: "Не нашёл это в каталоге.",
         detectedIntent,
         toolsCalled: [toolName],
         responseSource: "database",
@@ -702,12 +876,14 @@ export async function runTelegramMarketplaceAgent(input: {
 
     return {
       text: [
+        business.isOpen ? null : "Магазин сейчас закрыт, но витрину можно открыть.",
         isBroadQuestion && business ? `Популярное в ${safeText(business.name)}:` : "Нашёл товары:",
         ...products.map((item, index) => {
-          const available = item.isAvailable && (item.stock === null || item.stock > 0);
-          return `${index + 1}. ${safeText(item.name)} — ${formatPrice(item.price)} — ${available ? "в наличии" : "нет в наличии"} — ${safeText(item.business.name)}`;
+          return `${index + 1}. ${safeText(item.name)} — ${formatPrice(item.price)} — ${
+            isProductAvailable(item) ? "в наличии" : "товар есть в каталоге, но сейчас нет в наличии"
+          }`;
         }),
-      ].join("\n"),
+      ].filter(Boolean).join("\n"),
       detectedIntent,
       toolsCalled: [toolName],
       responseSource: "database",
@@ -717,7 +893,7 @@ export async function runTelegramMarketplaceAgent(input: {
       },
       buttons: products.map((product) => ({
         ...buildProductOpenButton(product.id, product.business.slug),
-        text: product.name,
+        text: `Открыть товар: ${product.name}`,
       })),
     };
   }
@@ -734,6 +910,9 @@ export async function runTelegramMarketplaceAgent(input: {
         toolsCalled: ["getOrderStatus"],
         responseSource: "database",
         button: { text: "Открыть мои заказы", url: buildMiniAppUrl("/app?tab=orders") },
+        buttons: order
+          ? [{ text: "Открыть заказ", url: ordersUrl(order.id) }]
+          : [{ text: "Открыть мои заказы", url: ordersUrl() }],
       };
     }
 
@@ -747,7 +926,7 @@ export async function runTelegramMarketplaceAgent(input: {
       detectedIntent,
       toolsCalled: ["getUserOrders"],
       responseSource: "database",
-      button: { text: "Открыть мои заказы", url: buildMiniAppUrl("/app?tab=orders") },
+      button: { text: "Открыть мои заказы", url: ordersUrl() },
     };
   }
 
@@ -763,8 +942,43 @@ export async function runTelegramMarketplaceAgent(input: {
   if (detectedIntent === "delivery_info") {
     const delivery = await getDeliveryInfo(business.id);
     const zones = delivery?.deliveryZones || [];
+    const normalizedQuestion = normalizeText(input.text);
+    const asksPickup = includesAny(normalizedQuestion, ["самовывоз", "самовывоза", "забрать самому"]);
+    if (asksPickup) {
+      return {
+        text: delivery?.settings?.pickupEnabled
+          ? `Да, в ${safeText(delivery.name)} доступен самовывоз.`
+          : `В ${safeText(delivery?.name || business.name)} самовывоз не настроен.`,
+        detectedIntent,
+        toolsCalled: ["getDeliveryInfo"],
+        responseSource: "database",
+        button: { text: "Открыть магазин", url: businessUrl(business.slug) },
+      };
+    }
+
+    const zoneQuery = extractDeliveryZoneQuery(input.text);
+    const matchedZone = zoneQuery
+      ? zones.find((zone) => {
+          const haystack = `${normalizeText(zone.name)} ${normalizeText(zone.cityArea)}`;
+          return haystack.includes(normalizeText(zoneQuery));
+        })
+      : null;
+    if (zoneQuery && !matchedZone) {
+      return {
+        text: "Для этой зоны доставка не настроена.",
+        detectedIntent,
+        toolsCalled: ["getDeliveryInfo"],
+        responseSource: "database",
+        button: { text: "Открыть магазин", url: businessUrl(business.slug) },
+      };
+    }
+
     return {
-      text: delivery?.settings?.deliveryEnabled && zones.length
+      text: matchedZone
+        ? `Доставка в ${safeText(matchedZone.name)} (${safeText(matchedZone.cityArea)}) стоит ${formatPrice(matchedZone.fee)}${
+            matchedZone.estimatedMinutes ? `, примерно ${matchedZone.estimatedMinutes} мин.` : ""
+          }`
+        : delivery?.settings?.deliveryEnabled && zones.length
         ? [
             `Доставка ${safeText(delivery.name)}:`,
             ...zones.map((zone) =>
@@ -811,6 +1025,31 @@ export async function runTelegramMarketplaceAgent(input: {
   }
 
   if (detectedIntent === "booking_info") {
+    const normalizedQuestion = normalizeText(input.text);
+    if (includesAny(normalizedQuestion, ["мои записи", "какие записи", "моя запись", "мои бронирования"])) {
+      const bookings = await getCustomerBookings(input.telegramUserId);
+      return {
+        text: bookings.length
+          ? [
+              "Ваши последние записи:",
+              ...bookings.map((booking) =>
+                `${safeText(booking.business.name)} — ${safeText(booking.service?.name || "услуга")} — ${
+                  new Date(booking.startTime).toLocaleString("ru-RU", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                } — ${BOOKING_STATUS_RU[booking.status] || "статус уточняется"}`
+              ),
+            ].join("\n")
+          : "У вас пока нет записей.",
+        detectedIntent,
+        toolsCalled: ["getCustomerBookings"],
+        responseSource: "database",
+        button: { text: "Открыть мои заказы", url: ordersUrl() },
+      };
+    }
     const booking = await getBookingInfo(business.id);
     return {
       text: booking?.settings?.bookingEnabled && booking.items.length
@@ -840,14 +1079,18 @@ export async function runTelegramMarketplaceAgent(input: {
       detectedIntent,
       toolsCalled: ["getBusinessContact"],
       responseSource: "database",
-      button: { text: "Открыть магазин", url: businessUrl(business.slug) },
+      button: { text: "Связаться с продавцом", url: businessUrl(business.slug) },
+      buttons: [
+        { text: "Связаться с продавцом", url: businessUrl(business.slug) },
+        { text: "Открыть магазин", url: businessUrl(business.slug) },
+      ],
     };
   }
 
   const contact = await getBusinessContact(business.id);
   return {
     text: [
-      `Не нашёл точных данных по вопросу в магазине ${safeText(business.name)}.`,
+      "Не нашёл это в каталоге.",
       contact?.phone ? `Телефон продавца: ${safeText(contact.phone)}.` : "Откройте магазин, чтобы посмотреть актуальную информацию.",
     ].join(" "),
     detectedIntent,

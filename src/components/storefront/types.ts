@@ -26,6 +26,8 @@ export type StorefrontBusiness = {
   coverImageUrl?: string | null;
   primaryColor: string;
   accentColor: string;
+  rating?: number;
+  reviewCount?: number;
   isOpen?: boolean;
   transferPaymentEnabled?: boolean;
   transferBankName?: string | null;

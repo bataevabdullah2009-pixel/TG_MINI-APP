@@ -20,6 +20,7 @@ import {
 } from "@/lib/miniAppQuery";
 import { normalizeRuPhone } from "@/lib/phone/phone-utils";
 import { DateBottomSheetPicker } from "@/components/ui/DateBottomSheetPicker";
+import { BusinessReviews } from "@/components/reviews/BusinessReviews";
 
 type Staff = { id: string; name: string; role?: string | null };
 const CATALOG_PAGE_SIZE = 50;
@@ -801,6 +802,8 @@ export default function BusinessMiniAppPage() {
             {catalogLoadingMore ? "Загрузка..." : "Показать ещё"}
           </button>
         )}
+
+        <BusinessReviews businessSlug={business.slug} />
       </section>
 
       {mode === "cart" && (

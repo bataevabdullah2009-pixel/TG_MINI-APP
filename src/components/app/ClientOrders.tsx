@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { ClipboardList, Calendar, Check, X, Clock, HelpCircle } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
+import { ReviewComposer } from "@/components/reviews/ReviewComposer";
 import {
   beginMiniAppQuery,
   readMiniAppQueryCache,
@@ -157,6 +158,19 @@ export function ClientOrders({ businessId = "global", telegramUserId }: ClientOr
     setOffsets((current) => ({
       ...current,
       [activeTab]: current[activeTab] + PAGE_SIZE,
+    }));
+  };
+
+  const markReviewed = (
+    field: "orders" | "bookings",
+    id: string,
+    review: { id: string; rating: number; status: string }
+  ) => {
+    setData((current) => ({
+      ...current,
+      [field]: current[field].map((item) =>
+        item.id === id ? { ...item, review } : item
+      ),
     }));
   };
 
@@ -381,6 +395,19 @@ export function ClientOrders({ businessId = "global", telegramUserId }: ClientOr
                               "{order.comment}"
                             </div>
                           )}
+                          {["COMPLETED", "DELIVERED"].includes(order.status) && (
+                            order.review ? (
+                              <div className="mt-3 rounded-xl bg-amber-50 p-2.5 text-xs font-black text-amber-800 ring-1 ring-amber-100">
+                                Ваш отзыв: {order.review.rating} из 5
+                              </div>
+                            ) : (
+                              <ReviewComposer
+                                businessSlug={order.business.slug}
+                                orderId={order.id}
+                                onCreated={(review) => markReviewed("orders", order.id, review)}
+                              />
+                            )
+                          )}
                         </div>
                       )}
                     </div>
@@ -454,6 +481,19 @@ export function ClientOrders({ businessId = "global", telegramUserId }: ClientOr
                           <span className="font-bold block text-[9px] text-slate-400 not-italic">КОММЕНТАРИЙ</span>
                           "{booking.comment}"
                         </div>
+                      )}
+                      {booking.status === "COMPLETED" && (
+                        booking.review ? (
+                          <div className="mt-3 rounded-xl bg-amber-50 p-2.5 text-xs font-black text-amber-800 ring-1 ring-amber-100">
+                            Ваш отзыв: {booking.review.rating} из 5
+                          </div>
+                        ) : (
+                          <ReviewComposer
+                            businessSlug={booking.business.slug}
+                            bookingId={booking.id}
+                            onCreated={(review) => markReviewed("bookings", booking.id, review)}
+                          />
+                        )
                       )}
                     </div>
                   );

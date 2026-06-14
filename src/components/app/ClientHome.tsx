@@ -17,6 +17,7 @@ type Business = {
   primaryColor: string;
   accentColor: string;
   rating: number;
+  reviewCount: number;
   isOpen: boolean;
 };
 
@@ -201,7 +202,8 @@ export function ClientHome({
               <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3.5">
                 <div className="flex items-center gap-1 text-xs font-black text-amber-500">
                   <Star size={15} fill="currentColor" />
-                  {business.rating.toFixed(1)}
+                  {business.reviewCount > 0 ? business.rating.toFixed(1) : "Нет оценок"}
+                  <span className="font-bold text-slate-400">({business.reviewCount})</span>
                 </div>
                 
                 <div className="flex gap-2">

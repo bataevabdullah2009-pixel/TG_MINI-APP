@@ -25,6 +25,7 @@ const orderHistoryLegacySelect = {
 
 const orderHistorySelect = {
   ...orderHistoryLegacySelect,
+  review: { select: { id: true, rating: true, status: true } },
   paymentMethod: true,
   paymentStatus: true,
   paymentProofUrl: true,
@@ -71,6 +72,7 @@ const bookingHistoryLegacySelect = {
 
 const bookingHistorySelect = {
   ...bookingHistoryLegacySelect,
+  review: { select: { id: true, rating: true, status: true } },
   expiredAt: true,
   expireReason: true,
 } as const;
