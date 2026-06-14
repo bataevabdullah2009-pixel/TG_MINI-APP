@@ -19,7 +19,8 @@ import {
   Layers,
   ArrowRight,
   Database,
-  ExternalLink
+  ExternalLink,
+  Star
 } from "lucide-react";
 import { miniAppFetch } from "@/lib/miniAppFetch";
 import { BottomSheetPicker } from "@/components/ui/BottomSheetPicker";
@@ -36,7 +37,7 @@ interface SuperAdminHomeProps {
 }
 
 export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProps) {
-  const [activeTab, setActiveTab] = useState<"OVERVIEW" | "BUSINESSES" | "CREATE_BUSINESS" | "ORDERS" | "BOOKINGS" | "AI_COSTS" | "SETTINGS">("OVERVIEW");
+  const [activeTab, setActiveTab] = useState<"OVERVIEW" | "BUSINESSES" | "CREATE_BUSINESS" | "ORDERS" | "BOOKINGS" | "REVIEWS" | "AI_COSTS" | "SETTINGS">("OVERVIEW");
   const [loading, setLoading] = useState(true);
   
   // Platform metrics
@@ -56,6 +57,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
   const [bookings, setBookings] = useState<any[]>([]);
   const [aiUsageLogs, setAiUsageLogs] = useState<any[]>([]);
   const [aiRequestLogs, setAiRequestLogs] = useState<any[]>([]);
+  const [reviews, setReviews] = useState<any[]>([]);
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -100,7 +102,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
     setLoading(true);
     try {
       // 1. Fetch metrics
-      try {
+      if (activeTab === "OVERVIEW") try {
         const statsRes = await miniAppFetch("/api/admin/super/stats");
         if (statsRes.ok) {
           const sData = await statsRes.json();
@@ -117,7 +119,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
       }
 
       // 2. Fetch businesses list
-      try {
+      if (activeTab === "OVERVIEW" || activeTab === "BUSINESSES") try {
         const bizRes = await miniAppFetch("/api/admin/businesses");
         if (bizRes.ok) {
           const bData = await bizRes.json();
@@ -177,6 +179,20 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
           }
         } catch (err) {
           console.error("Error loading AI logs:", err);
+        }
+      }
+
+      if (activeTab === "REVIEWS") {
+        try {
+          const reviewsRes = await miniAppFetch("/api/admin/super/reviews?limit=100");
+          const reviewsData = await reviewsRes.json().catch(() => ({}));
+          if (!reviewsRes.ok || !reviewsData.ok) {
+            throw new Error(reviewsData.error || "Не удалось загрузить отзывы.");
+          }
+          setReviews(Array.isArray(reviewsData.reviews) ? reviewsData.reviews : []);
+        } catch (err) {
+          console.error("Error loading reviews:", err);
+          showError(err instanceof Error ? err.message : "Не удалось загрузить отзывы.");
         }
       }
 
@@ -299,6 +315,28 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
     await fetchSaaSData();
   };
 
+  const moderateReview = async (reviewId: string, action: "HIDE" | "PUBLISH") => {
+    const response = await miniAppFetch(`/api/admin/super/reviews/${reviewId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ action }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      showError(data.error || "Не удалось изменить статус отзыва.");
+      return;
+    }
+    setReviews((current) => current.map((review) =>
+      review.id === reviewId
+        ? {
+            ...review,
+            status: data.review.status,
+            hiddenAt: data.review.hiddenAt,
+          }
+        : review
+    ));
+    showSuccess(action === "HIDE" ? "Отзыв скрыт." : "Отзыв опубликован.");
+  };
+
   const getTemplateIcon = (key: string) => {
     switch (key) {
       case "cafe": return "🍔";
@@ -346,6 +384,7 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
             { id: "CREATE_BUSINESS", label: "Создать бизнес", icon: <Plus size={11} /> },
             { id: "ORDERS", label: "Заказы", icon: <ClipboardList size={11} /> },
             { id: "BOOKINGS", label: "Записи", icon: <Calendar size={11} /> },
+            { id: "REVIEWS", label: "Отзывы", icon: <Star size={11} /> },
             { id: "AI_COSTS", label: "ИИ-расходы", icon: <Sparkles size={11} /> },
             { id: "SETTINGS", label: "Настройки платформы", icon: <Settings size={11} /> },
           ].map((tab) => (
@@ -737,6 +776,56 @@ export function SuperAdminHome({ session, onManageBusiness }: SuperAdminHomeProp
                         Специалист: {b.staff?.name || "Любой свободный"}
                       </p>
                     </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "REVIEWS" && (
+            <div className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-100 space-y-3">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">
+                  Модерация отзывов ({reviews.length})
+                </h3>
+                <p className="mt-1 text-[10px] font-bold text-slate-400">
+                  Скрытые отзывы сохраняются, но не участвуют в рейтинге.
+                </p>
+              </div>
+              {reviews.length === 0 ? (
+                <p className="py-8 text-center text-xs font-bold text-slate-400">Отзывов пока нет.</p>
+              ) : (
+                <div className="max-h-[560px] space-y-3 overflow-y-auto pr-1">
+                  {reviews.map((review) => (
+                    <article key={review.id} className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <strong className="block text-xs text-slate-900">{review.business?.name || "Бизнес"}</strong>
+                          <span className="text-[10px] font-bold text-slate-500">{review.authorName}</span>
+                        </div>
+                        <span className="flex items-center gap-1 text-xs font-black text-amber-600">
+                          <Star size={13} fill="currentColor" />
+                          {review.rating}
+                        </span>
+                      </div>
+                      {review.comment && <p className="mt-2 whitespace-pre-wrap text-xs text-slate-600">{review.comment}</p>}
+                      <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-200 pt-3">
+                        <span className={`text-[9px] font-black ${review.status === "HIDDEN" ? "text-rose-600" : "text-emerald-600"}`}>
+                          {review.status === "HIDDEN" ? "Скрыт" : "Опубликован"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => moderateReview(review.id, review.status === "HIDDEN" ? "PUBLISH" : "HIDE")}
+                          className={`rounded-xl px-3 py-2 text-[10px] font-black ${
+                            review.status === "HIDDEN"
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-rose-50 text-rose-700"
+                          }`}
+                        >
+                          {review.status === "HIDDEN" ? "Опубликовать" : "Скрыть"}
+                        </button>
+                      </div>
+                    </article>
                   ))}
                 </div>
               )}

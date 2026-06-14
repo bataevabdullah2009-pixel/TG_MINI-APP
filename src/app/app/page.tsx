@@ -26,6 +26,7 @@ type Business = {
   primaryColor: string;
   accentColor: string;
   rating: number;
+  reviewCount: number;
   isOpen: boolean;
 };
 

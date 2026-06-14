@@ -68,7 +68,11 @@ export function BusinessHero({
           <h1 className="mt-2 text-3xl font-black tracking-tight">{business.name}</h1>
           <p className="mt-2 line-clamp-3 text-sm leading-6 text-white/75">{business.description}</p>
           <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold">
-            <span className="rounded-full bg-white/15 px-3 py-1">★ 4.8</span>
+            <span className="rounded-full bg-white/15 px-3 py-1">
+              {business.reviewCount && business.rating
+                ? `★ ${business.rating.toFixed(1)} (${business.reviewCount})`
+                : "Нет оценок"}
+            </span>
             <span className={`rounded-full px-3 py-1 ${business.isOpen !== false ? "bg-emerald-400 text-emerald-950" : "bg-white/15 text-white"}`}>
               {business.isOpen !== false ? "Открыт" : "Закрыт"}
             </span>

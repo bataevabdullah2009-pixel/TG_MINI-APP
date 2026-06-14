@@ -10,6 +10,7 @@
 | Catalog | `02-domains/CATALOG_AND_PRODUCT_SPEC.md` | admin items APIs, seller catalog UI |
 | Stock | `02-domains/INVENTORY_AND_STOCK_SPEC.md` | order route, order-stock helper |
 | Business lifecycle | `02-domains/BUSINESS_LIFECYCLE_SPEC.md` | super business access API |
+| Reviews | `02-domains/REVIEWS_AND_RATINGS_SPEC.md` | Review model, review APIs and customer/seller/super UI |
 | Order | `03-flows/ORDER_FLOW_SPEC.md` | orders API, checkout UI |
 | Payment | `03-flows/PAYMENT_FLOW_SPEC.md` | proof upload, confirm/reject routes |
 | Delivery | `03-flows/DELIVERY_FLOW_SPEC.md` | delivery service, courier/admin APIs |

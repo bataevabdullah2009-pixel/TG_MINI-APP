@@ -196,23 +196,6 @@ export interface Order {
   paymentProofUrl?: string | null;
   paymentProofFileName?: string | null;
   paymentProofMimeType?: string | null;
-  paymentProofAiStatus?: string | null;
-  paymentProofAiSummary?: string | null;
-  paymentProofAiConfidence?: number | null;
-  paymentProofAiResult?: {
-    extractedAmount: number | null;
-    expectedAmount: number;
-    amountMatches: boolean | null;
-    extractedDate: string | null;
-    extractedRecipient: string | null;
-    expectedRecipient: string | null;
-    recipientMatches: boolean | null;
-    extractedBank: string | null;
-    confidencePercent: number;
-    status: "LIKELY_VALID" | "MANUAL_REVIEW" | "LIKELY_INVALID";
-    reasonRu: string;
-  } | null;
-  paymentProofAiDetails?: string | null;
   paymentReviewedAt?: Date | null;
   paymentReviewedBy?: string | null;
   paymentRejectReason?: string | null;
@@ -252,6 +235,21 @@ export interface Booking {
   expiredAt?: Date | null;
   expireReason?: string | null;
   reminderSent: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Review {
+  id: string;
+  businessId: string;
+  userId: string;
+  orderId: string | null;
+  bookingId: string | null;
+  rating: number;
+  comment: string | null;
+  authorName: string;
+  status: "PUBLISHED" | "HIDDEN";
+  hiddenAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

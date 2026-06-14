@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { classifyDatabaseError, warnPrismaSchemaDrift } from "@/lib/prisma-schema-guard";
+import { getPublishedReviewSummary } from "@/lib/reviews";
 import { createServerTiming } from "@/lib/server-timing";
 
 const catalogBusinessBaseSelect = {
@@ -243,8 +244,16 @@ export async function GET(
       ...businessFields
     } = business;
     const catalogItems = loadedItems.slice(0, limit);
+    let reviewSummary = { average: 0, count: 0 };
+    try {
+      reviewSummary = await getPublishedReviewSummary(business.id);
+    } catch (error) {
+      warnPrismaSchemaDrift(`Catalog ${slug} review summary unavailable`, error);
+    }
     const normalizedBusiness = {
       ...businessFields,
+      rating: Number(reviewSummary.average.toFixed(1)),
+      reviewCount: reviewSummary.count,
       isOpen: "isOpen" in business ? business.isOpen : true,
       transferPaymentEnabled: "transferPaymentEnabled" in business ? business.transferPaymentEnabled : false,
       transferBankName: "transferBankName" in business ? business.transferBankName : null,

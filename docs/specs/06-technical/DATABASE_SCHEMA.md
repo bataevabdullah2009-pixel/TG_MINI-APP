@@ -106,6 +106,12 @@ One assignment per order, courier, delivery status and timing fields.
 Business/customer, optional service/staff, contacts, time interval, status,
 comments, expiration and reminder state.
 
+### Review
+
+Business/user and exactly one completed source operation: Order or Booking.
+Stores rating 1-5, optional comment, safe author snapshot and moderation state.
+Unique source links prevent duplicate reviews.
+
 ## 9. Personalization
 
 ### FavoriteBusiness and FavoriteItem
@@ -142,6 +148,10 @@ Selected business and last product query for Telegram assistant.
 - Item/category/order queries scoped by business.
 - One delivery assignment per order.
 - Promo code unique within business.
+- One review per order.
+- One review per booking.
+- Review rating is limited to 1-5.
+- Hidden reviews are excluded from public aggregates.
 - Idempotency unique in its defined checkout scope.
 - Archived records retained.
 - BigInt serialized safely.

@@ -121,6 +121,11 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum ReviewStatus {
+  PUBLISHED
+  HIDDEN
+}
+
 enum NotificationType {
   ORDER_CREATED
   ORDER_STATUS_CHANGED
@@ -147,12 +152,14 @@ model User {
   telegramLinkExpiresAt DateTime?
   lastBusinessId        String?
 
-  role            Role       @default(CUSTOMER)
-  businessId      String?
-  business        Business?  @relation("BusinessUsers", fields: [businessId], references: [id], onDelete: SetNull)
-  ownedBusinesses Business[] @relation("BusinessOwner")
-  customers       Customer[]
-  courierProfile  Courier?
+  role             Role       @default(CUSTOMER)
+  businessId       String?
+  business         Business?  @relation("BusinessUsers", fields: [businessId], references: [id], onDelete: SetNull)
+  ownedBusinesses  Business[] @relation("BusinessOwner")
+  customers        Customer[]
+  courierProfile   Courier?
+  reviews          Review[]   @relation("ReviewAuthor")
+  moderatedReviews Review[]   @relation("ReviewModerator")
 
   isActive Boolean @default(true)
 
@@ -207,9 +214,9 @@ model Business {
   timezone String @default("Europe/Moscow")
 
   // Subscription
-  subscriptionStatus    SubscriptionStatus @default(TRIAL)
+  subscriptionStatus    SubscriptionStatus   @default(TRIAL)
   subscriptionPlanId    String?
-  subscriptionPlan      SubscriptionPlan?  @relation(fields: [subscriptionPlanId], references: [id])
+  subscriptionPlan      SubscriptionPlan?    @relation(fields: [subscriptionPlanId], references: [id])
   subscriptionStartDate DateTime?
   subscriptionEndDate   DateTime?
   accessStatus          BusinessAccessStatus @default(ACTIVE)
@@ -267,6 +274,7 @@ model Business {
   couriers             Courier[]
   deliveryZones        DeliveryZone[]
   promoCodes           PromoCode[]
+  reviews              Review[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -535,11 +543,11 @@ model DeliveryZone {
 
   name             String
   cityArea         String
-  fee              Float   @default(0)
-  minOrderAmount   Float   @default(0)
+  fee              Float     @default(0)
+  minOrderAmount   Float     @default(0)
   estimatedMinutes Int?
-  isActive         Boolean @default(true)
-  sortOrder        Int     @default(0)
+  isActive         Boolean   @default(true)
+  sortOrder        Int       @default(0)
   archivedAt       DateTime?
 
   orders Order[]
@@ -648,6 +656,7 @@ model Order {
   paymentProofUrl          String?
   paymentProofFileName     String?
   paymentProofMimeType     String?
+  // Legacy receipt-analysis columns. AI receipt verification is disabled.
   paymentProofAiStatus     String?
   paymentProofAiSummary    String?
   paymentProofAiConfidence Int?
@@ -664,6 +673,7 @@ model Order {
   stockRestoredAt DateTime?
 
   payment Payment?
+  review  Review?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -768,6 +778,7 @@ model Booking {
 
   reminderSent   Boolean   @default(false)
   reminderSentAt DateTime?
+  review         Review?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -777,6 +788,38 @@ model Booking {
   @@index([staffId])
   @@index([startTime])
   @@index([status, startTime])
+}
+
+// ============= REVIEWS =============
+
+model Review {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("ReviewAuthor", fields: [userId], references: [id], onDelete: Restrict)
+
+  orderId String? @unique
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  bookingId String?  @unique
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  rating     Int
+  comment    String?
+  authorName String
+  status     ReviewStatus @default(PUBLISHED)
+
+  hiddenAt       DateTime?
+  hiddenByUserId String?
+  hiddenBy       User?     @relation("ReviewModerator", fields: [hiddenByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([businessId, status, createdAt])
+  @@index([userId, createdAt])
 }
 
 // ============= PAYMENTS =============
