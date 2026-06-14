@@ -1,5 +1,13 @@
 # Project Rules
 
+## Specification rules
+
+- Canonical specifications live under `docs/specs/`.
+- Start with `docs/specs/README.md`.
+- Global product intent and current implementation status must be checked before code changes.
+- Roadmaps and historical reports do not define current behavior.
+- Update affected specifications and acceptance criteria when behavior changes.
+
 ## Development rules
 
 - Keep the working Telegram Mini App stable.

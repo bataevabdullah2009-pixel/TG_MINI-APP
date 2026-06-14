@@ -7,6 +7,9 @@ description: Development, maintenance, and rules of the Vitrina AI Telegram Mini
 
 This skill contains the development, deployment, and operation guidelines for the Vitrina AI platform.
 
+Read `docs/specs/README.md`, the global product spec and the current product
+status before implementation work.
+
 ## Key Rules
 
 1. **Keep Telegram Mini App Stable**: Do not break the core client application flow (catalog, favorites, ordering).

@@ -1,6 +1,8 @@
 # Vitrina AI
 
-Telegram Mini App SaaS-платформа для локального бизнеса: каталог заведений, карточки бизнеса, товары и услуги, корзина, заказы, записи, панель продавца, Super Admin и AI-помощник для контента.
+Telegram Mini App SaaS-платформа для локального бизнеса: общий marketplace,
+отдельные каталоги продавцов, товары и услуги, заказы, записи, доставка,
+ролевые кабинеты и AI-помощники.
 
 Рабочее название в коде пока не меняется. В документации допустимые будущие варианты бренда: Vitrina AI, LocalBiz AI, BizMini AI, SmartVitrina.
 
@@ -105,7 +107,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=""
 SUPABASE_SERVICE_ROLE_KEY=""
 JWT_SECRET=""
 ENCRYPTION_SECRET=""
-AI_PROVIDER="mock"
+AI_PROVIDER="polza"
 ```
 
 Не хранить реальные ключи в репозитории.
@@ -137,7 +139,7 @@ npm run telegram:webhook:set
 npm run telegram:webhook:info
 ```
 
-Подробно: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Подробно: [docs/release/DEPLOYMENT.md](docs/release/DEPLOYMENT.md).
 
 ## Как открыть Mini App
 
@@ -165,15 +167,17 @@ npx prisma validate
 npx prisma generate
 ```
 
-QA checklist: [docs/TESTING_CHECKLIST.md](docs/TESTING_CHECKLIST.md).
+QA checklist: [docs/MANUAL_QA_CHECKLIST.md](docs/MANUAL_QA_CHECKLIST.md).
 
 ## Документация
 
-- Product spec: [docs/FEATURE_SPEC.md](docs/FEATURE_SPEC.md)
-- Technical spec: [docs/TECHNICAL_SPEC.md](docs/TECHNICAL_SPEC.md)
-- Database schema: [docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md)
+- Индекс: [docs/README.md](docs/README.md)
+- Все спеки: [docs/specs/README.md](docs/specs/README.md)
+- Глобальный продукт: [docs/specs/00-global/GLOBAL_PRODUCT_SPEC.md](docs/specs/00-global/GLOBAL_PRODUCT_SPEC.md)
+- Статус функций: [docs/specs/00-global/PRODUCT_SCOPE_AND_STATUS.md](docs/specs/00-global/PRODUCT_SCOPE_AND_STATUS.md)
+- Технический спек: [docs/specs/06-technical/TECHNICAL_SPEC.md](docs/specs/06-technical/TECHNICAL_SPEC.md)
+- База данных: [docs/specs/06-technical/DATABASE_SCHEMA.md](docs/specs/06-technical/DATABASE_SCHEMA.md)
 - Env: [docs/ENV.md](docs/ENV.md)
-- Deployment: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
-- Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
-- Project rules: [docs/PROJECT_RULES.md](docs/PROJECT_RULES.md)
-- Agent rules: [AGENTS.md](AGENTS.md)
+- Deployment: [docs/release/DEPLOYMENT.md](docs/release/DEPLOYMENT.md)
+- Roadmap: [docs/roadmap/ROADMAP.md](docs/roadmap/ROADMAP.md)
+- Правила: [docs/PROJECT_RULES.md](docs/PROJECT_RULES.md), [AGENTS.md](AGENTS.md)

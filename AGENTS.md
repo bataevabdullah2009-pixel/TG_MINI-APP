@@ -2,6 +2,15 @@
 
 Work in the order SPEC -> PLAN -> CODE.
 
+## Documentation source of truth
+
+- Start with `docs/specs/README.md`.
+- Product intent is defined in `docs/specs/00-global/GLOBAL_PRODUCT_SPEC.md`.
+- Current implementation status is defined in `docs/specs/00-global/PRODUCT_SCOPE_AND_STATUS.md`.
+- Do not treat roadmap, historical reports or placeholder UI as implemented behavior.
+- When behavior changes, update the canonical spec and acceptance criteria in the same task.
+- Keep product requirements separate from technical implementation details.
+
 ## Operating rules
 
 - Start with analysis and an audit of relevant files.

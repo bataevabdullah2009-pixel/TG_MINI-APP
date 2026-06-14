@@ -4,7 +4,8 @@ This document contains the primary development rules, safety standards, and codi
 
 ## 1. Operating Rules
 - **No full rewrites**: Build incrementally upon the existing codebase.
-- **Maintain Telegram mini-app features**: The `/start` bot flow, demo pages (`/app/demo-cafe`), super admin, and seller admin panels must not be broken.
+- **Read specs first**: Use `docs/specs/README.md` and the canonical spec for the task.
+- **Maintain Telegram mini-app features**: The `/start` bot flow, marketplace, business storefronts, super admin, seller and courier panels must not be broken.
 - **Russian language**: Use Russian for user-facing texts.
 - **Routing rules**: Store customer routes under `/app` and `/app/[businessSlug]`. Select themes based on `Business.templateKey`.
 

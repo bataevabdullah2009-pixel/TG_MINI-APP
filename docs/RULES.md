@@ -1,10 +1,9 @@
-# Vitrina AI Engineering Rules
+# Vitrina AI Rules
 
-- Do not hardcode production URLs.
-- Do not use ngrok in production.
-- Do not use localhost or 127.0.0.1 in production Telegram buttons or webhooks.
-- All production URLs must come from environment variables.
-- Prisma schema is the source of truth for database shape.
-- Run `npm run build`, `npm run lint`, and `npm run typecheck` before deploy.
-- `/app` is always the global catalog.
-- `/app/[slug]` is always a single business page.
+Canonical rules:
+
+- [Project rules](PROJECT_RULES.md)
+- [Agent rules](../AGENTS.md)
+- [Product stability rules](specs/07-quality/PRODUCT_STABILITY_AND_CHANGE_RULES.md)
+
+This file is an index and does not define a second competing rule set.

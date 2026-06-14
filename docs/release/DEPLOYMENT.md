@@ -55,7 +55,7 @@ If Vercel logs show `column does not exist` for `Business.isDemo` or User phone 
 npm run build
 ```
 
-4. Add production env variables from [ENV.md](ENV.md).
+4. Add production env variables from [ENV.md](../ENV.md).
 5. Deploy.
 
 Minimum required production env:
